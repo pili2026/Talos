@@ -1,0 +1,12 @@
+model: ADAM-4117
+register_type: input
+pins:
+  AIn01: { offset: 0, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn02: { offset: 1, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn03: { offset: 2, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn04: { offset: 3, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn05: { offset: 4, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn06: { offset: 5, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn07: { offset: 6, formula: [0, 0.0002442002, 4.0], readable: true }
+  AIn08: { offset: 7, formula: [0, 0.0002442002, 4.0], readable: true }
+

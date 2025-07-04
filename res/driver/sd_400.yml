@@ -1,0 +1,19 @@
+model: SD400
+register_type: input
+pins:
+  AIn01: { offset: 0,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn02: { offset: 1,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn03: { offset: 2,  formula: [0, 0.0009765625, 0], readable: true }
+  AIn04: { offset: 3,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn05: { offset: 4,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn06: { offset: 5,  formula: [0, 0.0009765625, 0], readable: true }
+  AIn07: { offset: 6,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn08: { offset: 7,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn09: { offset: 8,  formula: [0, 0.0009765625, 0], readable: true }
+  AIn10: { offset: 9,  formula: [0, 0.0122070312, 0], readable: true }
+  AIn11: { offset: 10, formula: [0, 0.0122070312, 0], readable: true }
+  AIn12: { offset: 11, formula: [0, 0.0009765625, 0], readable: true }
+  AIn13: { offset: 12, formula: [0, 0.0122070312, 0], readable: true }
+  AIn14: { offset: 13, formula: [0, 0.0122070312, 0], readable: true }
+  AIn15: { offset: 14, formula: [0, 0.0009765625, 0], readable: true }
+  AIn16: { offset: 15, formula: [0, 0.0122070312, 0], readable: true }

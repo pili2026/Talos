@@ -1,0 +1,23 @@
+devices:
+  # - id: aio1
+  #   model_file: driver/adam_4117.yml
+  #   port: /dev/ttyUSB0
+  #   slave_id: 1
+
+  - id: LITEON_EVO6800
+    model_file: driver/liteon_evo6800_inverter.yml
+    # port: /dev/ttyUSB0
+    port: /tmp/ttyV0
+    slave_id: 3
+
+  - id: TECO_VFD
+    model_file: driver/teco_inverter.yml
+    # port: /dev/ttyUSB0
+    port: /tmp/ttyV0
+    slave_id: 2
+
+  # - id: aio1
+  #   model_file: driver/adam_4117.yml
+  #   # port: /dev/ttyUSB0
+  #   port: /tmp/ttyV0
+  #   slave_id: 2

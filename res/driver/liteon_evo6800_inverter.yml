@@ -1,0 +1,15 @@
+model: LITEON_EVO6800
+register_type: holding
+pins:
+  KWH:         { offset: 7688, scale: 0.1,  combine_high: 7689, combine_scale: 1000.0, readable: true }
+  VOLTAGE:     { offset: 9253, scale: 0.1, readable: true }
+  CURRENT:     { offset: 9252, scale: 0.01, readable: true }
+  KW:          { offset: 7431, scale: 0.001, readable: true }
+  HZ:          { offset: 9251, scale: 0.01, readable: true }
+  ERROR:       { offset: 9256, readable: true }
+  ALERT:       { offset: 9255, readable: true }
+  INVSTATUS:   { offset: 9249, readable: true }
+
+  RW_HZ:       { offset: 9218, scale: 0.01, readable: true, writable: true }
+  RW_ON_OFF:   { offset: 9217, readable: true, writable: true }
+  RW_RESET:    { offset: 9217, writable: true }
