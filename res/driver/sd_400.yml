@@ -1,5 +1,6 @@
 model: SD400
-register_type: input
+register_type: holding
+
 pins:
   AIn01: { offset: 0,  formula: [0, 0.0122070312, 0], readable: true }
   AIn02: { offset: 1,  formula: [0, 0.0122070312, 0], readable: true }

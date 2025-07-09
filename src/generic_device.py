@@ -4,8 +4,6 @@ from typing import Any, Dict
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
-from util.config_loader import load_yaml_file
-
 
 class GenericModbusDevice:
     def __init__(
@@ -45,7 +43,6 @@ class GenericModbusDevice:
         combine_scale = config.get("combine_scale", 1.0)
 
         if combine_high:
-            # 多寄存器合併（例如 KWH）
             low = self._read_register(offset)
             high = self._read_register(combine_high)
             combined = high * 65536 + low

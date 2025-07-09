@@ -1,0 +1,20 @@
+model: SD500
+register_type: holding
+
+pins:
+  DIn01: { offset: 0, readable: true }
+  DIn02: { offset: 1, readable: true }
+  DIn03: { offset: 2, readable: true }
+  DIn04: { offset: 3, readable: true }
+  DIn05: { offset: 4, readable: true }
+  DIn06: { offset: 5, readable: true }
+  DIn07: { offset: 6, readable: true }
+  DIn08: { offset: 7, readable: true }
+  DIn09: { offset: 8, readable: true }
+  DIn10: { offset: 9, readable: true }
+  DIn11: { offset: 10, readable: true }
+  DIn12: { offset: 11, readable: true }
+  DIn13: { offset: 12, readable: true }
+  DIn14: { offset: 13, readable: true }
+  DIn15: { offset: 14, readable: true }
+  DIn16: { offset: 15, readable: true }
