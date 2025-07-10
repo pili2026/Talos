@@ -1,7 +1,14 @@
 import logging
 import sys
+from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+
+
+class ISO8601Formatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        dt: datetime = datetime.fromtimestamp(record.created)
+        return dt.isoformat(timespec="seconds")
 
 
 def setup_logging(
@@ -12,10 +19,7 @@ def setup_logging(
     when: str = "midnight",
     backup_count: int = 7,
 ):
-    formatter = logging.Formatter(
-        fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    formatter = ISO8601Formatter(fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
@@ -40,5 +44,6 @@ def setup_logging(
                 utc=False,
             )
             rotating_handler.setFormatter(formatter)
+            root_logger.addHandler(rotating_handler)
             root_logger.addHandler(rotating_handler)
             root_logger.addHandler(rotating_handler)
