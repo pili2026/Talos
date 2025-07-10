@@ -37,6 +37,7 @@ class GenericModbusDevice:
 
     def _read_value(self, name: str, config: dict) -> float | int:
         offset = config["offset"]
+        bit = config.get("bit")
         scale = config.get("scale", 1.0)
         formula = config.get("formula")
         combine_high = config.get("combine_high")
@@ -49,6 +50,9 @@ class GenericModbusDevice:
             return combined / combine_scale
 
         raw = self._read_register(offset)
+
+        if bit is not None:
+            return (raw >> bit) & 1
 
         if formula:
             n1, n2, n3 = formula

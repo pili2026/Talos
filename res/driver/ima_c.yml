@@ -1,0 +1,13 @@
+model: IMA_C
+register_type: holding
+
+pins:
+  DIn01:       { offset: 2, bit: 0, readable: true }
+  DIn02:       { offset: 2, bit: 1, readable: true }
+  DIn03:       { offset: 2, bit: 2, readable: true }
+  DIn04:       { offset: 2, bit: 3, readable: true }
+
+  DOut01:      { offset: 3, bit: 0, readable: true, writable: true }
+  DOut02:      { offset: 3, bit: 1, readable: true, writable: true }
+
+  ByPass:      { offset: 4, readable: true }
