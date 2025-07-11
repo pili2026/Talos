@@ -10,7 +10,7 @@ logger = logging.getLogger("DeviceManager")
 
 
 class DeviceManager:
-    def __init__(self, config_path: str, model_base_path: str):
+    def __init__(self, config_path: str = "./res/modbus_device.yml", model_base_path: str = "./res"):
         self.device_list = []
         self.client_dict = {}
 

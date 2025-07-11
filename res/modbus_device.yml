@@ -27,3 +27,8 @@ devices:
     model_file: driver/ima_c.yml
     <<: *shared_config
     slave_id: 5
+
+  - id: ADAM-4117
+    model_file: driver/adam_4117.yml
+    <<: *shared_config
+    slave_id: 6
