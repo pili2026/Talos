@@ -2,31 +2,38 @@ import logging
 import os
 
 import yaml
-from pymodbus.client import ModbusSerialClient
+from pymodbus.client import AsyncModbusSerialClient
 
-from generic_device import GenericModbusDevice
+from generic_device import AsyncGenericModbusDevice
 
 logger = logging.getLogger("DeviceManager")
 
 
-class DeviceManager:
+class AsyncDeviceManager:
     def __init__(self, config_path: str = "./res/modbus_device.yml", model_base_path: str = "./res"):
         self.device_list = []
         self.client_dict = {}
+        self.config_path = config_path
+        self.model_base_path = model_base_path
 
-        with open(config_path, "r", encoding="utf-8") as f:
+    async def init(self):
+        with open(self.config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         for device_conf in config.get("devices", []):
-            model_path = os.path.join(model_base_path, device_conf["model_file"])
+            model_path = os.path.join(self.model_base_path, device_conf["model_file"])
             with open(model_path, "r", encoding="utf-8") as mf:
                 model_conf = yaml.safe_load(mf)
 
             port = device_conf["port"]
             if port not in self.client_dict:
-                self.client_dict[port] = ModbusSerialClient(port=port, baudrate=9600, timeout=1)
+                client = AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)
+                connected = await client.connect()
+                if not connected:
+                    logger.warning(f"Failed to connect to port {port}")
+                self.client_dict[port] = client
 
-            device = GenericModbusDevice(
+            device = AsyncGenericModbusDevice(
                 device_id=device_conf["id"],
                 client=self.client_dict[port],
                 slave_id=device_conf["slave_id"],
@@ -36,8 +43,8 @@ class DeviceManager:
             )
             self.device_list.append(device)
 
-    def read_all_from_all_devices(self):
+    async def read_all_from_all_devices(self):
         result = {}
         for device in self.device_list:
-            result[device.device_id] = device.read_all()
+            result[device.device_id] = await device.read_all()
         return result
