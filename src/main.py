@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from dotenv import load_dotenv
+
 from device_manager import AsyncDeviceManager
 from device_monitor import DeviceMonitor
 from util.notifier.email_notifier import EmailNotifier
@@ -9,6 +11,7 @@ from util.pubsub.in_memory_pubsub import InMemoryPubSub
 
 async def main():
     logging.basicConfig(level=logging.INFO)
+    load_dotenv()
 
     pubsub = InMemoryPubSub()
     async_device_manager = AsyncDeviceManager()

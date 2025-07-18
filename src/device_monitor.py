@@ -5,7 +5,7 @@ from datetime import datetime
 from alert_evaluator import AlertEvaluator
 from device_manager import AsyncDeviceManager
 from model.alert_message import AlertMessage
-from util.config_loader import load_yaml_file
+from util.config_loader import ConfigManager
 from util.pubsub.base import PubSub
 
 
@@ -22,7 +22,7 @@ class DeviceMonitor:
         self.interval = interval
         self.logger = logging.getLogger("DeviceMonitor")
 
-        self.alert_config = load_yaml_file(alert_config)
+        self.alert_config = ConfigManager.load_yaml_file(alert_config)
         self.alert_evaluator = AlertEvaluator(self.alert_config)
 
         self.device_configs = {
