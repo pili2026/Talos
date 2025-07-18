@@ -33,8 +33,9 @@ class AsyncDeviceManager:
                     logger.warning(f"Failed to connect to port {port}")
                 self.client_dict[port] = client
 
+            device_key = f"{device_conf['id']}_{device_conf['slave_id']}"
             device = AsyncGenericModbusDevice(
-                device_id=device_conf["id"],
+                device_id=device_key,
                 client=self.client_dict[port],
                 slave_id=device_conf["slave_id"],
                 register_type=model_conf.get("register_type", "holding"),

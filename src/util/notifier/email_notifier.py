@@ -18,14 +18,14 @@ class EmailNotifier:
             await self.send_email(alert)
 
     async def send_email(self, alert: AlertMessage):
-        key = (alert.model, alert.message)
+        key = (alert.device_key, alert.message)
         now = time.time()
 
         # Check if the alert is within the threshold
         if now - self.last_sent[key] < self.threshold_sec:
-            self.logger.info(f"Skip Duplicate Alert Notification: [{alert.model}] {alert.message}")
+            self.logger.info(f"Skip Duplicate Alert Notification: [{alert.device_key}] {alert.message}")
             return
 
         self.last_sent[key] = now
 
-        self.logger.info(f"Send Email: [{alert.level}] {alert.model} - {alert.message}")
+        self.logger.info(f"Send Email: [{alert.level}] {alert.device_key} - {alert.message}")

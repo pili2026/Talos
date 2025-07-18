@@ -4,7 +4,7 @@ from datetime import datetime
 
 @dataclass
 class AlertMessage:
-    model: str
+    device_key: str
     level: str  # "INFO", "WARNING", "ERROR"
     message: str
     alert_code: str

@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger("AlertEvaluator")
+
+
 class AlertEvaluator:
     def __init__(self, alert_config: dict):
         self.model_alert_map: dict[str, list[dict]] = {
@@ -7,7 +12,11 @@ class AlertEvaluator:
     def evaluate(self, model: str, snapshot: dict[str, float], pins: dict[str, dict]) -> list[tuple[str, str]]:
         results = []
 
-        alerts = self.model_alert_map.get(model, [])
+        alerts = self.model_alert_map.get(model)
+        if alerts is None:
+            logger.warning(f"[AlertEvaluator] No alert config found for model: '{model}'")
+            return results
+
         for alert in alerts:
             alert_type = alert.get("type")
             threshold = alert.get("threshold")
