@@ -12,8 +12,9 @@ class AlertEvaluator:
     def evaluate(self, model: str, snapshot: dict[str, float], pins: dict[str, dict]) -> list[tuple[str, str]]:
         results = []
 
-        alerts = self.model_alert_map.get(model)
-        if alerts is None:
+        base_model: str = model.split("_")[0]  # NOTE: Fallback to base model if specific model not found
+        alerts = self.model_alert_map.get(model) or self.model_alert_map.get(base_model)
+        if not alerts:
             logger.warning(f"[AlertEvaluator] No alert config found for model: '{model}'")
             return results
 
