@@ -1,7 +1,7 @@
-model: SD400
-alerts:
-  - name: "Temperature Difference Alert"
-    type: "difference"
-    inputs: ["AIn01", "AIn02"]
-    threshold: 5.0
-    severity: "warning"
+SD400:
+  alerts:
+    - name: "Temperature Exceeds Threshold Alert"
+      type: "threshold"
+      code: "HIGH_TEMP"
+      threshold: 40.0
+      severity: "warning"
