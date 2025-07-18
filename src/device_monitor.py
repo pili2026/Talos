@@ -5,7 +5,7 @@ from datetime import datetime
 from alert_evaluator import AlertEvaluator
 from device_manager import AsyncDeviceManager
 from model.alert_message import AlertMessage
-from util.config_loader import ConfigManager
+from util.config_manager import ConfigManager
 from util.pubsub.base import PubSub
 
 

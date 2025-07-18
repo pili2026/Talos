@@ -1,8 +1,9 @@
-smtp_host: ${SMTP_HOST:-smtp.office365.com}
-smtp_port: ${SMTP_PORT:-587}
-EMAIL_TEMPLATE_PATH: ${EMAIL_TEMPLATE_PATH:-/template/alert_email.html}
-username: ${SMTP_USERNAME}
-password: ${SMTP_PASSWORD}
-from_addr: ${EMAIL_FROM}
-to_addrs:
+SMTP_HOST: ${SMTP_HOST:-smtp.office365.com}
+SMTP_PORT: ${SMTP_PORT:-587}
+EMAIL_TEMPLATE_PATH: ${EMAIL_TEMPLATE_PATH:-./template/alert_email.html}
+EMAIL_LOGO_PATH: ${EMAIL_LOGO_PATH:-./template/ever_logo.png}
+SMTP_USERNAME: ${SMTP_USERNAME}
+SMTP_PASSWORD: ${SMTP_PASSWORD}
+EMAIL_FROM: ${EMAIL_FROM}
+TO_ADDRESSES:
   - b9813114@gmail.com # Need modify

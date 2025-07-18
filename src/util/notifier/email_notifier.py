@@ -1,11 +1,13 @@
 import logging
+import mimetypes
 import smtplib
 import time
 from collections import defaultdict
 from email.message import EmailMessage
+from email.utils import make_msgid
 
 from model.alert_message import AlertMessage
-from util.config_loader import ConfigManager
+from util.config_manager import ConfigManager
 from util.pubsub.base import PubSub
 
 
@@ -17,13 +19,15 @@ class EmailNotifier:
         self.last_sent: dict[tuple[str, str], float] = defaultdict(lambda: 0.0)
 
         email_cfg: dict = ConfigManager.load_yaml_file(config_path)
-        self.smtp_host = ConfigManager.parse_env_var_with_default(email_cfg["smtp_host"])
-        self.smtp_port = ConfigManager.parse_env_var_with_default(email_cfg["smtp_port"])
+        self.smtp_host = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_HOST"])
+        self.smtp_port = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_PORT"])
         self.template_path = ConfigManager.parse_env_var_with_default(email_cfg.get("EMAIL_TEMPLATE_PATH"))
-        self.username = ConfigManager.parse_env_var_with_default(email_cfg["username"])
-        self.password = ConfigManager.parse_env_var_with_default(email_cfg["password"])
-        self.from_addr = ConfigManager.parse_env_var_with_default(email_cfg["from_addr"])
-        self.to_addrs = email_cfg["to_addrs"]
+        self.username = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_USERNAME"])
+        self.password = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_PASSWORD"])
+        self.from_addr = ConfigManager.parse_env_var_with_default(email_cfg["EMAIL_FROM"])
+        self.logo_path = ConfigManager.parse_env_var_with_default(email_cfg["EMAIL_LOGO_PATH"])
+
+        self.to_addrs = email_cfg["TO_ADDRESSES"]
 
     async def run(self):
         async for alert in self.pubsub.subscribe("alert.warning"):
@@ -46,12 +50,14 @@ class EmailNotifier:
         with open(self.template_path, "r", encoding="utf-8") as f:
             template = f.read()
 
+        logo_cid: str = make_msgid(domain="ima-ems.com")[1:-1]
         rendered_html = template.format(
             time=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             device_key=alert.device_key,
             level=alert.level,
             message=alert.message,
-        )
+            logo_cid=logo_cid,
+        ).replace("cid:logo_cid", f"cid:{logo_cid}")
 
         msg = EmailMessage()
         msg["Subject"] = f"[{alert.level}] Alert from {alert.device_key}"
@@ -59,6 +65,15 @@ class EmailNotifier:
         msg["To"] = ", ".join(self.to_addrs)
         msg.set_content("This is an HTML email. Please use an HTML-capable email client.")
         msg.add_alternative(rendered_html, subtype="html")  # HTML part
+
+        try:
+            with open(self.logo_path, "rb") as img:
+                img_data: bytes = img.read()
+                mime_type: str = mimetypes.guess_type(self.logo_path)[0] or "application/octet-stream"
+                maintype, subtype = mime_type.split("/")
+                msg.get_payload()[1].add_related(img_data, maintype=maintype, subtype=subtype, cid=logo_cid)
+        except Exception as e:
+            self.logger.warning(f"Logo image not attached: {e}")
 
         try:
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
