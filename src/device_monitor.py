@@ -26,7 +26,7 @@ class DeviceMonitor:
         self.alert_evaluator = AlertEvaluator(self.alert_config)
 
         self.device_configs = {
-            device.device_id: {
+            f"{device.model}_{device.slave_id}": {
                 "model": device.model,
                 "pins": device.pins,
                 "slave_id": device.slave_id,
@@ -38,28 +38,28 @@ class DeviceMonitor:
         self.logger.info("Starting device monitor loop...")
         while True:
             try:
+                # snapshot: Dict[device_id, Dict[pin, value]]
                 raw_data: dict = await self.async_device_manager.read_all_from_all_devices()
 
-                for device_key, snapshot in raw_data.items():
-                    # NOTE: device_key = model + selave_id
-                    config: dict = self.device_configs.get(device_key)
+                for device_id, snapshot in raw_data.items():
+                    config: dict = self.device_configs.get(device_id)
                     if config is None:
-                        self.logger.warning(f"[{device_key}] No config found, skipping.")
+                        self.logger.warning(f"[{device_id}] No config found, skipping.")
                         continue
 
                     pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
-                    self.logger.info(f"[{device_key}] Snapshot: {pretty_map}")
+                    self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
 
                     alerts = self.alert_evaluator.evaluate(
-                        model=config["model"],
+                        device_id=device_id,
                         snapshot=snapshot,
                         pins=config["pins"],
                     )
 
                     for alert_code, alert_msg in alerts:
-                        self.logger.warning(f"[{device_key}] {alert_msg}")
+                        self.logger.warning(f"[{device_id}] {alert_msg}")
                         alert = AlertMessage(
-                            device_key=device_key,
+                            device_key=device_id,
                             level="WARNING",
                             message=alert_msg,
                             alert_code=alert_code,

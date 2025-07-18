@@ -5,17 +5,19 @@ logger = logging.getLogger("AlertEvaluator")
 
 class AlertEvaluator:
     def __init__(self, alert_config: dict):
-        self.model_alert_map: dict[str, list[dict]] = {
-            model: config.get("alerts", []) for model, config in alert_config.items()
-        }
+        self.device_alert_map: dict[str, dict] = alert_config
 
-    def evaluate(self, model: str, snapshot: dict[str, float], pins: dict[str, dict]) -> list[tuple[str, str]]:
+    def evaluate(self, device_id: str, snapshot: dict[str, float], pins: dict[str, dict]) -> list[tuple[str, str]]:
         results = []
 
-        base_model: str = model.split("_")[0]  # NOTE: Fallback to base model if specific model not found
-        alerts = self.model_alert_map.get(model) or self.model_alert_map.get(base_model)
+        device_config = self.device_alert_map.get(device_id)
+        if not device_config:
+            logger.warning(f"[AlertEvaluator] No alert config for device_id: '{device_id}'")
+            return results
+
+        alerts = device_config.get("alerts", [])
         if not alerts:
-            logger.warning(f"[AlertEvaluator] No alert config found for model: '{model}'")
+            logger.info(f"[AlertEvaluator] No alerts defined for device '{device_id}'")
             return results
 
         for alert in alerts:

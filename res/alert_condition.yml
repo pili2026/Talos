@@ -1,4 +1,16 @@
-SD400:
+# Naming Rule: {device_model}_{slave_id}
+SD400_3:
+  index: 1
+  model: SD400
+  slave_id: 3
+  display_name: "SD400 Module"
+  alerts:
+    - name: "Temperature Exceeds Threshold Alert"
+      type: "threshold"
+      code: "HIGH_TEMP"
+      threshold: 40.0
+      severity: "warning"
+
   alerts:
     - name: "Temperature Exceeds Threshold Alert"
       type: "threshold"
