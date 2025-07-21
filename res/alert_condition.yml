@@ -5,12 +5,28 @@ SD400_3:
   slave_id: 3
   display_name: "SD400 Module"
   alerts:
-    - name: "Temperature Exceeds Threshold Alert"
+    - name: "AIn01 overheat"
       type: "threshold"
-      code: "HIGH_TEMP"
-      threshold: 40.0
+      code: "AIN01_HIGH"
+      pin: "AIn01"
+      condition: "gt"  # greater than
+      threshold: 49.0
       severity: "warning"
 
+    - name: "AIn02 temperature warning"
+      type: "threshold"
+      code: "AIN02_HIGH"
+      pin: "AIn02"
+      condition: "gt"
+      threshold: 45.0
+      severity: "warning"
+
+
+SD400_7:
+  index: 2
+  model: SD400
+  slave_id: 7
+  display_name: "SD400 Module"
   alerts:
     - name: "Temperature Exceeds Threshold Alert"
       type: "threshold"

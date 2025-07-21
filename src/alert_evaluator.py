@@ -21,20 +21,30 @@ class AlertEvaluator:
             return results
 
         for alert in alerts:
-            alert_type = alert.get("type")
+            if alert.get("type") != "threshold":
+                continue
+
+            pin_name = alert.get("pin")
+            if not pin_name or pin_name not in snapshot:
+                continue
+
+            pin_value = snapshot[pin_name]
+            condition = alert.get("condition", "gt")
             threshold = alert.get("threshold")
             severity = alert.get("severity", "info").upper()
             name = alert.get("name", "Unnamed Alert")
             code = alert.get("code", "UNKNOWN_ALERT")
 
-            if alert_type == "threshold":
-                for pin_name, pin_value in snapshot.items():
-                    pin_meta = pins.get(pin_name, {})
-                    if pin_meta.get("type") != "thermometer":
-                        continue
+            triggered = False
+            if condition == "gt":
+                triggered = pin_value > threshold
+            elif condition == "lt":
+                triggered = pin_value < threshold
+            elif condition == "eq":
+                triggered = pin_value == threshold
 
-                    if pin_value > threshold:
-                        msg = f"[{severity}] {name}: {pin_name}={pin_value:.2f} exceeds threshold {threshold}"
-                        results.append((code, msg))
+            if triggered:
+                msg = f"[{severity}] {name}: {pin_name}={pin_value:.2f} violates condition {condition} {threshold}"
+                results.append((code, msg))
 
         return results
