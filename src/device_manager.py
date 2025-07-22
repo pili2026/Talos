@@ -39,7 +39,7 @@ class AsyncDeviceManager:
                 client=self.client_dict[port],
                 slave_id=device_conf["slave_id"],
                 register_type=model_conf.get("register_type", "holding"),
-                pins=model_conf["pins"],
+                address=model_conf["pins"],
                 model=model_conf.get("model", device_conf["id"]),
             )
             self.device_list.append(device)
@@ -49,3 +49,9 @@ class AsyncDeviceManager:
         for device in self.device_list:
             result[device.device_id] = await device.read_all()
         return result
+
+    def get_device_by_id(self, device_id: str) -> AsyncGenericModbusDevice | None:
+        for device in self.device_list:
+            if device.device_id == device_id:
+                return device
+        return None

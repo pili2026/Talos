@@ -12,20 +12,22 @@ class AsyncGenericModbusDevice:
         client: AsyncModbusSerialClient,
         slave_id: int,
         register_type: str,
-        pins: dict,
+        address: dict,
         model: str,
     ):
         self.device_id = device_id
         self.client = client
         self.slave_id = slave_id
         self.register_type = register_type
-        self.pins = pins
+        self.address = address
         self.model = model or device_id
         self.logger = logging.getLogger(f"Device.{self.model}")
 
+        self.output_pins = [k for k, v in address.items() if v.get("writable")]
+
     async def read_all(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
-        for name, config in self.pins.items():
+        for name, config in self.address.items():
             if not config.get("readable", False):
                 continue
             try:
@@ -34,6 +36,22 @@ class AsyncGenericModbusDevice:
             except Exception as e:
                 self.logger.warning(f"Failed to read {name}: {e}")
         return result
+
+    async def set_frequency(self, value: float):
+        address_cfg: dict = self.address.get("RW_HZ")
+        if not address_cfg or not address_cfg.get("writable"):
+            raise ValueError("Device does not support frequency control")
+        offset = address_cfg["offset"]
+        scale = address_cfg.get("scale", 1.0)
+        raw_value = int(value / scale)
+        await self._write_register(offset, raw_value)
+
+    async def write_do(self, address: str, value: int):
+        address_cfg: dict = self.address.get(address)
+        if not address_cfg or not address_cfg.get("writable"):
+            raise ValueError(f"Address {address} is not writable")
+        offset = address_cfg["offset"]
+        await self._write_register(offset, value)
 
     async def _read_value(self, name: str, config: dict) -> float | int:
         offset = config["offset"]
@@ -77,3 +95,7 @@ class AsyncGenericModbusDevice:
             raise ModbusException(f"Read error: {resp}")
 
         return int(resp.registers[0])
+
+    async def _write_register(self, address: int, value: int):
+        self.logger.info(f"[{self.device_id}] Write {value} to offset {address}")
+        await self.client.write_register(address=address, value=value, slave=self.slave_id)

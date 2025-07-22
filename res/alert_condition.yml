@@ -17,8 +17,8 @@ SD400_3:
       type: "threshold"
       code: "AIN02_HIGH"
       pin: "AIn02"
-      condition: "gt"
-      threshold: 45.0
+      condition: "lt"  # less than
+      threshold: 5.0
       severity: "warning"
 
 
@@ -28,8 +28,10 @@ SD400_7:
   slave_id: 7
   display_name: "SD400 Module"
   alerts:
-    - name: "Temperature Exceeds Threshold Alert"
+    - name: "AIn02 temperature warning"
       type: "threshold"
-      code: "HIGH_TEMP"
-      threshold: 40.0
+      code: "AIN02_HIGH"
+      pin: "AIn02"
+      condition: "lt"  # less than
+      threshold: 10.0
       severity: "warning"

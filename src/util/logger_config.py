@@ -15,7 +15,7 @@ def setup_logging(
     log_level=logging.INFO,
     log_to_file: bool = False,
     log_dir: str = "logs",
-    log_base_filename: str = "device",
+    log_base_filename: str = "talos",
     when: str = "midnight",
     backup_count: int = 7,
 ):
