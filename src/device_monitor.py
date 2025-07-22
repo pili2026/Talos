@@ -8,11 +8,12 @@ from control_executor import ControlExecutor
 from device_manager import AsyncDeviceManager
 from model.alert_message import AlertMessage
 from util.config_manager import ConfigManager
+from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
 
 
 # FIXME: Need decouple to refactor interdependency with control logic
-class DeviceMonitor:
+class AsyncDeviceMonitor:
     def __init__(
         self,
         async_device_manager: AsyncDeviceManager,
@@ -62,37 +63,33 @@ class DeviceMonitor:
                 self.logger.exception(f"Error during polling loop: {e}")
                 await asyncio.sleep(self.interval)
 
+    @async_retry(logger=logging.getLogger("DeviceMonitor"))
     async def _handle_device(self, device_id: str, snapshot: dict):
-        try:
-            config: dict = self.device_configs.get(device_id)
-            if config is None:
-                self.logger.warning(f"[{device_id}] No config found, skipping.")
-                return
+        config: dict = self.device_configs.get(device_id)
+        if config is None:
+            self.logger.warning(f"[{device_id}] No config found, skipping.")
+            return
 
-            pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
-            self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
+        pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
+        self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
 
-            # Alert evaluation
-            alert_list = self.alert_evaluator.evaluate(device_id=device_id, snapshot=snapshot)
-            for alert_code, alert_msg in alert_list:
-                self.logger.warning(f"[{device_id}] {alert_msg}")
-                alert = AlertMessage(
-                    device_key=device_id,
-                    level="WARNING",
-                    message=alert_msg,
-                    alert_code=alert_code,
-                    timestamp=datetime.now(),
-                )
-                await self.pubsub.publish("alert.warning", alert)
-
-            # Control evaluation
-            control_action_list: list[ControlAction] = self.control_evaluator.evaluate(
-                device_id=device_id, snapshot=snapshot
+        # Alert evaluation
+        alert_list = self.alert_evaluator.evaluate(device_id=device_id, snapshot=snapshot)
+        for alert_code, alert_msg in alert_list:
+            self.logger.warning(f"[{device_id}] {alert_msg}")
+            alert = AlertMessage(
+                device_key=device_id,
+                level="WARNING",
+                message=alert_msg,
+                alert_code=alert_code,
+                timestamp=datetime.now(),
             )
-            if control_action_list:
-                self.logger.info(f"[{device_id}] Control actions: {control_action_list}")
-                await self.control_executor.execute(control_action_list)
+            await self.pubsub.publish("alert.warning", alert)
 
-        except Exception as e:
-            self.logger.exception(f"[{device_id}] Unhandled error in device task: {e}")
-            raise  # Re-raise to handle in the main loop
+        # Control evaluation
+        control_action_list: list[ControlAction] = self.control_evaluator.evaluate(
+            device_id=device_id, snapshot=snapshot
+        )
+        if control_action_list:
+            self.logger.info(f"[{device_id}] Control actions: {control_action_list}")
+            await self.control_executor.execute(control_action_list)
