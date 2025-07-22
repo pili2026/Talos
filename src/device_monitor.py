@@ -46,41 +46,53 @@ class DeviceMonitor:
         self.logger.info("Starting device monitor loop...")
         while True:
             try:
-                # snapshot: Dict[device_id, Dict[pin, value]]
                 raw_data: dict = await self.async_device_manager.read_all_from_all_devices()
 
-                for device_id, snapshot in raw_data.items():
-                    config: dict = self.device_configs.get(device_id)
-                    if config is None:
-                        self.logger.warning(f"[{device_id}] No config found, skipping.")
-                        continue
+                tasks = [self._handle_device(device_id, snapshot) for device_id, snapshot in raw_data.items()]
 
-                    pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
-                    self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                    # NOTE: Alert evaluation
-                    alert_list = self.alert_evaluator.evaluate(device_id=device_id, snapshot=snapshot)
-                    for alert_code, alert_msg in alert_list:
-                        self.logger.warning(f"[{device_id}] {alert_msg}")
-                        alert = AlertMessage(
-                            device_key=device_id,
-                            level="WARNING",
-                            message=alert_msg,
-                            alert_code=alert_code,
-                            timestamp=datetime.now(),
-                        )
-                        await self.pubsub.publish("alert.warning", alert)
-
-                    # NOTE: Control evaluation
-                    control_action_list: list[ControlAction] = self.control_evaluator.evaluate(
-                        device_id=device_id, snapshot=snapshot
-                    )
-                    if control_action_list:
-                        self.logger.info(f"[{device_id}] Control actions: {control_action_list}")
-                        await self.control_executor.execute(control_action_list)
+                for device_id, result in zip(raw_data.keys(), results):
+                    if isinstance(result, Exception):
+                        self.logger.error(f"[{device_id}] Task failed: {result}")
 
                 await asyncio.sleep(self.interval)
 
             except Exception as e:
-                self.logger.exception(f"Error during polling: {e}")
+                self.logger.exception(f"Error during polling loop: {e}")
                 await asyncio.sleep(self.interval)
+
+    async def _handle_device(self, device_id: str, snapshot: dict):
+        try:
+            config: dict = self.device_configs.get(device_id)
+            if config is None:
+                self.logger.warning(f"[{device_id}] No config found, skipping.")
+                return
+
+            pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
+            self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
+
+            # Alert evaluation
+            alert_list = self.alert_evaluator.evaluate(device_id=device_id, snapshot=snapshot)
+            for alert_code, alert_msg in alert_list:
+                self.logger.warning(f"[{device_id}] {alert_msg}")
+                alert = AlertMessage(
+                    device_key=device_id,
+                    level="WARNING",
+                    message=alert_msg,
+                    alert_code=alert_code,
+                    timestamp=datetime.now(),
+                )
+                await self.pubsub.publish("alert.warning", alert)
+
+            # Control evaluation
+            control_action_list: list[ControlAction] = self.control_evaluator.evaluate(
+                device_id=device_id, snapshot=snapshot
+            )
+            if control_action_list:
+                self.logger.info(f"[{device_id}] Control actions: {control_action_list}")
+                await self.control_executor.execute(control_action_list)
+
+        except Exception as e:
+            self.logger.exception(f"[{device_id}] Unhandled error in device task: {e}")
+            raise  # Re-raise to handle in the main loop
