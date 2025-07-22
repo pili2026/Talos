@@ -8,18 +8,18 @@ SD400_3:
     - name: "AIn01 overheat"
       type: "threshold"
       code: "AIN01_HIGH"
-      pin: "AIn01"
+      source: "AIn01"
       condition: "gt"  # greater than
       threshold: 49.0
-      severity: "warning"
+      severity: "WARNING"
 
     - name: "AIn02 temperature warning"
       type: "threshold"
       code: "AIN02_HIGH"
-      pin: "AIn02"
+      source: "AIn02"
       condition: "lt"  # less than
       threshold: 5.0
-      severity: "warning"
+      severity: "WARNING"
 
 
 SD400_7:
@@ -31,7 +31,7 @@ SD400_7:
     - name: "AIn02 temperature warning"
       type: "threshold"
       code: "AIN02_HIGH"
-      pin: "AIn02"
+      source: "AIn02"
       condition: "lt"  # less than
       threshold: 10.0
-      severity: "warning"
+      severity: "WARNING"

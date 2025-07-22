@@ -1,6 +1,6 @@
 import logging
 
-from control_evaluator import ControlAction
+from control_evaluator import ControlActionModel
 from device_manager import AsyncDeviceManager
 from generic_device import AsyncGenericModbusDevice
 
@@ -10,7 +10,7 @@ class ControlExecutor:
         self.device_manager = device_manager
         self.logger = logging.getLogger("ControlExecutor")
 
-    async def execute(self, action_list: list[ControlAction]):
+    async def execute(self, action_list: list[ControlActionModel]):
         for action in action_list:
             device: AsyncGenericModbusDevice | None = self.device_manager.get_device_by_id(action.device_id)
             if not device:

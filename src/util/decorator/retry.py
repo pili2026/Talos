@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import inspect
 import logging
 from typing import Any, Callable
 
@@ -12,10 +13,15 @@ def async_retry(
     key_name: str = "device_id",  # Key to identify the device in kwargs
 ):
     def decorator(func: Callable):
+        signature = inspect.signature(func)
+
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             retry_count = 0
-            device_id = kwargs.get(key_name, None)
+
+            bound_args = signature.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            device_id = bound_args.arguments.get(key_name, None)
 
             while True:
                 try:

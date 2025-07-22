@@ -6,7 +6,7 @@ from collections import defaultdict
 from email.message import EmailMessage
 from email.utils import make_msgid
 
-from model.alert_message import AlertMessage
+from model.alert_model import AlertMessageModel
 from util.config_manager import ConfigManager
 from util.pubsub.base import PubSub
 
@@ -33,7 +33,7 @@ class EmailNotifier:
         async for alert in self.pubsub.subscribe("alert.warning"):
             await self.send_email(alert)
 
-    async def send_email(self, alert: AlertMessage):
+    async def send_email(self, alert: AlertMessageModel):
         key = (alert.device_key, alert.message)
         now = time.time()
 
@@ -46,7 +46,7 @@ class EmailNotifier:
 
         self.__send_email(alert)
 
-    def __send_email(self, alert: AlertMessage):
+    def __send_email(self, alert: AlertMessageModel):
         with open(self.template_path, "r", encoding="utf-8") as f:
             template = f.read()
 

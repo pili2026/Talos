@@ -3,10 +3,10 @@ import logging
 from datetime import datetime
 
 from alert_evaluator import AlertEvaluator
-from control_evaluator import ControlAction, ControlEvaluator
+from control_evaluator import ControlActionModel, ControlEvaluator
 from control_executor import ControlExecutor
 from device_manager import AsyncDeviceManager
-from model.alert_message import AlertMessage
+from model.alert_model import AlertMessageModel, AlertSeverity
 from util.config_manager import ConfigManager
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
@@ -51,7 +51,7 @@ class AsyncDeviceMonitor:
 
                 tasks = [self._handle_device(device_id, snapshot) for device_id, snapshot in raw_data.items()]
 
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks, return_exceptions=False)
 
                 for device_id, result in zip(raw_data.keys(), results):
                     if isinstance(result, Exception):
@@ -77,9 +77,9 @@ class AsyncDeviceMonitor:
         alert_list = self.alert_evaluator.evaluate(device_id=device_id, snapshot=snapshot)
         for alert_code, alert_msg in alert_list:
             self.logger.warning(f"[{device_id}] {alert_msg}")
-            alert = AlertMessage(
+            alert = AlertMessageModel(
                 device_key=device_id,
-                level="WARNING",
+                level=AlertSeverity.WARNING,
                 message=alert_msg,
                 alert_code=alert_code,
                 timestamp=datetime.now(),
@@ -87,7 +87,7 @@ class AsyncDeviceMonitor:
             await self.pubsub.publish("alert.warning", alert)
 
         # Control evaluation
-        control_action_list: list[ControlAction] = self.control_evaluator.evaluate(
+        control_action_list: list[ControlActionModel] = self.control_evaluator.evaluate(
             device_id=device_id, snapshot=snapshot
         )
         if control_action_list:

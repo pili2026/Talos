@@ -1,65 +1,43 @@
-from dataclasses import dataclass
-from typing import Any
-
-
-@dataclass
-class ControlAction:
-    trigger_device_id: str
-    device_id: str
-    type: str
-    target: str
-    value: Any
+from model.condition_enum import ConditionOperator, ConditionType
+from model.control_model import ControlActionModel, ControlConditionModel
 
 
 class ControlEvaluator:
     def __init__(self, control_config: dict):
-        self.control_config = control_config
 
-    def evaluate(self, device_id: str, snapshot: dict) -> list[ControlAction]:
-        actions = []
-        cfg = self.control_config.get(device_id)
-        if not cfg:
-            return actions
+        self.device_controls_map: dict[str, list[ControlConditionModel]] = {}
+        for device_id, conf in control_config.items():
+            control_list = conf.get("controls", [])
+            validated = [ControlConditionModel(**c) for c in control_list]
+            self.device_controls_map[device_id] = validated
 
-        controls: list[dict] = cfg.get("controls", [])
-        for control in controls:
-            if self._check_condition(control, snapshot):
-                action_cfg = control["action"]
-                action = ControlAction(
-                    trigger_device_id=device_id,
-                    device_id=action_cfg["device_id"],
-                    type=action_cfg["type"],
-                    target=action_cfg.get("target", "frequency"),
-                    value=action_cfg["value"],
-                )
-                actions.append(action)
-        return actions
+    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
+        action_list = []
+        control_condition_list = self.device_controls_map.get(device_id, [])
+        for condition in control_condition_list:
+            if self._check_condition(condition, snapshot):
+                action_list.append(condition.action)
+        return action_list
 
-    def _check_condition(self, cond: dict, dev_data: dict) -> bool:
-        t = cond.get("type")
-        op = cond.get("condition")
-        threshold = cond.get("threshold")
-
-        if t == "difference":
-            pins = cond["pins"]
-            v1 = dev_data.get(pins[0])
-            v2 = dev_data.get(pins[1])
+    def _check_condition(self, condition: ControlConditionModel, snapshot: dict[str, float]) -> bool:
+        if condition.condition_type == ConditionType.DIFFERENCE:
+            v1: float | None = snapshot.get(condition.source[0])
+            v2: float | None = snapshot.get(condition.source[1])
             if v1 is None or v2 is None:
                 return False
-            diff = v1 - v2
-        else:  # threshold type
-            pin = cond["pin"]
-            diff = dev_data.get(pin)
-            if diff is None:
+            measured_value: float = v1 - v2
+        elif condition.condition_type == ConditionType.THRESHOLD:
+            measured_value: float = snapshot.get(condition.source)
+            if measured_value is None:
                 return False
+        else:
+            return False
 
-        return self._apply_condition(diff, threshold, op)
+        return self._apply_operator(measured_value, condition.threshold, condition.operator)
 
-    def _apply_condition(self, val, threshold, op) -> bool:
-        if op == "gt":
-            return val > threshold
-        if op == "lt":
-            return val < threshold
-        if op == "eq":
-            return val == threshold
-        return False
+    def _apply_operator(self, measured_value: float, threshold: float, operator: ConditionOperator) -> bool:
+        return {
+            ConditionOperator.GREATER_THAN: measured_value > threshold,
+            ConditionOperator.LESS_THAN: measured_value < threshold,
+            ConditionOperator.EQUAL: measured_value == threshold,
+        }[operator]

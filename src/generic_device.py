@@ -31,7 +31,7 @@ class AsyncGenericModbusDevice:
             if not config.get("readable", False):
                 continue
             try:
-                value = await self._read_value(name, config)
+                value = await self._read_value(config)
                 result[name] = value
             except Exception as e:
                 self.logger.warning(f"Failed to read {name}: {e}")
@@ -53,7 +53,7 @@ class AsyncGenericModbusDevice:
         offset = address_cfg["offset"]
         await self._write_register(offset, value)
 
-    async def _read_value(self, name: str, config: dict) -> float | int:
+    async def _read_value(self, config: dict) -> float | int:
         offset = config["offset"]
         bit = config.get("bit")
         scale = config.get("scale", 1.0)

@@ -1,50 +1,57 @@
 import logging
 
+from model.alert_model import AlertConditionModel
+from model.condition_enum import ConditionOperator
+
 logger = logging.getLogger("AlertEvaluator")
 
 
 class AlertEvaluator:
     def __init__(self, alert_config: dict):
-        self.device_alert_map: dict[str, dict] = alert_config
+        self.device_alert_dict: dict[str, list[AlertConditionModel]] = {}
+
+        for device_id, config in alert_config.items():
+            alerts = config.get("alerts", [])
+            valid_alerts = []
+            for alert_dict in alerts:
+                try:
+                    alert = AlertConditionModel(**alert_dict)
+                    if alert.type == "threshold":
+                        valid_alerts.append(alert)
+                except Exception as e:
+                    logger.warning(f"[{device_id}] Skipping invalid alert config: {alert_dict} -> {e}")
+            self.device_alert_dict[device_id] = valid_alerts
 
     def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str]]:
         results = []
 
-        # TODO:
-        device_config: dict | None = self.device_alert_map.get(device_id)
-        if not device_config:
-            logger.warning(f"No alert config found for '{device_id}'")
+        alert_list: list[AlertConditionModel] | None = self.device_alert_dict.get(device_id)
+        if not alert_list:
+            logger.debug(f"No alert config found for '{device_id}'")
             return results
 
-        alerts: list = device_config.get("alerts", [])
-        for alert in alerts:
-            if alert.get("type") != "threshold":
+        for alert in alert_list:
+            if alert.source not in snapshot:
+                logger.warning(f"[{device_id}] Pin '{alert.source}' not in snapshot")
                 continue
 
-            pin_name: str = alert.get("pin")
-            if not pin_name:
-                logger.warning(f"[{device_id}] Alert missing 'pin' field: {alert}")
-                continue
+            pin_value = snapshot[alert.source]
 
-            if pin_name not in snapshot:
-                logger.warning(f"[{device_id}] Pin '{pin_name}' not in snapshot")
-                continue
-
-            pin_value = snapshot[pin_name]
-            condition = alert.get("condition", "gt")
-            threshold = alert.get("threshold")
-            severity = alert.get("severity", "info").upper()
-            name = alert.get("name", "Unnamed Alert")
-            code = alert.get("code", "UNKNOWN_ALERT")
-
-            triggered = (
-                (condition == "gt" and pin_value > threshold)
-                or (condition == "lt" and pin_value < threshold)
-                or (condition == "eq" and pin_value == threshold)
-            )
+            match alert.condition:
+                case ConditionOperator.GREATER_THAN:
+                    triggered = pin_value > alert.threshold
+                case ConditionOperator.LESS_THAN:
+                    triggered = pin_value < alert.threshold
+                case ConditionOperator.EQUAL:
+                    triggered = pin_value == alert.threshold
+                case _:
+                    triggered = False
 
             if triggered:
-                msg = f"[{severity}] {name}: " f"{pin_name}={pin_value:.2f} violates condition {condition} {threshold}"
-                results.append((code, msg))
+                msg = (
+                    f"[{alert.severity}] {alert.name}: "
+                    f"{alert.source}={pin_value:.2f} violates {alert.condition} {alert.threshold}"
+                )
+                results.append((alert.code, msg))
 
         return results

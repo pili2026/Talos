@@ -6,10 +6,10 @@ SD400_3:
   controls:
     - name: "High Temp Diff"
       code: "TEMP_DIFF_CTRL"
-      type: "difference"
-      pins: ["AIn01", "AIn02"]
+      condition_type: "difference"
+      source: ["AIn01", "AIn02"]
       threshold: 5.0
-      condition: "gt"
+      operator: "gt"
       action:
         device_id: TECO_VFD_2
         type: "set_frequency"
@@ -18,11 +18,12 @@ SD400_3:
 
     - name: "Close DO when hot"
       code: "CLOSE_DO"
-      type: "threshold"
-      pin: "AIn03"
+      condition_type: "threshold"
+      source: "AIn02"
       threshold: 40.0
-      condition: "gt"
+      operator: "gt"
       action:
+        device_id: IMA_C_5
         type: "write_do"
         target: "DOut01"
-        value: 0
+        value: 1
