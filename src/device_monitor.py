@@ -33,7 +33,7 @@ class AsyncDeviceMonitor:
         self.device_configs = {
             f"{device.model}_{device.slave_id}": {
                 "model": device.model,
-                "address": device.address,
+                "register_map": device.register_map,
                 "slave_id": device.slave_id,
             }
             for device in self.async_device_manager.device_list

@@ -1,8 +1,8 @@
 import logging
 
-from control_evaluator import ControlActionModel
 from device_manager import AsyncDeviceManager
 from generic_device import AsyncGenericModbusDevice
+from model.control_model import ControlActionModel, ControlActionType
 
 
 class ControlExecutor:
@@ -17,14 +17,22 @@ class ControlExecutor:
                 self.logger.warning(f"[SKIP] Device {action.device_id} not found.")
                 continue
 
-            if action.type == "write_do":
-                if action.target not in device.output_register_map:
-                    self.logger.warning(f"[SKIP] {action.device_id} has no DO {action.target}.")
+            try:
+                # Special handler: reset
+                if action.type == ControlActionType.RESET:
+                    raw = 9 if action.value else 1
+                    await device.write_value(action.target, raw)
+                    self.logger.info(f"[RESET] {action.device_id} {action.target} => {raw}")
                     continue
-                await device.write_do(action.target, action.value)
 
-            elif action.type == "set_frequency":
-                if not hasattr(device, "set_frequency"):
-                    self.logger.warning(f"[SKIP] {action.device_id} does not support frequency control.")
+                # Normal write path
+                current_value: float | int = await device.read_value(action.target)
+                if current_value == action.value:
+                    self.logger.info(f"[SKIP] {action.device_id} {action.target} already set to {action.value}.")
                     continue
-                await device.set_frequency(action.value)
+
+                await device.write_value(action.target, action.value)
+                self.logger.info(f"[WRITE] {action.device_id} {action.target} => {action.value}")
+
+            except Exception as e:
+                self.logger.warning(f"[FAIL] Control failed for {action.device_id} {action.target}: {e}")

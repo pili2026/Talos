@@ -2,14 +2,15 @@ model: TECO_VFD
 register_type: holding
 
 register_map:
-  KWH:        { offset: 3139, formula: [0, 0.1, 0],  readable: true }
-  VOLTAGE:    { offset: 3091, formula: [0, 0.1, 0],  readable: true }
-  CURRENT:    { offset: 3090, formula: [0, 0.1, 0],  readable: true }
-  KW:         { offset: 3093, formula: [0, 0.1, 0],  readable: true }
-  HZ:         { offset: 9508, formula: [0, 0.01, 0], readable: true }
-  ERROR:      { offset: 9505, formula: [0, 1, 0],    readable: true }
-  ALERT:      { offset: 9512, formula: [0, 1, 0],    readable: true }
-  INVSTATUS:  { offset: 9504, formula: [0, 1, 0],    readable: true }
-  RW_HZ:      { offset: 9474, formula: [0, 0.01, 0], readable: true, writable: true }
-  RW_ON_OFF:  { offset: 9473, formula: [0, 1, 0],    readable: true, writable: true }
-  RW_RESET:   { offset: 9473, formula: [0, 1, 0],    writable: true }
+  KWH:        { offset: 3139, scale: 0.1,  readable: true }
+  VOLTAGE:    { offset: 3091, scale: 0.1,  readable: true }
+  CURRENT:    { offset: 3090, scale: 0.1,  readable: true }
+  KW:         { offset: 3093, scale: 0.1,  readable: true }
+  HZ:         { offset: 9508, scale: 0.01, readable: true }
+  ERROR:      { offset: 9505, scale: 1,     readable: true }
+  ALERT:      { offset: 9512, scale: 1,     readable: true }
+  INVSTATUS:  { offset: 9504, scale: 1,     readable: true }
+
+  RW_HZ:      { offset: 9474, scale: 0.01,  readable: true, writable: true }
+  RW_ON_OFF:  { offset: 9473, scale: 1,     readable: true, writable: true }
+  RW_RESET:   { offset: 9473, scale: 1,                     writable: true }

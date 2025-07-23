@@ -13,7 +13,7 @@ class ControlEvaluator:
 
     def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
         action_list = []
-        control_condition_list = self.device_controls_map.get(device_id, [])
+        control_condition_list: list[ControlConditionModel] = self.device_controls_map.get(device_id, [])
         for condition in control_condition_list:
             if self._check_condition(condition, snapshot):
                 action_list.append(condition.action)
