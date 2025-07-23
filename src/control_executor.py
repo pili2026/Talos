@@ -18,7 +18,7 @@ class ControlExecutor:
                 continue
 
             if action.type == "write_do":
-                if action.target not in device.output_pins:
+                if action.target not in device.output_register_map:
                     self.logger.warning(f"[SKIP] {action.device_id} has no DO {action.target}.")
                     continue
                 await device.write_do(action.target, action.value)

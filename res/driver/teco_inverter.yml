@@ -1,7 +1,7 @@
 model: TECO_VFD
 register_type: holding
 
-pins:
+register_map:
   KWH:        { offset: 3139, formula: [0, 0.1, 0],  readable: true }
   VOLTAGE:    { offset: 3091, formula: [0, 0.1, 0],  readable: true }
   CURRENT:    { offset: 3090, formula: [0, 0.1, 0],  readable: true }

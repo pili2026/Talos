@@ -1,7 +1,7 @@
 model: SD500
 register_type: holding
 
-pins:
+register_map:
   DIn01: { offset: 0, readable: true }
   DIn02: { offset: 1, readable: true }
   DIn03: { offset: 2, readable: true }

@@ -1,12 +1,18 @@
+# ADAM-4117 Analog Input Pin Mapping and Conversion Parameters
+#
+# ActualValue = (raw + N1) * N2 + N3
+# - Temp sensors: 4–20mA → 0–50°C
+# - Pressure sensors: 4–20mA → 0–4kg/cm²
+
 model: ADAM-4117
 register_type: input
-pins:
-  AIn01: { offset: 0, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn02: { offset: 1, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn03: { offset: 2, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn04: { offset: 3, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn05: { offset: 4, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn06: { offset: 5, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn07: { offset: 6, formula: [0, 0.0002442002, 4.0], readable: true }
-  AIn08: { offset: 7, formula: [0, 0.0002442002, 4.0], readable: true }
 
+register_map:
+  AIn01: { offset: 0, formula: [0, 0.00076293945, 0], type: thermometer, readable: true }
+  AIn02: { offset: 1, formula: [0, 0.00076293945, 0], type: thermometer, readable: true }
+  AIn03: { offset: 2, formula: [0, 0.00006103515625, 0], type: pressure, readable: true }
+  AIn04: { offset: 3, formula: [0, 0.00076293945, 0], type: thermometer, readable: true }
+  AIn05: { offset: 4, formula: [0, 0.00076293945, 0], type: thermometer, readable: true }
+  AIn06: { offset: 5, formula: [0, 0.00006103515625, 0], type: pressure, readable: true }
+  AIn07: { offset: 6, formula: [0, 0.00076293945, 0], type: thermometer, readable: true }
+  AIn08: { offset: 7, formula: [0, 0.00076293945, 0], type: thermometer, readable: true }

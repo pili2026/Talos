@@ -23,7 +23,7 @@ class AsyncGenericModbusDevice:
         self.model = model or device_id
         self.logger = logging.getLogger(f"Device.{self.model}")
 
-        self.output_pins = [k for k, v in address.items() if v.get("writable")]
+        self.output_register_map = [k for k, v in address.items() if v.get("writable")]
 
     async def read_all(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {}

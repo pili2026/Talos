@@ -1,7 +1,7 @@
 model: LITEON_EVO6800
 register_type: holding
 
-pins:
+register_map:
   KWH:         { offset: 7688, scale: 0.1,  combine_high: 7689, combine_scale: 1000.0, readable: true }
   VOLTAGE:     { offset: 9253, scale: 0.1, readable: true }
   CURRENT:     { offset: 9252, scale: 0.01, readable: true }

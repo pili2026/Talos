@@ -1,7 +1,7 @@
 model: SD400
 register_type: holding
 
-pins:
+register_map:
   AIn01: { offset: 0,  formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
   AIn02: { offset: 1,  formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
   AIn03: { offset: 2,  formula: [0, 0.0009765625, 0], type: pressure, readable: true }

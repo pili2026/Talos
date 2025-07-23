@@ -39,7 +39,7 @@ class AsyncDeviceManager:
                 client=self.client_dict[port],
                 slave_id=device_conf["slave_id"],
                 register_type=model_conf.get("register_type", "holding"),
-                address=model_conf["pins"],
+                address=model_conf["register_map"],
                 model=model_conf.get("model", device_conf["id"]),
             )
             self.device_list.append(device)

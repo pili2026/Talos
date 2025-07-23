@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import mimetypes
 import smtplib
@@ -44,7 +45,11 @@ class EmailNotifier:
         self.last_sent[key] = now
         self.logger.info(f"[EMAIL] Send Email: [{alert.level}] {alert.device_key} - {alert.message}")
 
-        self.__send_email(alert)
+        # Get the current event loop
+        loop = asyncio.get_event_loop()
+
+        # Run the email sending in a separate thread to avoid blocking the event loop
+        await loop.run_in_executor(None, self.__send_email, alert)
 
     def __send_email(self, alert: AlertMessageModel):
         with open(self.template_path, "r", encoding="utf-8") as f:
