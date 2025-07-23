@@ -10,6 +10,7 @@ from model.alert_model import AlertMessageModel, AlertSeverity
 from util.config_manager import ConfigManager
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
+from util.pubsub.pubsub_topic import PubSubTopic
 
 
 # FIXME: Need decouple to refactor interdependency with control logic
@@ -84,7 +85,7 @@ class AsyncDeviceMonitor:
                 alert_code=alert_code,
                 timestamp=datetime.now(),
             )
-            await self.pubsub.publish("alert.warning", alert)
+            await self.pubsub.publish(PubSubTopic.ALERT_WARNING, alert)
 
         # Control evaluation
         control_action_list: list[ControlActionModel] = self.control_evaluator.evaluate(

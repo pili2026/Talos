@@ -10,6 +10,7 @@ from email.utils import make_msgid
 from model.alert_model import AlertMessageModel
 from util.config_manager import ConfigManager
 from util.pubsub.base import PubSub
+from util.pubsub.pubsub_topic import PubSubTopic
 
 
 class EmailNotifier:
@@ -31,7 +32,7 @@ class EmailNotifier:
         self.to_addrs = email_cfg["TO_ADDRESSES"]
 
     async def run(self):
-        async for alert in self.pubsub.subscribe("alert.warning"):
+        async for alert in self.pubsub.subscribe(PubSubTopic.ALERT_WARNING):
             await self.send_email(alert)
 
     async def send_email(self, alert: AlertMessageModel):
