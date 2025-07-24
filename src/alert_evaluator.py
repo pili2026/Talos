@@ -7,15 +7,21 @@ logger = logging.getLogger("AlertEvaluator")
 
 
 class AlertEvaluator:
-    def __init__(self, alert_config: AlertConfig):
+    def __init__(self, alert_config: AlertConfig, valid_device_ids: set[str]):
+
         self.device_alert_dict: dict[str, list[AlertConditionModel]] = {}
 
         for model, model_config in alert_config.root.items():
-            for slave_id in model_config.instances.keys():
+            for slave_id in model_config.instances:
                 device_id = f"{model}_{slave_id}"
-                alert_list: list[AlertConditionModel] = alert_config.get_instance_alerts(model, slave_id)
-                if alert_list:
-                    self.device_alert_dict[device_id] = alert_list
+
+                if device_id not in valid_device_ids:
+                    logger.warning(f"[SKIP] Alert config found for unknown device: {device_id}")
+                    continue
+
+                alerts = alert_config.get_instance_alerts(model, slave_id)
+                if alerts:
+                    self.device_alert_dict[device_id] = alerts
                 else:
                     logger.info(f"[{device_id}] No alert configured. Skipped.")
 
@@ -42,6 +48,8 @@ class AlertEvaluator:
                     triggered = pin_value < alert.threshold
                 case ConditionOperator.EQUAL:
                     triggered = pin_value == alert.threshold
+                case _:
+                    logger.warning(f"[{device_id}] Unknown condition operator: {alert.condition}")
 
             if triggered:
                 msg = (
