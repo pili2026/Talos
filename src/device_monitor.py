@@ -6,7 +6,7 @@ from alert_evaluator import AlertEvaluator
 from control_evaluator import ControlActionModel, ControlEvaluator
 from control_executor import ControlExecutor
 from device_manager import AsyncDeviceManager
-from model.alert_model import AlertMessageModel, AlertSeverity
+from model.alert_model import AlertConfig, AlertMessageModel, AlertSeverity
 from util.config_manager import ConfigManager
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
@@ -28,7 +28,8 @@ class AsyncDeviceMonitor:
         self.interval = interval
         self.logger = logging.getLogger("DeviceMonitor")
 
-        self.alert_config = ConfigManager.load_yaml_file(alert_config)
+        alert_config_dict = ConfigManager.load_yaml_file(alert_config)
+        self.alert_config = AlertConfig.model_validate(alert_config_dict)
         self.alert_evaluator = AlertEvaluator(self.alert_config)
 
         self.device_configs = {

@@ -1,37 +1,21 @@
-# Naming Rule: {device_model}_{slave_id}
-SD400_3:
-  index: 1
-  model: SD400
-  slave_id: 3
-  display_name: "SD400 Module"
-  alerts:
-    - name: "AIn01 overheat"
-      type: "threshold"
-      code: "AIN01_HIGH"
+SD400:
+  default_alerts:
+    - code: "AIN01_HIGH"
+      name: "AIn01 overheat"
       source: "AIn01"
-      condition: "gt"  # greater than
+      condition: "gt" # greater than
       threshold: 49.0
       severity: "WARNING"
 
-    - name: "AIn02 temperature warning"
-      type: "threshold"
-      code: "AIN02_HIGH"
-      source: "AIn02"
-      condition: "lt"  # less than
-      threshold: 5.0
-      severity: "WARNING"
+  instances:
+    "3":
+      use_default_alerts: true
 
-
-SD400_7:
-  index: 2
-  model: SD400
-  slave_id: 7
-  display_name: "SD400 Module"
-  alerts:
-    - name: "AIn02 temperature warning"
-      type: "threshold"
-      code: "AIN02_HIGH"
-      source: "AIn02"
-      condition: "lt"  # less than
-      threshold: 10.0
-      severity: "WARNING"
+    "7":
+      alerts:
+        - code: "AIN02_LOW"
+          name: "AIn02 low temp"
+          source: "AIn02"
+          condition: "lt" # less than
+          threshold: 10.0
+          severity: "WARNING"
