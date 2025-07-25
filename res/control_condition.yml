@@ -1,29 +1,31 @@
-SD400_3:
-  index: 1
+SD400:
   model: SD400
   slave_id: 3
   display_name: "SD400 Module"
   controls:
     - name: "High Temp Diff"
       code: "TEMP_DIFF_CTRL"
-      condition_type: "difference"
+      type: "difference"
       source: ["AIn01", "AIn02"]
-      threshold: 5.0
       operator: "gt"
+      threshold: 5.0
       action:
-        device_id: TECO_VFD_2
+        model: TECO_VFD
+        slave_id: 2
         type: "set_frequency"
         target: RW_HZ
         value: 50.0
 
     - name: "Close DO when hot"
       code: "CLOSE_DO"
-      condition_type: "threshold"
+      type: "threshold"
       source: "AIn02"
-      threshold: 40.0
       operator: "gt"
+      threshold: 40.0
+      severity: "control"
       action:
-        device_id: IMA_C_5
+        model: IMA_C
+        slave_id: 5
         type: "write_do"
-        target: "DOut01"
+        target: DOut01
         value: 1

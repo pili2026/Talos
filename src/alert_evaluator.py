@@ -13,29 +13,28 @@ class AlertEvaluator:
 
         for model, model_config in alert_config.root.items():
             for slave_id in model_config.instances:
-                device_id = f"{model}_{slave_id}"
 
-                if device_id not in valid_device_ids:
-                    logger.warning(f"[SKIP] Alert config found for unknown device: {device_id}")
+                if model not in valid_device_ids:
+                    logger.warning(f"[SKIP] Alert config found for unknown device: {model}")
                     continue
 
                 alerts = alert_config.get_instance_alerts(model, slave_id)
                 if alerts:
-                    self.device_alert_dict[device_id] = alerts
+                    self.device_alert_dict[model] = alerts
                 else:
-                    logger.info(f"[{device_id}] No alert configured. Skipped.")
+                    logger.info(f"[{model}] No alert configured. Skipped.")
 
-    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str]]:
-        results: list[tuple[str, str]] = []
+    def evaluate(self, model: str, snapshot: dict[str, float]) -> list[tuple[str, str]]:
+        result_list: list[tuple[str, str]] = []
 
-        alert_list: list[AlertConditionModel] | None = self.device_alert_dict.get(device_id)
+        alert_list: list[AlertConditionModel] | None = self.device_alert_dict.get(model)
         if not alert_list:
-            logger.debug(f"No alert config found for '{device_id}'")
-            return results
+            logger.debug(f"No alert config found for '{model}'")
+            return result_list
 
         for alert in alert_list:
             if alert.source not in snapshot:
-                logger.warning(f"[{device_id}] Pin '{alert.source}' not in snapshot")
+                logger.warning(f"[{model}] Pin '{alert.source}' not in snapshot")
                 continue
 
             pin_value = snapshot[alert.source]
@@ -49,13 +48,13 @@ class AlertEvaluator:
                 case ConditionOperator.EQUAL:
                     triggered = pin_value == alert.threshold
                 case _:
-                    logger.warning(f"[{device_id}] Unknown condition operator: {alert.condition}")
+                    logger.warning(f"[{model}] Unknown condition operator: {alert.condition}")
 
             if triggered:
                 msg = (
                     f"[{alert.severity}] {alert.name}: "
                     f"{alert.source}={pin_value:.2f} violates {alert.condition} {alert.threshold}"
                 )
-                results.append((alert.code, msg))
+                result_list.append((alert.code, msg))
 
-        return results
+        return result_list

@@ -1,10 +1,10 @@
 import logging
 import os
 
-import yaml
 from pymodbus.client import AsyncModbusSerialClient
 
 from generic_device import AsyncGenericModbusDevice
+from util.config_manager import ConfigManager
 
 logger = logging.getLogger("DeviceManager")
 
@@ -17,41 +17,38 @@ class AsyncDeviceManager:
         self.model_base_path = model_base_path
 
     async def init(self):
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+        config: dict = ConfigManager().load_yaml_file(self.config_path)
 
         for device_conf in config.get("devices", []):
-            model_path = os.path.join(self.model_base_path, device_conf["model_file"])
-            with open(model_path, "r", encoding="utf-8") as mf:
-                model_conf = yaml.safe_load(mf)
+            model_path: str = os.path.join(self.model_base_path, device_conf["model_file"])
+            model_conf: dict = ConfigManager().load_yaml_file(model_path)
 
             port = device_conf["port"]
             if port not in self.client_dict:
                 client = AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)
-                connected = await client.connect()
+                connected: bool = await client.connect()
                 if not connected:
                     logger.warning(f"Failed to connect to port {port}")
                 self.client_dict[port] = client
 
-            device_key = f"{device_conf['id']}_{device_conf['slave_id']}"
+            # device_key = f"{device_conf['id']}_{device_conf['slave_id']}"
             device = AsyncGenericModbusDevice(
-                device_id=device_key,
+                model=model_conf["model"],
                 client=self.client_dict[port],
                 slave_id=device_conf["slave_id"],
                 register_type=model_conf.get("register_type", "holding"),
                 register_map=model_conf["register_map"],
-                model=model_conf.get("model", device_conf["id"]),
             )
             self.device_list.append(device)
 
     async def read_all_from_all_devices(self):
         result = {}
         for device in self.device_list:
-            result[device.device_id] = await device.read_all()
+            result[device.model] = await device.read_all()
         return result
 
-    def get_device_by_id(self, device_id: str) -> AsyncGenericModbusDevice | None:
+    def get_device_by_model_and_slave_id(self, model: str, slave_id: str) -> AsyncGenericModbusDevice | None:
         for device in self.device_list:
-            if device.device_id == device_id:
+            if device.model == model and device.slave_id == slave_id:
                 return device
         return None

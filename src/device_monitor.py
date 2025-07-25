@@ -28,18 +28,20 @@ class AsyncDeviceMonitor:
         self.interval = interval
         self.logger = logging.getLogger("DeviceMonitor")
 
-        alert_config_dict = ConfigManager.load_yaml_file(alert_config)
-        self.alert_config = AlertConfig.model_validate(alert_config_dict)
-        self.alert_evaluator = AlertEvaluator(self.alert_config)
-
         self.device_configs = {
-            f"{device.model}_{device.slave_id}": {
+            device.model: {
                 "model": device.model,
                 "register_map": device.register_map,
                 "slave_id": device.slave_id,
             }
             for device in self.async_device_manager.device_list
         }
+
+        valid_device_ids: set[str] = set(self.device_configs.keys())
+
+        alert_config_dict = ConfigManager.load_yaml_file(alert_config)
+        self.alert_config = AlertConfig.model_validate(alert_config_dict)
+        self.alert_evaluator = AlertEvaluator(self.alert_config, valid_device_ids)
 
         self.control_config = ConfigManager.load_yaml_file(control_config)
         self.control_evaluator = ControlEvaluator(self.control_config)
@@ -65,22 +67,28 @@ class AsyncDeviceMonitor:
                 self.logger.exception(f"Error during polling loop: {e}")
                 await asyncio.sleep(self.interval)
 
+    # TODO: refactor async_retry
     @async_retry(logger=logging.getLogger("DeviceMonitor"))
-    async def _handle_device(self, device_id: str, snapshot: dict):
-        config: dict = self.device_configs.get(device_id)
+    async def _handle_device(self, model: str, snapshot: dict):
+        config: dict = self.device_configs.get(model)
         if config is None:
-            self.logger.warning(f"[{device_id}] No config found, skipping.")
+            self.logger.warning(f"[{model}] No config found, skipping.")
             return
 
         pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
-        self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
+        slave_id: str = config["slave_id"]
+        self.logger.info(f"[{model}][{slave_id}] Snapshot: {pretty_map}")
 
-        # Alert evaluation
-        alert_list = self.alert_evaluator.evaluate(device_id=device_id, snapshot=snapshot)
+        await self.handle_alerts(model, snapshot, slave_id)
+        await self.handle_controls(model, snapshot)
+
+    async def handle_alerts(self, model: str, snapshot: dict[str, float], slave_id: str) -> None:
+        alert_list = self.alert_evaluator.evaluate(model=model, snapshot=snapshot)
         for alert_code, alert_msg in alert_list:
-            self.logger.warning(f"[{device_id}] {alert_msg}")
+            self.logger.warning(f"[{model}][{slave_id}] {alert_msg}")
             alert = AlertMessageModel(
-                device_key=device_id,
+                model=model,
+                slave_id=slave_id,
                 level=AlertSeverity.WARNING,
                 message=alert_msg,
                 alert_code=alert_code,
@@ -88,10 +96,8 @@ class AsyncDeviceMonitor:
             )
             await self.pubsub.publish(PubSubTopic.ALERT_WARNING, alert)
 
-        # Control evaluation
-        control_action_list: list[ControlActionModel] = self.control_evaluator.evaluate(
-            device_id=device_id, snapshot=snapshot
-        )
+    async def handle_controls(self, model: str, snapshot: dict[str, float]) -> None:
+        control_action_list: list[ControlActionModel] = self.control_evaluator.evaluate(model=model, snapshot=snapshot)
         if control_action_list:
-            self.logger.info(f"[{device_id}] Control actions: {control_action_list}")
+            self.logger.info(f"[{model}] Control actions: {control_action_list}")
             await self.control_executor.execute(control_action_list)

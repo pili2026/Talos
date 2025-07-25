@@ -2,8 +2,8 @@ import asyncio
 import logging
 import mimetypes
 import smtplib
-import time
 from collections import defaultdict
+from datetime import datetime
 from email.message import EmailMessage
 from email.utils import make_msgid
 
@@ -36,15 +36,15 @@ class EmailNotifier:
             await self.send_email(alert)
 
     async def send_email(self, alert: AlertMessageModel):
-        key = (alert.device_key, alert.message)
-        now = time.time()
+        key = (alert.model, alert.message)
+        datetime_now: float = datetime.now().timestamp()
 
-        if now - self.last_sent[key] < self.threshold_sec:
-            self.logger.info(f"[EMAIL] Skip Duplicate Alert Notification: [{alert.device_key}] {alert.message}")
+        if datetime_now - self.last_sent[key] < self.threshold_sec:
+            self.logger.info(f"[EMAIL] Skip Duplicate Alert Notification: [{alert.model}] {alert.message}")
             return
 
-        self.last_sent[key] = now
-        self.logger.info(f"[EMAIL] Send Email: [{alert.level}] {alert.device_key} - {alert.message}")
+        self.last_sent[key] = datetime_now
+        self.logger.info(f"[EMAIL] Send Email: [{alert.level}] {alert.model} - {alert.message}")
 
         # Get the current event loop
         loop = asyncio.get_event_loop()
@@ -58,15 +58,16 @@ class EmailNotifier:
 
         logo_cid: str = make_msgid(domain="ima-ems.com")[1:-1]
         rendered_html = template.format(
-            time=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-            device_key=alert.device_key,
+            time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            device_model=alert.model,
+            slave_id=alert.slave_id,
             level=alert.level,
             message=alert.message,
             logo_cid=logo_cid,
         ).replace("cid:logo_cid", f"cid:{logo_cid}")
 
         msg = EmailMessage()
-        msg["Subject"] = f"[{alert.level}] Alert from {alert.device_key}"
+        msg["Subject"] = f"[{alert.level}] Alert from {alert.model}"
         msg["From"] = self.from_addr
         msg["To"] = ", ".join(self.to_addrs)
         msg.set_content("This is an HTML email. Please use an HTML-capable email client.")
@@ -77,7 +78,8 @@ class EmailNotifier:
                 img_data: bytes = img.read()
                 mime_type: str = mimetypes.guess_type(self.logo_path)[0] or "application/octet-stream"
                 maintype, subtype = mime_type.split("/")
-                msg.get_payload()[1].add_related(img_data, maintype=maintype, subtype=subtype, cid=logo_cid)
+                html_part = msg.get_payload()[1]
+                html_part.add_related(img_data, maintype=maintype, subtype=subtype, cid=logo_cid)
         except Exception as e:
             self.logger.warning(f"Logo image not attached: {e}")
 

@@ -13,7 +13,8 @@ class AlertSeverity(StrEnum):
 
 
 class AlertMessageModel(BaseModel):
-    device_key: str
+    model: str
+    slave_id: int
     level: AlertSeverity
     message: str
     alert_code: str

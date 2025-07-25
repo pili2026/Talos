@@ -12,7 +12,8 @@ class ControlActionType(StrEnum):
 
 
 class ControlActionModel(BaseModel):
-    device_id: str
+    model: str | None = None
+    slave_id: int | None = None
     type: ControlActionType
     target: str | None
     value: float | int
@@ -20,18 +21,16 @@ class ControlActionModel(BaseModel):
     @model_validator(mode="after")
     def check_value_type(cls, model: "ControlActionModel") -> "ControlActionModel":
         if model.type == ControlActionType.SET_FREQUENCY and not isinstance(model.value, float):
-            raise ValueError(f"[{model.device_id}] set_frequency requires a float value")
-        if model.type == ControlActionType.WRITE_DO and not isinstance(model.value, int):
-            raise ValueError(f"[{model.device_id}] write_do requires an int value")
-        if model.type == ControlActionType.RESET and not isinstance(model.value, int):
-            raise ValueError(f"[{model.device_id}] reset requires an int value")
+            raise ValueError("set_frequency requires a float value")
+        if model.type in {ControlActionType.WRITE_DO, ControlActionType.RESET} and not isinstance(model.value, int):
+            raise ValueError(f"{model.type} requires an int value")
         return model
 
 
 class ControlConditionModel(BaseModel):
     name: str
     code: str
-    condition_type: ConditionType
+    type: ConditionType
     operator: ConditionOperator
     threshold: float
     source: str | list[str] | None = None
@@ -39,10 +38,10 @@ class ControlConditionModel(BaseModel):
 
     @model_validator(mode="after")
     def check_required_fields(cls, model: "ControlConditionModel") -> "ControlConditionModel":
-        if model.condition_type == ConditionType.THRESHOLD:
-            if not model.source:
-                raise ValueError("Threshold condition must include 'pin'")
-        elif model.condition_type == ConditionType.DIFFERENCE:
-            if not model.source or len(model.source) != 2:
-                raise ValueError("Difference condition must include exactly 2 pins")
+        if model.type == ConditionType.THRESHOLD:
+            if not model.source or not isinstance(model.source, str):
+                raise ValueError("Threshold condition must include a single 'source'")
+        if model.type == ConditionType.DIFFERENCE:
+            if not isinstance(model.source, list) or len(model.source) != 2:
+                raise ValueError("Difference condition must include exactly 2 sources")
         return model

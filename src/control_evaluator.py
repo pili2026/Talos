@@ -4,32 +4,38 @@ from model.control_model import ControlActionModel, ControlConditionModel
 
 class ControlEvaluator:
     def __init__(self, control_config: dict):
-
         self.device_controls_map: dict[str, list[ControlConditionModel]] = {}
         for device_id, conf in control_config.items():
             control_list = conf.get("controls", [])
             validated = [ControlConditionModel(**c) for c in control_list]
             self.device_controls_map[device_id] = validated
 
-    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
+    def evaluate(self, model: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
         action_list = []
-        control_condition_list: list[ControlConditionModel] = self.device_controls_map.get(device_id, [])
+        control_condition_list: list[ControlConditionModel] = self.device_controls_map.get(model, [])
         for condition in control_condition_list:
             if self._check_condition(condition, snapshot):
                 action_list.append(condition.action)
         return action_list
 
     def _check_condition(self, condition: ControlConditionModel, snapshot: dict[str, float]) -> bool:
-        if condition.condition_type == ConditionType.DIFFERENCE:
+        if condition.type == ConditionType.DIFFERENCE:
+            if not isinstance(condition.source, list) or len(condition.source) != 2:
+                return False
+
             v1: float | None = snapshot.get(condition.source[0])
             v2: float | None = snapshot.get(condition.source[1])
             if v1 is None or v2 is None:
                 return False
-            measured_value: float = v1 - v2
-        elif condition.condition_type == ConditionType.THRESHOLD:
-            measured_value: float = snapshot.get(condition.source)
+            measured_value: float = abs(v1 - v2)
+
+        elif condition.type == ConditionType.THRESHOLD:
+            if not isinstance(condition.source, str):
+                return False
+            measured_value = snapshot.get(condition.source)
             if measured_value is None:
                 return False
+
         else:
             return False
 
