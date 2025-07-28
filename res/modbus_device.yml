@@ -18,17 +18,18 @@ devices:
     <<: *shared_config
     slave_id: 3
 
-  - id: SD500
-    model_file: driver/sd_500.yml
-    <<: *shared_config
-    slave_id: 4
 
-  - id: IMA_C
-    model_file: driver/ima_c.yml
-    <<: *shared_config
-    slave_id: 5
-
-  - id: ADAM-4117
+  - model: ADAM-4117
     model_file: driver/adam_4117.yml
     <<: *shared_config
     slave_id: 6
+
+  # - model: ADAM-4117
+  #   model_file: driver/adam_4117.yml
+  #   <<: *shared_config
+  #   slave_id: 6
+
+  - model: SUTO_FLOW
+    model_file: driver/suto_flow.yml
+    <<: *shared_config
+    slave_id: 7

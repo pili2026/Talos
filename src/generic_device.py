@@ -2,12 +2,18 @@ import logging
 from typing import Any, Dict
 
 from pymodbus.client import AsyncModbusSerialClient
+from pymodbus.client.mixin import ModbusClientMixin
 from pymodbus.exceptions import ModbusException
 
 
 class AsyncGenericModbusDevice:
     def __init__(
-        self, model: str, client: AsyncModbusSerialClient, slave_id: int, register_type: str, register_map: dict
+        self,
+        model: str,
+        client: AsyncModbusSerialClient,
+        slave_id: int,
+        register_type: str,
+        register_map: dict,
     ):
         self.model = model
         self.client = client
@@ -50,11 +56,12 @@ class AsyncGenericModbusDevice:
 
     async def _read_value(self, config: dict) -> float | int:
         offset = config["offset"]
-        bit = config.get("bit")
         scale = config.get("scale", 1.0)
         formula = config.get("formula")
+        bit = config.get("bit")
         combine_high = config.get("combine_high")
         combine_scale = config.get("combine_scale", 1.0)
+        fmt = config.get("format", "uint16")
 
         if combine_high:
             low = await self._read_register(offset)
@@ -62,34 +69,63 @@ class AsyncGenericModbusDevice:
             combined = high * 65536 + low
             return combined / combine_scale
 
-        raw = await self._read_register(offset)
+        if fmt == "float32":
+            raw = await self._read_registers(offset, 2)
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="big", data_type=ModbusClientMixin.DATATYPE.FLOAT32
+            )
+
+        elif fmt == "uint32":
+            raw = await self._read_registers(offset, 2)
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT32
+            )
+
+        elif fmt == "int16":
+            raw = await self._read_registers(offset, 1)
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.INT16
+            )
+
+        elif fmt == "uint16":
+            raw = await self._read_registers(offset, 1)
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT16
+            )
+
+        # fallback for legacy fields
+        raw_val = await self._read_register(offset)
 
         if bit is not None:
-            return (raw >> bit) & 1
+            return (raw_val >> bit) & 1
 
         if formula:
             n1, n2, n3 = formula
-            return (raw + n1) * n2 + n3
+            return (raw_val + n1) * n2 + n3
 
-        return raw * scale
+        return raw_val * scale
 
     async def _read_register(self, address: int) -> int:
+        result = await self._read_registers(address, 1)
+        return result[0]
+
+    async def _read_registers(self, address: int, count: int) -> list[int]:
         if not self.client.connected:
             connected: bool = await self.client.connect()
             if not connected:
                 raise ModbusException(f"Failed to connect [{self.client}]")
 
         if self.register_type == "holding":
-            resp = await self.client.read_holding_registers(address=address, count=1, slave=self.slave_id)
+            resp = await self.client.read_holding_registers(address=address, count=count, slave=self.slave_id)
         elif self.register_type == "input":
-            resp = await self.client.read_input_registers(address=address, count=1, slave=self.slave_id)
+            resp = await self.client.read_input_registers(address=address, count=count, slave=self.slave_id)
         else:
             raise ValueError(f"Unsupported register type: {self.register_type}")
 
         if resp.isError():
             raise ModbusException(f"Read error: {resp}")
 
-        return int(resp.registers[0])
+        return resp.registers
 
     async def _write_register(self, address: int, value: int):
         self.logger.info(f"[{self.model}] Write raw value {value} to offset {address}")

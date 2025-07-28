@@ -77,12 +77,12 @@ class AsyncDeviceMonitor:
 
         pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
         slave_id: str = config["slave_id"]
-        self.logger.info(f"[{model}][{slave_id}] Snapshot: {pretty_map}")
+        self.logger.info(f"[{model}][slave_id: {slave_id}] Snapshot: {pretty_map}")
 
-        await self.handle_alerts(model, snapshot, slave_id)
-        await self.handle_controls(model, snapshot)
+        await self.__handle_alerts(model, snapshot, slave_id)
+        await self.__handle_controls(model, snapshot)
 
-    async def handle_alerts(self, model: str, snapshot: dict[str, float], slave_id: str) -> None:
+    async def __handle_alerts(self, model: str, snapshot: dict[str, float], slave_id: str) -> None:
         alert_list = self.alert_evaluator.evaluate(model=model, snapshot=snapshot)
         for alert_code, alert_msg in alert_list:
             self.logger.warning(f"[{model}][{slave_id}] {alert_msg}")
@@ -96,7 +96,7 @@ class AsyncDeviceMonitor:
             )
             await self.pubsub.publish(PubSubTopic.ALERT_WARNING, alert)
 
-    async def handle_controls(self, model: str, snapshot: dict[str, float]) -> None:
+    async def __handle_controls(self, model: str, snapshot: dict[str, float]) -> None:
         control_action_list: list[ControlActionModel] = self.control_evaluator.evaluate(model=model, snapshot=snapshot)
         if control_action_list:
             self.logger.info(f"[{model}] Control actions: {control_action_list}")
