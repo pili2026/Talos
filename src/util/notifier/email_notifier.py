@@ -9,13 +9,11 @@ from email.utils import make_msgid
 
 from model.alert_model import AlertMessageModel
 from util.config_manager import ConfigManager
-from util.pubsub.base import PubSub
-from util.pubsub.pubsub_topic import PubSubTopic
+from util.notifier.base import BaseNotifier
 
 
-class EmailNotifier:
-    def __init__(self, pubsub: PubSub, config_path: str = "res/email_config.yml", threshold_sec: float = 60.0):
-        self.pubsub = pubsub
+class EmailNotifier(BaseNotifier):
+    def __init__(self, config_path: str = "res/email_config.yml", threshold_sec: float = 60.0):
         self.logger = logging.getLogger("EmailNotifier")
         self.threshold_sec = threshold_sec
         self.last_sent: dict[tuple[str, str], float] = defaultdict(lambda: 0.0)
@@ -31,11 +29,7 @@ class EmailNotifier:
 
         self.to_addrs = email_cfg["TO_ADDRESSES"]
 
-    async def run(self):
-        async for alert in self.pubsub.subscribe(PubSubTopic.ALERT_WARNING):
-            await self.send_email(alert)
-
-    async def send_email(self, alert: AlertMessageModel):
+    async def send(self, alert: AlertMessageModel):
         key = (alert.model, alert.message)
         datetime_now: float = datetime.now().timestamp()
 
@@ -46,13 +40,10 @@ class EmailNotifier:
         self.last_sent[key] = datetime_now
         self.logger.info(f"[EMAIL] Send Email: [{alert.level}] {alert.model} - {alert.message}")
 
-        # Get the current event loop
         loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._send_email_sync, alert)
 
-        # Run the email sending in a separate thread to avoid blocking the event loop
-        await loop.run_in_executor(None, self.__send_email, alert)
-
-    def __send_email(self, alert: AlertMessageModel):
+    def _send_email_sync(self, alert: AlertMessageModel):
         with open(self.template_path, "r", encoding="utf-8") as f:
             template = f.read()
 

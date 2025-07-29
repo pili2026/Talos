@@ -7,6 +7,7 @@ from device_monitor import AsyncDeviceMonitor
 from util.logger_config import setup_logging
 from util.notifier.email_notifier import EmailNotifier
 from util.pubsub.in_memory_pubsub import InMemoryPubSub
+from util.pubsub.subscriber.alert_subscriber import AlertSubscriber
 
 
 async def main():
@@ -18,9 +19,11 @@ async def main():
     await async_device_manager.init()
 
     monitor = AsyncDeviceMonitor(async_device_manager, pubsub)
-    email_notifier = EmailNotifier(pubsub)
 
-    await asyncio.gather(monitor.run(), email_notifier.run())
+    email_notifier = EmailNotifier()
+    alert_subscriber = AlertSubscriber(pubsub, [email_notifier])
+
+    await asyncio.gather(monitor.run(), alert_subscriber.run())
 
 
 if __name__ == "__main__":

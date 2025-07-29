@@ -2,8 +2,9 @@ import logging
 from typing import Any, Dict
 
 from pymodbus.client import AsyncModbusSerialClient
-from pymodbus.client.mixin import ModbusClientMixin
 from pymodbus.exceptions import ModbusException
+
+from util.decode_util import NumericFormat, decode_numeric_by_format
 
 
 class AsyncGenericModbusDevice:
@@ -63,47 +64,28 @@ class AsyncGenericModbusDevice:
         combine_scale = config.get("combine_scale", 1.0)
         fmt = config.get("format", "uint16")
 
-        if combine_high:
+        # Combine two registers manually if specified
+        if combine_high is not None:
             low = await self._read_register(offset)
             high = await self._read_register(combine_high)
             combined = high * 65536 + low
-            return combined / combine_scale
+            result = combined / combine_scale
+        else:
+            # Decode using specified format
+            raw = await self._read_registers(offset, 2 if fmt in {NumericFormat.FLOAT32, NumericFormat.UINT32} else 1)
+            result = decode_numeric_by_format(raw, fmt)
 
-        if fmt == "float32":
-            raw = await self._read_registers(offset, 2)
-            return ModbusClientMixin.convert_from_registers(
-                raw, word_order="big", data_type=ModbusClientMixin.DATATYPE.FLOAT32
-            )
-
-        elif fmt == "uint32":
-            raw = await self._read_registers(offset, 2)
-            return ModbusClientMixin.convert_from_registers(
-                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT32
-            )
-
-        elif fmt == "int16":
-            raw = await self._read_registers(offset, 1)
-            return ModbusClientMixin.convert_from_registers(
-                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.INT16
-            )
-
-        elif fmt == "uint16":
-            raw = await self._read_registers(offset, 1)
-            return ModbusClientMixin.convert_from_registers(
-                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT16
-            )
-
-        # fallback for legacy fields
-        raw_val = await self._read_register(offset)
-
+        # Apply bit mask if needed (for digital signals)
         if bit is not None:
-            return (raw_val >> bit) & 1
+            return (int(result) >> bit) & 1
 
+        # Apply formula if defined
         if formula:
             n1, n2, n3 = formula
-            return (raw_val + n1) * n2 + n3
+            return (result + n1) * n2 + n3
 
-        return raw_val * scale
+        # Apply scale if defined
+        return result * scale
 
     async def _read_register(self, address: int) -> int:
         result = await self._read_registers(address, 1)
