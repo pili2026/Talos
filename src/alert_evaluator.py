@@ -31,7 +31,9 @@ class AlertEvaluator:
         result_list: list[tuple[str, str]] = []
 
         try:
-            model, slave_id = device_id.split("_")
+            # Safely split a device_id string into model and slave_id parts.
+            # e.g. "TECO_VFD_2" → ("TECO_VFD", "2")
+            model, slave_id = device_id.rsplit("_", 1)
         except ValueError:
             logger.warning(f"[SKIP] Invalid device_id format: {device_id}")
             return result_list

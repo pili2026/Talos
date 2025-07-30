@@ -1,8 +1,5 @@
 SD400:
-  model: SD400
-  slave_id: 3
-  display_name: "SD400 Module"
-  controls:
+  default_controls:
     - name: "High Temp Diff"
       code: "TEMP_DIFF_CTRL"
       type: "difference"
@@ -14,18 +11,23 @@ SD400:
         slave_id: 2
         type: "set_frequency"
         target: RW_HZ
-        value: 50.0
+        value: 30.0
 
-    - name: "Close DO when hot"
-      code: "CLOSE_DO"
-      type: "threshold"
-      source: "AIn02"
-      operator: "gt"
-      threshold: 40.0
-      severity: "control"
-      action:
-        model: IMA_C
-        slave_id: 5
-        type: "write_do"
-        target: DOut01
-        value: 1
+  instances:
+    "3":
+      use_default_controls: true
+
+    "7":
+      controls:
+        - name: "Close DO when hot"
+          code: "CLOSE_DO"
+          type: "threshold"
+          source: "AIn02"
+          operator: "gt"
+          threshold: 40.0
+          action:
+            model: IMA_C
+            slave_id: 5
+            type: "write_do"
+            target: DOut01
+            value: 0

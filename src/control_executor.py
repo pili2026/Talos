@@ -12,11 +12,9 @@ class ControlExecutor:
 
     async def execute(self, action_list: list[ControlActionModel]):
         for action in action_list:
-
             device: AsyncGenericModbusDevice | None = self.device_manager.get_device_by_model_and_slave_id(
                 action.model, action.slave_id
             )
-
             if not device:
                 self.logger.warning(f"[SKIP] Device {action.model}_{action.slave_id} not found.")
                 continue

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field
 
 from model.condition_enum import ConditionOperator, ConditionType
 
@@ -42,7 +42,9 @@ class ModelConfig(BaseModel):
     instances: dict[str, InstanceConfig] = Field(default_factory=dict)
 
 
-class AlertConfig(RootModel[dict[str, ModelConfig]]):
+class AlertConfig(BaseModel):
+
+    root: dict[str, ModelConfig]
 
     def get_instance_alerts(self, model: str, slave_id: str) -> list[AlertConditionModel]:
         model_conf = self.root.get(model)

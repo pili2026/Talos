@@ -1,19 +1,16 @@
+from control_config import ControlConfig
 from model.condition_enum import ConditionOperator, ConditionType
 from model.control_model import ControlActionModel, ControlConditionModel
 
 
 class ControlEvaluator:
-    def __init__(self, control_config: dict):
-        self.device_controls_map: dict[str, list[ControlConditionModel]] = {}
-        for device_id, conf in control_config.items():
-            control_list = conf.get("controls", [])
-            validated = [ControlConditionModel(**c) for c in control_list]
-            self.device_controls_map[device_id] = validated
+    def __init__(self, control_config: ControlConfig):
+        self.control_config = control_config
 
-    def evaluate(self, model: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
-        action_list = []
-        control_condition_list: list[ControlConditionModel] = self.device_controls_map.get(model, [])
-        for condition in control_condition_list:
+    def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
+        action_list: list[ControlActionModel] = []
+        condition_list = self.control_config.get_control_list(model, slave_id)
+        for condition in condition_list:
             if self._check_condition(condition, snapshot):
                 action_list.append(condition.action)
         return action_list

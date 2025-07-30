@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 from model.condition_enum import ConditionOperator, ConditionType
 
@@ -18,7 +18,6 @@ class ControlActionModel(BaseModel):
     target: str | None
     value: float | int
 
-    @model_validator(mode="after")
     def check_value_type(cls, model: "ControlActionModel") -> "ControlActionModel":
         if model.type == ControlActionType.SET_FREQUENCY and not isinstance(model.value, float):
             raise ValueError("set_frequency requires a float value")
@@ -36,7 +35,6 @@ class ControlConditionModel(BaseModel):
     source: str | list[str] | None = None
     action: ControlActionModel
 
-    @model_validator(mode="after")
     def check_required_fields(cls, model: "ControlConditionModel") -> "ControlConditionModel":
         if model.type == ConditionType.THRESHOLD:
             if not model.source or not isinstance(model.source, str):
