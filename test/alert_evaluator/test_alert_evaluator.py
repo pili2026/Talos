@@ -42,8 +42,9 @@ def test_when_snapshot_missing_alert_source_then_log_warning_and_skip(alert_conf
 
 def test_when_alert_config_target_device_not_found_then_skip(alert_config_with_unknown_device, caplog):
     valid_device_ids = {"SD400_3"}
-    with caplog.at_level("WARNING"):
-        evaluator = AlertEvaluator(alert_config_with_unknown_device, valid_device_ids)
 
-    assert "SD400_999" not in evaluator.device_alert_dict
-    assert any("unknown device: SD400_999" in msg for msg in caplog.messages)
+    with caplog.at_level("WARNING", logger="AlertEvaluator"):
+        _ = AlertEvaluator(alert_config_with_unknown_device, valid_device_ids)
+
+    assert "SD400_999" not in _.device_alert_dict.get("SD400", {})
+    assert any("[SKIP] Unknown device in config: SD400_999" in msg for msg in caplog.messages)

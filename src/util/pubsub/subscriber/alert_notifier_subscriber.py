@@ -1,18 +1,23 @@
 import logging
 
+from model.alert_model import AlertMessageModel
 from util.notifier.base import BaseNotifier
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 
 
-class AlertSubscriber:
+class AlertNotifierSubscriber:
     def __init__(self, pubsub: PubSub, notifier_list: list[BaseNotifier]):
         self.pubsub = pubsub
         self.notifier_list = notifier_list
-        self.logger = logging.getLogger("AlertSubscriber")
+        self.logger = logging.getLogger("AlertNotifierSubscriber")
 
     async def run(self):
         async for alert in self.pubsub.subscribe(PubSubTopic.ALERT_WARNING):
+            if not isinstance(alert, AlertMessageModel):
+                self.logger.warning(f"[SKIP] Invalid alert object: {alert}")
+                continue
+
             for notifier in self.notifier_list:
                 try:
                     await notifier.send(alert)

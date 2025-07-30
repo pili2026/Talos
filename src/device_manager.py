@@ -31,7 +31,6 @@ class AsyncDeviceManager:
                     logger.warning(f"Failed to connect to port {port}")
                 self.client_dict[port] = client
 
-            # device_key = f"{device_conf['id']}_{device_conf['slave_id']}"
             device = AsyncGenericModbusDevice(
                 model=model_conf["model"],
                 client=self.client_dict[port],
@@ -44,7 +43,8 @@ class AsyncDeviceManager:
     async def read_all_from_all_devices(self):
         result = {}
         for device in self.device_list:
-            result[device.model] = await device.read_all()
+            key = f"{device.model}_{device.slave_id}"
+            result[key] = await device.read_all()
         return result
 
     def get_device_by_model_and_slave_id(self, model: str, slave_id: str) -> AsyncGenericModbusDevice | None:

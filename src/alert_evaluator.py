@@ -8,33 +8,43 @@ logger = logging.getLogger("AlertEvaluator")
 
 class AlertEvaluator:
     def __init__(self, alert_config: AlertConfig, valid_device_ids: set[str]):
-
-        self.device_alert_dict: dict[str, list[AlertConditionModel]] = {}
+        # Nest struct：{ model: { slave_id: [AlertConditionModel] } }
+        self.device_alert_dict: dict[str, dict[str, list[AlertConditionModel]]] = {}
 
         for model, model_config in alert_config.root.items():
-            for slave_id in model_config.instances:
+            self.device_alert_dict[model] = {}
 
-                if model not in valid_device_ids:
-                    logger.warning(f"[SKIP] Alert config found for unknown device: {model}")
+            for slave_id in model_config.instances:
+                device_id = f"{model}_{slave_id}"
+
+                if device_id not in valid_device_ids:
+                    logger.warning(f"[SKIP] Unknown device in config: {device_id}")
                     continue
 
                 alerts = alert_config.get_instance_alerts(model, slave_id)
                 if alerts:
-                    self.device_alert_dict[model] = alerts
+                    self.device_alert_dict[model][slave_id] = alerts
                 else:
-                    logger.info(f"[{model}] No alert configured. Skipped.")
+                    logger.info(f"[{device_id}] No alert configured. Skipped.")
 
-    def evaluate(self, model: str, snapshot: dict[str, float]) -> list[tuple[str, str]]:
+    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str]]:
         result_list: list[tuple[str, str]] = []
 
-        alert_list: list[AlertConditionModel] | None = self.device_alert_dict.get(model)
+        try:
+            model, slave_id = device_id.split("_")
+        except ValueError:
+            logger.warning(f"[SKIP] Invalid device_id format: {device_id}")
+            return result_list
+
+        model_alerts = self.device_alert_dict.get(model, {})
+        alert_list = model_alerts.get(slave_id)
         if not alert_list:
-            logger.debug(f"No alert config found for '{model}'")
+            logger.debug(f"No alert config for device_id: {device_id}")
             return result_list
 
         for alert in alert_list:
             if alert.source not in snapshot:
-                logger.warning(f"[{model}] Pin '{alert.source}' not in snapshot")
+                logger.warning(f"[{device_id}] Pin '{alert.source}' not in snapshot")
                 continue
 
             pin_value = snapshot[alert.source]
@@ -48,7 +58,7 @@ class AlertEvaluator:
                 case ConditionOperator.EQUAL:
                     triggered = pin_value == alert.threshold
                 case _:
-                    logger.warning(f"[{model}] Unknown condition operator: {alert.condition}")
+                    logger.warning(f"[{device_id}] Unknown operator: {alert.condition}")
 
             if triggered:
                 msg = (

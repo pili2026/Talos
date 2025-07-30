@@ -7,28 +7,22 @@ from util.pubsub.base import PubSub
 
 class InMemoryPubSub(PubSub):
     def __init__(self):
-        self._topic_events: DefaultDict[str, list[asyncio.Event]] = defaultdict(list)
-        self._topic_data: dict[str, Any] = {}
-        self._lock = asyncio.Lock()
+        self._topic_subscribers: DefaultDict[str, list[asyncio.Queue]] = defaultdict(list)
 
     async def publish(self, topic: str, data: Any):
-        async with self._lock:
-            self._topic_data[topic] = data
-            for event in self._topic_events[topic]:
-                event.set()
+        for queue in self._topic_subscribers[topic]:
+            await queue.put(data)
 
     async def subscribe(self, topic: str) -> AsyncGenerator[Any, None]:
-        event = asyncio.Event()
-        self._topic_events[topic].append(event)
+        queue = asyncio.Queue()
+        self._topic_subscribers[topic].append(queue)
 
         try:
             while True:
-                await event.wait()
-                yield self._topic_data.get(topic)
-                event.clear()
+                data = await queue.get()
+                yield data
         finally:
-            self._topic_events[topic].remove(event)
+            self._topic_subscribers[topic].remove(queue)
 
     async def close(self):
-        self._topic_events.clear()
-        self._topic_data.clear()
+        self._topic_subscribers.clear()
