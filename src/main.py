@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 
 from dotenv import load_dotenv
@@ -16,25 +17,25 @@ from util.pubsub.subscriber.alert_notifier_subscriber import AlertNotifierSubscr
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
 
 
-async def main():
+async def main(alert_path: str, control_path: str, modbus_device_path: str):
     setup_logging(log_to_file=True)
     load_dotenv()
 
     pubsub = InMemoryPubSub()
-    async_device_manager = AsyncDeviceManager()
+    async_device_manager = AsyncDeviceManager(modbus_device_path)
     await async_device_manager.init()
 
     monitor = AsyncDeviceMonitor(async_device_manager, pubsub)
 
     valid_device_ids = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
 
-    alert_evaluator: AlertEvaluator = build_alert_evaluator("res/alert_condition.yml", valid_device_ids)
+    alert_evaluator: AlertEvaluator = build_alert_evaluator(alert_path, valid_device_ids)
     email_notifier = EmailNotifier()
 
     alert_eval_subscriber = AlertEvaluatorSubscriber(pubsub, alert_evaluator)
     alert_notifier_subscriber = AlertNotifierSubscriber(pubsub, [email_notifier])
 
-    control_evaluator: ControlEvaluator = build_control_evaluator("res/control_condition.yml")
+    control_evaluator: ControlEvaluator = build_control_evaluator(control_path)
     control_executor = ControlExecutor(async_device_manager)
     control_subscriber = ControlSubscriber(pubsub, control_evaluator, control_executor)
 
@@ -47,4 +48,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--alert", default="res/alert_condition.yml", help="Path to alert condition YAML")
+    parser.add_argument("--control", default="res/control_condition.yml", help="Path to control condition YAML")
+    parser.add_argument("--modbus_device", default="res/modbus_device.yml", help="Path to modbus device YAML")
+    args = parser.parse_args()
+    asyncio.run(main(alert_path=args.alert, control_path=args.control, modbus_device_path=args.modbus_device))

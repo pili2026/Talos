@@ -10,7 +10,7 @@ logger = logging.getLogger("DeviceManager")
 
 
 class AsyncDeviceManager:
-    def __init__(self, config_path: str = "./res/modbus_device.yml", model_base_path: str = "./res"):
+    def __init__(self, config_path: str, model_base_path: str = "./res"):
         self.device_list: list[AsyncGenericModbusDevice] = []
         self.client_dict = {}
         self.config_path = config_path
