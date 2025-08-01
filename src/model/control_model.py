@@ -42,6 +42,7 @@ class ControlConditionModel(BaseModel):
     threshold: float
     source: str | list[str] | None = None
     action: ControlActionModel
+    priority: int = 0
 
     @model_validator(mode="after")
     def check_required_fields(cls, model: "ControlConditionModel") -> "ControlConditionModel":

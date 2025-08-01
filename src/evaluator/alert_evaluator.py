@@ -1,6 +1,7 @@
 import logging
 
-from model.alert_model import AlertConditionModel, AlertConfig
+from alert_config import AlertConfig
+from model.alert_model import AlertConditionModel
 from model.condition_enum import ConditionOperator
 
 logger = logging.getLogger("AlertEvaluator")

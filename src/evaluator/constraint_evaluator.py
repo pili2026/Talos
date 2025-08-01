@@ -8,7 +8,7 @@ from util.pubsub.pubsub_topic import PubSubTopic
 logger = logging.getLogger(__name__)
 
 
-class ConstraintExecutor:
+class ConstraintEvaluate:
     def __init__(self, pubsub: PubSub):
         self.pubsub = pubsub
 
@@ -21,8 +21,8 @@ class ConstraintExecutor:
         for target, value in snapshot.items():
             if target in device.constraints:
                 limit = device.constraints[target]
-                min_val = limit.get("min", 60)
-                max_val = limit.get("max", 60)
+                min_val: float | int = limit.get("min", 60)
+                max_val: float | int = limit.get("max", 60)
 
                 if value < min_val or value > max_val:
                     corrected_value = max(min_val, min(value, max_val))

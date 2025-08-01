@@ -1,7 +1,7 @@
-from alert_evaluator import AlertEvaluator
+from alert_config import AlertConfig
 from control_config import ControlConfig
-from control_evaluator import ControlEvaluator
-from model.alert_model import AlertConfig
+from evaluator.alert_evaluator import AlertEvaluator
+from evaluator.control_evaluator import ControlEvaluator
 from util.config_manager import ConfigManager
 
 

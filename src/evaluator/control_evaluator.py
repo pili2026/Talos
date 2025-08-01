@@ -10,7 +10,9 @@ class ControlEvaluator:
     def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
         action_list: list[ControlActionModel] = []
         condition_list = self.control_config.get_control_list(model, slave_id)
-        for condition in condition_list:
+        sorted_conditions = sorted(condition_list, key=lambda c: c.priority, reverse=True)
+
+        for condition in sorted_conditions:
             if self._check_condition(condition, snapshot):
                 action_list.append(condition.action)
         return action_list

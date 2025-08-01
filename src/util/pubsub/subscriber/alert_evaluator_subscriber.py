@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from alert_evaluator import AlertEvaluator
+from evaluator.alert_evaluator import AlertEvaluator
 from model.alert_model import AlertMessageModel, AlertSeverity
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
