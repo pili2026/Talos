@@ -15,6 +15,7 @@ class AsyncGenericModbusDevice:
         slave_id: int,
         register_type: str,
         register_map: dict,
+        constraints: dict = None,
     ):
         self.model = model
         self.client = client
@@ -22,6 +23,7 @@ class AsyncGenericModbusDevice:
         self.register_type = register_type
         self.register_map = register_map
         self.logger = logging.getLogger(f"Device.{self.model}")
+        self.constraints = constraints or {}
 
         self.output_register_map = [k for k, v in register_map.items() if v.get("writable")]
 
@@ -47,6 +49,14 @@ class AsyncGenericModbusDevice:
         cfg: dict = self.register_map.get(name)
         if not cfg or not cfg.get("writable"):
             raise ValueError(f"[{self.model}] register_map {name} is not writable")
+
+        if name in self.constraints:
+            limit: dict = self.constraints[name]
+            min_val: float | int = limit.get("min", 60.0)
+            max_val: float | int = limit.get("max", 60.0)
+            if not (min_val <= value <= max_val):
+                self.logger.warning(f"[{self.model}] Reject write: {name}={value} out of range [{min_val}, {max_val}]")
+                return
 
         offset = cfg["offset"]
         scale = cfg.get("scale", 1.0)

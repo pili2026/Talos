@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from model.condition_enum import ConditionOperator, ConditionType
 
@@ -17,12 +17,20 @@ class ControlActionModel(BaseModel):
     type: ControlActionType
     target: str | None
     value: float | int
+    source: str | None = None
+    reason: str | None = None
 
+    @model_validator(mode="after")
     def check_value_type(cls, model: "ControlActionModel") -> "ControlActionModel":
-        if model.type == ControlActionType.SET_FREQUENCY and not isinstance(model.value, float):
-            raise ValueError("set_frequency requires a float value")
-        if model.type in {ControlActionType.WRITE_DO, ControlActionType.RESET} and not isinstance(model.value, int):
-            raise ValueError(f"{model.type} requires an int value")
+        if model.type == ControlActionType.SET_FREQUENCY:
+            if not isinstance(model.value, (int, float)):
+                raise ValueError("SET_FREQUENCY requires a numeric value")
+            model.value = float(model.value)
+
+        if model.type in {ControlActionType.WRITE_DO, ControlActionType.RESET}:
+            if not isinstance(model.value, int):
+                raise ValueError(f"{model.type} requires an int value")
+
         return model
 
 
@@ -35,6 +43,7 @@ class ControlConditionModel(BaseModel):
     source: str | list[str] | None = None
     action: ControlActionModel
 
+    @model_validator(mode="after")
     def check_required_fields(cls, model: "ControlConditionModel") -> "ControlConditionModel":
         if model.type == ConditionType.THRESHOLD:
             if not model.source or not isinstance(model.source, str):

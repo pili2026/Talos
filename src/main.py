@@ -8,6 +8,7 @@ from control_evaluator import ControlEvaluator
 from control_executor import ControlExecutor
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
+from util.config_manager import ConfigManager
 from util.evaluator_factory import build_alert_evaluator, build_control_evaluator
 from util.logger_config import setup_logging
 from util.notifier.email_notifier import EmailNotifier
@@ -17,12 +18,13 @@ from util.pubsub.subscriber.alert_notifier_subscriber import AlertNotifierSubscr
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
 
 
-async def main(alert_path: str, control_path: str, modbus_device_path: str):
+async def main(alert_path: str, control_path: str, modbus_device_path: str, instance_config_path: str):
     setup_logging(log_to_file=True)
     load_dotenv()
 
     pubsub = InMemoryPubSub()
-    async_device_manager = AsyncDeviceManager(modbus_device_path)
+    instance_config: dict = ConfigManager.load_yaml_file(instance_config_path)
+    async_device_manager = AsyncDeviceManager(modbus_device_path, instance_config)
     await async_device_manager.init()
 
     monitor = AsyncDeviceMonitor(async_device_manager, pubsub)
@@ -37,7 +39,7 @@ async def main(alert_path: str, control_path: str, modbus_device_path: str):
 
     control_evaluator: ControlEvaluator = build_control_evaluator(control_path)
     control_executor = ControlExecutor(async_device_manager)
-    control_subscriber = ControlSubscriber(pubsub, control_evaluator, control_executor)
+    control_subscriber = ControlSubscriber(pubsub=pubsub, evaluator=control_evaluator, executor=control_executor)
 
     await asyncio.gather(
         monitor.run(),
@@ -52,5 +54,16 @@ if __name__ == "__main__":
     parser.add_argument("--alert", default="res/alert_condition.yml", help="Path to alert condition YAML")
     parser.add_argument("--control", default="res/control_condition.yml", help="Path to control condition YAML")
     parser.add_argument("--modbus_device", default="res/modbus_device.yml", help="Path to modbus device YAML")
+    parser.add_argument(
+        "--instance_config", default="res/device_instance_config.yml", help="Path to instance config YAML"
+    )
+
     args = parser.parse_args()
-    asyncio.run(main(alert_path=args.alert, control_path=args.control, modbus_device_path=args.modbus_device))
+    asyncio.run(
+        main(
+            alert_path=args.alert,
+            control_path=args.control,
+            modbus_device_path=args.modbus_device,
+            instance_config_path=args.instance_config,
+        )
+    )

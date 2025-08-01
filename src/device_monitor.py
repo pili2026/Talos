@@ -2,7 +2,9 @@ import asyncio
 import logging
 from datetime import datetime
 
+from constraint_executor import ConstraintExecutor
 from device_manager import AsyncDeviceManager
+from generic_device import AsyncGenericModbusDevice
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
@@ -19,6 +21,7 @@ class AsyncDeviceMonitor:
         self.pubsub = pubsub
         self.interval = interval
         self.logger = logging.getLogger("DeviceMonitor")
+        self.constraint_enforcer = ConstraintExecutor(pubsub)
 
         self.device_configs = {
             f"{device.model}_{device.slave_id}": {
@@ -67,3 +70,9 @@ class AsyncDeviceMonitor:
         }
 
         await self.pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, payload)
+
+        device: AsyncGenericModbusDevice | None = self.async_device_manager.get_device_by_model_and_slave_id(
+            config["model"], config["slave_id"]
+        )
+        if device:
+            await self.constraint_enforcer.evaluate(device, snapshot)

@@ -51,3 +51,16 @@ class ConfigManager:
             return True
         except ValueError:
             return False
+
+    # TODO: Maybe need move to a separate utility class
+    @staticmethod
+    def get_instance_constraints(config: dict, model: str, slave_id: int | str) -> dict:
+        model_config: dict = config.get(model, {})
+        default_constraints: dict = model_config.get("default_constraints", {})
+        instance_dict: dict = model_config.get("instances", {})
+        instance_config_per_device: dict = instance_dict.get(str(slave_id), {})
+
+        if instance_config_per_device.get("use_default_constraints") or "constraints" not in instance_config_per_device:
+            return default_constraints
+
+        return {**default_constraints, **instance_config_per_device["constraints"]}
