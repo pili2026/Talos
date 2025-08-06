@@ -46,56 +46,33 @@ class AsyncGenericModbusDevice:
         return await self._read_value(cfg)
 
     async def write_value(self, name: str, value: int | float):
-        cfg: dict = self.register_map.get(name)
-        if not cfg or not cfg.get("writable"):
-            raise ValueError(f"[{self.model}] register_map {name} is not writable")
+        cfg: dict = self._validate_writable(name)
 
-        if name in self.constraints:
-            limit: dict = self.constraints[name]
-            min_val: float | int = limit.get("min", 60.0)
-            max_val: float | int = limit.get("max", 60.0)
-            if not (min_val <= value <= max_val):
-                self.logger.warning(f"[{self.model}] Reject write: {name}={value} out of range [{min_val}, {max_val}]")
-                return
+        if not self._validate_constraints(name, value):
+            return
 
-        offset = cfg["offset"]
-        scale = cfg.get("scale", 1.0)
-        raw = int(value / scale)
+        raw: int = self._scale_to_raw(value, cfg.get("scale", 1.0))
 
-        await self._write_register(offset, raw)
-        self.logger.info(f"[{self.model}] Write {value} ({raw}) to {name} (offset={offset})")
+        await self._write_register(cfg["offset"], raw)
+        self.logger.info(f"[{self.model}] Write {value} ({raw}) to {name} (offset={cfg['offset']})")
 
     async def _read_value(self, config: dict) -> float | int:
-        offset = config["offset"]
-        scale = config.get("scale", 1.0)
-        formula = config.get("formula")
-        bit = config.get("bit")
-        combine_high = config.get("combine_high")
-        combine_scale = config.get("combine_scale", 1.0)
-        fmt = config.get("format", "uint16")
-
-        # Combine two registers manually if specified
-        if combine_high is not None:
-            low = await self._read_register(offset)
-            high = await self._read_register(combine_high)
-            combined = high * 65536 + low
-            result = combined / combine_scale
+        # Read register based on configuration
+        if config.get("combine_high") is not None:
+            result = await self._read_combined_registers(config)
         else:
-            # Decode using specified format
-            raw = await self._read_registers(offset, 2 if fmt in {NumericFormat.FLOAT32, NumericFormat.UINT32} else 1)
-            result = decode_numeric_by_format(raw, fmt)
+            result = await self._read_formatted_register(config)
 
-        # Apply bit mask if needed (for digital signals)
-        if bit is not None:
-            return (int(result) >> bit) & 1
+        # Bitmask application
+        if config.get("bit") is not None:
+            return self._apply_bitmask(result, config["bit"])
 
-        # Apply formula if defined
-        if formula:
-            n1, n2, n3 = formula
-            return (result + n1) * n2 + n3
+        # Formula application
+        if config.get("formula"):
+            return self._apply_formula(result, config["formula"])
 
-        # Apply scale if defined
-        return result * scale
+        # Scale application
+        return self._apply_scale(result, config.get("scale", 1.0))
 
     async def _read_register(self, address: int) -> int:
         result = await self._read_registers(address, 1)
@@ -134,3 +111,47 @@ class AsyncGenericModbusDevice:
 
         await self.write_value(reg_name, value)
         self.logger.info(f"[{self.model}] Write {value} to {reg_name} (offset={cfg['offset']})")
+
+    async def _read_combined_registers(self, config: dict) -> float:
+        low: int = await self._read_register(config["offset"])
+        high: int = await self._read_register(config["combine_high"])
+        combined: int = (high << 16) + low
+        return combined / config.get("combine_scale", 1.0)
+
+    async def _read_formatted_register(self, config: dict) -> float | int:
+        count = 2 if config.get("format", "uint16") in {NumericFormat.FLOAT32, NumericFormat.UINT32} else 1
+        raw: list[int] = await self._read_registers(config["offset"], count)
+        return decode_numeric_by_format(raw, config.get("format", "uint16"))
+
+    def _validate_writable(self, name: str) -> dict:
+        cfg: dict = self.register_map.get(name)
+        if not cfg or not cfg.get("writable"):
+            raise ValueError(f"[{self.model}] register_map {name} is not writable")
+        return cfg
+
+    def _validate_constraints(self, name: str, value: int | float) -> bool:
+        if name in self.constraints:
+            limit = self.constraints[name]
+            min_val = limit.get("min", 60.0)
+            max_val = limit.get("max", 60.0)
+            if not min_val <= value <= max_val:
+                self.logger.warning(f"[{self.model}] Reject write: {name}={value} out of range [{min_val}, {max_val}]")
+                return False
+        return True
+
+    @staticmethod
+    def _scale_to_raw(value: int | float, scale: float) -> int:
+        return int(round(value / scale))
+
+    @staticmethod
+    def _apply_bitmask(value: float | int, bit: int) -> int:
+        return (int(value) >> bit) & 1
+
+    @staticmethod
+    def _apply_formula(value: float | int, formula: tuple) -> float:
+        n1, n2, n3 = formula
+        return (value + n1) * n2 + n3
+
+    @staticmethod
+    def _apply_scale(value: float | int, scale: float) -> float:
+        return value * scale

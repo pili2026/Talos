@@ -48,7 +48,7 @@ async def main(alert_path: str, control_path: str, modbus_device_path: str, inst
     control_executor = ControlExecutor(async_device_manager)
     control_subscriber = ControlSubscriber(pubsub=pubsub, evaluator=control_evaluator, executor=control_executor)
 
-    time_config = ConfigManager.load_yaml_file("res/time_control.yml")
+    time_config = ConfigManager.load_yaml_file("res/time_condition.yml")
     time_control_evaluator = TimeControlEvaluator(time_config["work_hours"])
     time_control_subscriber = TimeControlSubscriber(
         pubsub=pubsub,

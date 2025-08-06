@@ -15,59 +15,42 @@ class TimeControlSubscriber:
         time_control_evaluator: TimeControlEvaluator,
         send_turn_off_on_change=True,
         send_turn_on_on_change=True,
-        run_startup_check=True,
         expected_devices: list[str] | None = None,
     ):
         self.pubsub = pubsub
         self.time_control_evaluator = time_control_evaluator
         self.send_turn_off_on_change = send_turn_off_on_change
         self.send_turn_on_on_change = send_turn_on_on_change
-        self.run_startup_check = run_startup_check
 
-        # Track startup check per device
-        self._startup_checked = {}  # device_id -> bool
-
-        # Counters and lists for startup summary
-        self._startup_off_count = 0
-        self._startup_on_count = 0
+        # Summary tracking
+        self._startup_checked = set()
         self._startup_off_list = []
         self._startup_on_list = []
         self._startup_summary_logged = False
-
-        # Expected device list for accurate summary
         self._expected_devices = set(expected_devices) if expected_devices else None
 
     async def run(self):
         async for snapshot in self.pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
-            device_id = snapshot.get("device_id")
+            device_id: str = snapshot.get("device_id")
             if not device_id:
                 continue
 
             model, slave_id = device_id.rsplit("_", 1)
             slave_id = int(snapshot.get("slave_id", slave_id))
 
-            # Determine action based on time rules
+            # Evaluate the action type based on the snapshot
             action_type = self.time_control_evaluator.evaluate_action(device_id)
 
-            # Startup sync (first time seeing this device)
-            if self.run_startup_check and not self._startup_checked.get(device_id, False):
-                if action_type == ControlActionType.TURN_OFF and self.send_turn_off_on_change:
-                    await self._send_control(
-                        device_id, model, slave_id, action_type, "Startup sync: Off timezone auto shutdown"
-                    )
-                    self._startup_off_count += 1
+            # First time startup handling
+            if device_id not in self._startup_checked:
+                if action_type == ControlActionType.TURN_OFF:
                     self._startup_off_list.append(device_id)
-                elif action_type == ControlActionType.TURN_ON and self.send_turn_on_on_change:
-                    await self._send_control(
-                        device_id, model, slave_id, action_type, "Startup sync: On timezone auto startup"
-                    )
-                    self._startup_on_count += 1
+                elif action_type == ControlActionType.TURN_ON:
                     self._startup_on_list.append(device_id)
-
-                self._startup_checked[device_id] = True
+                self._startup_checked.add(device_id)
                 self._try_log_startup_summary()
 
-            # Normal on/off transitions
+            # Process the action based on the evaluation
             if action_type == ControlActionType.TURN_OFF and self.send_turn_off_on_change:
                 logger.info(f"[TimeControl] {device_id} off_timezone → skip alerts & controls.")
                 await self._send_control(device_id, model, slave_id, action_type, "Off timezone auto shutdown")
@@ -76,7 +59,7 @@ class TimeControlSubscriber:
             if action_type == ControlActionType.TURN_ON and self.send_turn_on_on_change:
                 await self._send_control(device_id, model, slave_id, action_type, "On timezone auto startup")
 
-            # If allowed, forward snapshot
+            # If allowed, publish the snapshot
             if self.time_control_evaluator.allow(device_id):
                 await self.pubsub.publish(PubSubTopic.SNAPSHOT_ALLOWED, snapshot)
 
@@ -99,15 +82,16 @@ class TimeControlSubscriber:
         if self._startup_summary_logged:
             return
         if self._expected_devices:
-            if self._expected_devices.issubset(self._startup_checked.keys()):
+            if self._expected_devices.issubset(self._startup_checked):
                 self._log_startup_summary()
-        elif len(self._startup_checked) >= 1:  # fallback: logs after first pass of all seen devices
+        else:
+            # If no expected devices, log summary when all devices checked
             self._log_startup_summary()
 
     def _log_startup_summary(self):
         logger.info(
             f"[TimeControl] Startup sync complete: "
-            f"{self._startup_off_count} devices turned off ({', '.join(self._startup_off_list) or 'None'}), "
-            f"{self._startup_on_count} devices turned on ({', '.join(self._startup_on_list) or 'None'})"
+            f"{len(self._startup_off_list)} devices turned off ({', '.join(self._startup_off_list) or 'None'}), "
+            f"{len(self._startup_on_list)} devices turned on ({', '.join(self._startup_on_list) or 'None'})"
         )
         self._startup_summary_logged = True
