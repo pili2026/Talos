@@ -122,3 +122,15 @@ class AsyncGenericModbusDevice:
     async def _write_register(self, address: int, value: int):
         self.logger.info(f"[{self.model}] Write raw value {value} to offset {address}")
         await self.client.write_register(address=address, value=value, slave=self.slave_id)
+
+    async def write_on_off(self, value: int):
+        """Control the on/off state of the device."""
+
+        reg_name = "RW_ON_OFF"  # TODO: Use Enum or constant for register name
+        cfg: dict = self.register_map.get(reg_name)
+
+        if not cfg or not cfg.get("writable"):
+            raise ValueError(f"[{self.model}] {reg_name} is not writable or not defined")
+
+        await self.write_value(reg_name, value)
+        self.logger.info(f"[{self.model}] Write {value} to {reg_name} (offset={cfg['offset']})")

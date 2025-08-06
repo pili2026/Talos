@@ -1,18 +1,18 @@
 import logging
-from typing import Any
 
+from generic_device import AsyncGenericModbusDevice
 from model.control_model import ControlActionModel, ControlActionType
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ConstraintEvaluator")
 
 
-class ConstraintEvaluate:
+class ConstraintEvaluator:
     def __init__(self, pubsub: PubSub):
         self.pubsub = pubsub
 
-    async def evaluate(self, device: Any, snapshot: dict[str, float | int]):
+    async def evaluate(self, device: AsyncGenericModbusDevice, snapshot: dict[str, float | int]):
         """
         Evaluate the device snapshot against constraints and publish control actions if needed.
         """
@@ -39,7 +39,7 @@ class ConstraintEvaluate:
                             type=ControlActionType.SET_FREQUENCY,
                             target=target,
                             value=corrected_value,
-                            source="ConstraintEnforcer",
+                            source=__class__.__name__,
                             reason=f"Value {value} out of range [{min_val}, {max_val}]",
                         )
                     )

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from evaluator.constraint_evaluator import ConstraintEvaluate
+from evaluator.constraint_evaluator import ConstraintEvaluator
 from model.control_model import ControlActionModel, ControlActionType
 
 
@@ -10,7 +10,7 @@ from model.control_model import ControlActionModel, ControlActionType
 async def test_when_value_below_min_then_correct_and_publish_action():
     # Mock
     mock_pubsub = AsyncMock()
-    executor = ConstraintEvaluate(pubsub=mock_pubsub)
+    executor = ConstraintEvaluator(pubsub=mock_pubsub)
 
     mock_device = MagicMock()
     mock_device.model = "SD400"
@@ -29,7 +29,7 @@ async def test_when_value_below_min_then_correct_and_publish_action():
     assert action.type == ControlActionType.SET_FREQUENCY
     assert action.target == "TEMP"
     assert action.value == 30
-    assert action.source == "ConstraintEnforcer"
+    assert action.source == "ConstraintEvaluator"
     assert "out of range" in action.reason
 
 
@@ -37,7 +37,7 @@ async def test_when_value_below_min_then_correct_and_publish_action():
 async def test_when_value_above_max_then_correct_and_publish_action():
     # Mock
     mock_pubsub = AsyncMock()
-    executor = ConstraintEvaluate(pubsub=mock_pubsub)
+    executor = ConstraintEvaluator(pubsub=mock_pubsub)
 
     mock_device = MagicMock()
     mock_device.model = "SD400"
@@ -61,7 +61,7 @@ async def test_when_value_above_max_then_correct_and_publish_action():
 async def test_when_value_within_range_then_do_nothing():
     # Mock
     mock_pubsub = AsyncMock()
-    executor = ConstraintEvaluate(pubsub=mock_pubsub)
+    executor = ConstraintEvaluator(pubsub=mock_pubsub)
 
     mock_device = MagicMock()
     mock_device.model = "SD400"
@@ -82,7 +82,7 @@ async def test_when_value_within_range_then_do_nothing():
 async def test_when_multiple_values_then_only_violations_trigger():
     # Mock
     mock_pubsub = AsyncMock()
-    executor = ConstraintEvaluate(pubsub=mock_pubsub)
+    executor = ConstraintEvaluator(pubsub=mock_pubsub)
 
     mock_device = MagicMock()
     mock_device.model = "SD400"
@@ -109,7 +109,7 @@ async def test_when_multiple_values_then_only_violations_trigger():
 async def test_when_target_not_in_constraints_then_ignore():
     # Mock
     mock_pubsub = AsyncMock()
-    executor = ConstraintEvaluate(pubsub=mock_pubsub)
+    executor = ConstraintEvaluator(pubsub=mock_pubsub)
 
     mock_device = MagicMock()
     mock_device.model = "SD400"

@@ -5,18 +5,21 @@ from pydantic import BaseModel, model_validator
 from model.condition_enum import ConditionOperator, ConditionType
 
 
+# TODO: Uppercase the enum values to match the convention
 class ControlActionType(StrEnum):
     SET_FREQUENCY = "set_frequency"
     WRITE_DO = "write_do"
     RESET = "reset"
+    TURN_OFF = "turn_off"
+    TURN_ON = "turn_oN"
 
 
 class ControlActionModel(BaseModel):
     model: str | None = None
     slave_id: int | None = None
     type: ControlActionType
-    target: str | None
-    value: float | int
+    target: str | None = None
+    value: float | int | None = None
     source: str | None = None
     reason: str | None = None
 
@@ -24,7 +27,7 @@ class ControlActionModel(BaseModel):
     def check_value_type(cls, model: "ControlActionModel") -> "ControlActionModel":
         if model.type == ControlActionType.SET_FREQUENCY:
             if not isinstance(model.value, (int, float)):
-                raise ValueError("SET_FREQUENCY requires a numeric value")
+                raise ValueError(f"{ControlActionType.SET_FREQUENCY} requires a numeric value")
             model.value = float(model.value)
 
         if model.type in {ControlActionType.WRITE_DO, ControlActionType.RESET}:

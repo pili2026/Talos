@@ -3,8 +3,7 @@ import logging
 from datetime import datetime
 
 from device_manager import AsyncDeviceManager
-from evaluator.constraint_evaluator import ConstraintEvaluate
-from generic_device import AsyncGenericModbusDevice
+from evaluator.constraint_evaluator import ConstraintEvaluator
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
@@ -20,8 +19,8 @@ class AsyncDeviceMonitor:
         self.async_device_manager = async_device_manager
         self.pubsub = pubsub
         self.interval = interval
-        self.logger = logging.getLogger("DeviceMonitor")
-        self.constraint_enforcer = ConstraintEvaluate(pubsub)
+        self.logger = logging.getLogger(__class__.__name__)
+        self.constraint_evaluate = ConstraintEvaluator(pubsub)
 
         self.device_configs = {
             f"{device.model}_{device.slave_id}": {
@@ -51,7 +50,7 @@ class AsyncDeviceMonitor:
                 self.logger.exception(f"Error during polling loop: {e}")
                 await asyncio.sleep(self.interval)
 
-    @async_retry(logger=logging.getLogger("DeviceMonitor"))
+    @async_retry(logger=logging.getLogger("AsyncDeviceMonitor"))
     async def _handle_device(self, device_id: str, snapshot: dict):
         config = self.device_configs.get(device_id)
         if config is None:
@@ -67,12 +66,7 @@ class AsyncDeviceMonitor:
             "slave_id": config["slave_id"],
             "timestamp": datetime.now(),
             "values": snapshot,
+            "device": self.async_device_manager.get_device_by_model_and_slave_id(config["model"], config["slave_id"]),
         }
 
         await self.pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, payload)
-
-        device: AsyncGenericModbusDevice | None = self.async_device_manager.get_device_by_model_and_slave_id(
-            config["model"], config["slave_id"]
-        )
-        if device:
-            await self.constraint_enforcer.evaluate(device, snapshot)

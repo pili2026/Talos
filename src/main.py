@@ -6,7 +6,9 @@ from dotenv import load_dotenv
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from evaluator.alert_evaluator import AlertEvaluator
+from evaluator.constraint_evaluator import ConstraintEvaluator
 from evaluator.control_evaluator import ControlEvaluator
+from evaluator.time_evalutor import TimeControlEvaluator
 from executor.control_executor import ControlExecutor
 from util.config_manager import ConfigManager
 from util.evaluator_factory import build_alert_evaluator, build_control_evaluator
@@ -15,7 +17,9 @@ from util.notifier.email_notifier import EmailNotifier
 from util.pubsub.in_memory_pubsub import InMemoryPubSub
 from util.pubsub.subscriber.alert_evaluator_subscriber import AlertEvaluatorSubscriber
 from util.pubsub.subscriber.alert_notifier_subscriber import AlertNotifierSubscriber
+from util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
+from util.pubsub.subscriber.time_control_subscriber import TimeControlSubscriber
 
 
 async def main(alert_path: str, control_path: str, modbus_device_path: str, instance_config_path: str):
@@ -31,6 +35,9 @@ async def main(alert_path: str, control_path: str, modbus_device_path: str, inst
 
     valid_device_ids = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
 
+    constraint_evaluator = ConstraintEvaluator(pubsub)
+    constraint_subscriber = ConstraintSubscriber(pubsub, constraint_evaluator)
+
     alert_evaluator: AlertEvaluator = build_alert_evaluator(alert_path, valid_device_ids)
     email_notifier = EmailNotifier()
 
@@ -41,10 +48,20 @@ async def main(alert_path: str, control_path: str, modbus_device_path: str, inst
     control_executor = ControlExecutor(async_device_manager)
     control_subscriber = ControlSubscriber(pubsub=pubsub, evaluator=control_evaluator, executor=control_executor)
 
+    time_config = ConfigManager.load_yaml_file("res/time_control.yml")
+    time_control_evaluator = TimeControlEvaluator(time_config["work_hours"])
+    time_control_subscriber = TimeControlSubscriber(
+        pubsub=pubsub,
+        time_control_evaluator=time_control_evaluator,
+        expected_devices=valid_device_ids,
+    )
+
     await asyncio.gather(
-        monitor.run(),
-        control_subscriber.run(),
-        alert_eval_subscriber.run(),
+        monitor.run(),  # SNAPSHOT from all devices
+        time_control_subscriber.run(),  # Block/allow devices based on time
+        constraint_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
+        alert_eval_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
+        control_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
         alert_notifier_subscriber.run(),
     )
 

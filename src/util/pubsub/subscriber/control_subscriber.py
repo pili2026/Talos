@@ -15,13 +15,13 @@ class ControlSubscriber:
         self.pubsub = pubsub
         self.evaluator = evaluator
         self.executor = executor
-        self.logger = logging.getLogger("ControlSubscriber")
+        self.logger = logging.getLogger(__class__.__name__)
 
     async def run(self):
         await asyncio.gather(self.run_snapshot_listener(), self.run_control_listener())
 
     async def run_snapshot_listener(self):
-        async for message in self.pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
+        async for message in self.pubsub.subscribe(PubSubTopic.SNAPSHOT_ALLOWED):
             try:
                 model: str = message["model"]
                 slave_id: str = message["slave_id"]
@@ -35,7 +35,7 @@ class ControlSubscriber:
                     await self.executor.execute(control_actions)
 
             except Exception as e:
-                self.logger.warning(f"ControlSubscriber snapshot listener failed: {e}")
+                self.logger.warning(f"{__class__.__name__} snapshot listener failed: {e}")
 
     async def run_control_listener(self):
         async for control_action in self.pubsub.subscribe(PubSubTopic.CONTROL):

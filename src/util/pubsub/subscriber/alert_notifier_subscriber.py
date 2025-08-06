@@ -10,7 +10,7 @@ class AlertNotifierSubscriber:
     def __init__(self, pubsub: PubSub, notifier_list: list[BaseNotifier]):
         self.pubsub = pubsub
         self.notifier_list = notifier_list
-        self.logger = logging.getLogger("AlertNotifierSubscriber")
+        self.logger = logging.getLogger(__class__.__name__)
 
     async def run(self):
         async for alert in self.pubsub.subscribe(PubSubTopic.ALERT_WARNING):

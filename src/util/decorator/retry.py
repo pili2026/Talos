@@ -30,7 +30,7 @@ def async_retry(
                     retry_count += 1
                     wait_sec = min(base_delay * retry_count, max_delay)
 
-                    log_prefix = f"{func.__name__}"
+                    log_prefix = f"{func.__class__.__name__}"
                     if device_id:
                         log_prefix += f" for device {device_id}"
 

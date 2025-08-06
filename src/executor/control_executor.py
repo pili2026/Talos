@@ -2,13 +2,13 @@ import logging
 
 from device_manager import AsyncDeviceManager
 from generic_device import AsyncGenericModbusDevice
-from model.control_model import ControlActionModel
+from model.control_model import ControlActionModel, ControlActionType
 
 
 class ControlExecutor:
     def __init__(self, device_manager: AsyncDeviceManager):
         self.device_manager = device_manager
-        self.logger = logging.getLogger("ControlExecutor")
+        self.logger = logging.getLogger(__class__.__name__)
 
     async def execute(self, action_list: list[ControlActionModel]):
         for action in action_list:
@@ -20,6 +20,16 @@ class ControlExecutor:
                 continue
 
             try:
+                if action.type == ControlActionType.TURN_OFF:
+                    await device.write_on_off(0)
+                    self.logger.info(f"[WRITE] {device.model} RW_ON_OFF => 0 (Turn Off)")
+                    continue
+
+                if action.type == ControlActionType.TURN_ON:
+                    await device.write_on_off(1)
+                    self.logger.info(f"[WRITE] {device.model} RW_ON_OFF => 1 (Turn On)")
+                    continue
+
                 current_value: float | int = await device.read_value(action.target)
                 if current_value == action.value:
                     self.logger.info(f"[SKIP] {device.model} {action.target} already set to {action.value}.")
@@ -27,6 +37,5 @@ class ControlExecutor:
 
                 await device.write_value(action.target, action.value)
                 self.logger.info(f"[WRITE] {device.model} {action.target} => {action.value}")
-
             except Exception as e:
                 self.logger.warning(f"[FAIL] Control failed for {device.model} {action.target}: {e}")

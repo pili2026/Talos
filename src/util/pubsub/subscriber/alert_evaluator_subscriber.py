@@ -11,10 +11,10 @@ class AlertEvaluatorSubscriber:
     def __init__(self, pubsub: PubSub, alert_evaluator: AlertEvaluator):
         self.pubsub = pubsub
         self.evaluator = alert_evaluator
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(__class__.__name__)
 
     async def run(self):
-        async for message in self.pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
+        async for message in self.pubsub.subscribe(PubSubTopic.SNAPSHOT_ALLOWED):
             try:
                 model: str = message["model"]
                 slave_id: str = message["slave_id"]
@@ -36,4 +36,4 @@ class AlertEvaluatorSubscriber:
                     await self.pubsub.publish(PubSubTopic.ALERT_WARNING, alert)
 
             except Exception as e:
-                self.logger.warning(f"AlertEvaluatorSubscriber failed: {e}")
+                self.logger.warning(f"{__class__.__name__} failed: {e}")
