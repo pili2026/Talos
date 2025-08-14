@@ -27,6 +27,7 @@ class AsyncDeviceManager:
             model: str = model_config["model"]
             slave_id: str = device_conf["slave_id"]
             port: str = device_conf["port"]
+            device_type: str = device_conf.get("type", "generic")
 
             if port not in self.client_dict:
                 client = AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)
@@ -46,6 +47,7 @@ class AsyncDeviceManager:
                 register_type=model_config.get("register_type", "holding"),
                 register_map=model_config["register_map"],
                 constraints=final_constraints,
+                device_type=device_type,
             )
             self.device_list.append(device)
 

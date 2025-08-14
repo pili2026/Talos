@@ -26,6 +26,7 @@ class AsyncDeviceMonitor:
             f"{device.model}_{device.slave_id}": {
                 "device_id": f"{device.model}_{device.slave_id}",
                 "model": device.model,
+                "type": device.device_type,
                 "slave_id": device.slave_id,
             }
             for device in self.async_device_manager.device_list
@@ -63,6 +64,7 @@ class AsyncDeviceMonitor:
         payload = {
             "device_id": config["device_id"],
             "model": config["model"],
+            "type": config["type"],
             "slave_id": config["slave_id"],
             "timestamp": datetime.now(),
             "values": snapshot,

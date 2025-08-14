@@ -15,6 +15,7 @@ class AsyncGenericModbusDevice:
         slave_id: int,
         register_type: str,
         register_map: dict,
+        device_type: str,
         constraints: dict = None,
     ):
         self.model = model
@@ -23,6 +24,7 @@ class AsyncGenericModbusDevice:
         self.register_type = register_type
         self.register_map = register_map
         self.logger = logging.getLogger(f"Device.{self.model}")
+        self.device_type = device_type
         self.constraints = constraints or {}
 
         self.output_register_map = [k for k, v in register_map.items() if v.get("writable")]
