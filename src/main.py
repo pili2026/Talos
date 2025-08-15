@@ -1,10 +1,13 @@
 import argparse
 import asyncio
+import logging
 
 from dotenv import load_dotenv
 
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
+from sender.legacy.legacy_handler import LegacySnapshotHandler
+from sender.legacy.legacy_sender import LegacySenderAdapter
 from util.config_manager import ConfigManager
 from util.factory.alert_factory import build_alert_subscriber
 from util.factory.constraint_factory import build_constraint_subscriber
@@ -15,10 +18,15 @@ from util.notifier.email_notifier import EmailNotifier
 from util.pubsub.in_memory_pubsub import InMemoryPubSub
 from util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
+from util.pubsub.subscriber.sender_subscriber import SenderSubscriber
 from util.pubsub.subscriber.time_control_subscriber import TimeControlSubscriber
 
+logger = logging.getLogger("Main")
 
-async def main(alert_path: str, control_path: str, modbus_device_path: str, instance_config_path: str):
+
+async def main(
+    alert_path: str, control_path: str, modbus_device_path: str, instance_config_path: str, sender_config_path: str
+):
     setup_logging(log_to_file=True)
     load_dotenv()
 
@@ -39,14 +47,27 @@ async def main(alert_path: str, control_path: str, modbus_device_path: str, inst
     control_subscriber: ControlSubscriber = build_control_subscriber(control_path, pubsub, async_device_manager)
     time_control_subscriber: TimeControlSubscriber = build_time_control_subscriber(pubsub, valid_device_ids)
 
-    await asyncio.gather(
-        monitor.run(),  # SNAPSHOT from all devices
-        time_control_subscriber.run(),  # Block/allow devices based on time
-        constraint_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
-        alert_evaluator_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
-        control_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
-        alert_notifiers_subscriber.run(),
-    )
+    sender_config: dict = ConfigManager.load_yaml_file(sender_config_path)
+    legacy_sender = LegacySenderAdapter(sender_config, async_device_manager)
+    await legacy_sender.start()
+    legacy_handler = LegacySnapshotHandler(legacy_sender)
+    sender_subscriber = SenderSubscriber(pubsub=pubsub, handlers=[legacy_handler])
+
+    try:
+        logger.info("Starting all subscribers...")
+        await asyncio.gather(
+            monitor.run(),  # SNAPSHOT from all devices
+            time_control_subscriber.run(),  # Block/allow devices based on time
+            constraint_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
+            alert_evaluator_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
+            control_subscriber.run(),  # Only process SNAPSHOT_ALLOWED
+            alert_notifiers_subscriber.run(),
+            sender_subscriber.run(),  # Process all snapshots and send to cloud
+        )
+    except Exception as e:
+        logger.exception("Unexpected error occurred: %s", e)
+    finally:
+        logger.info("stopped")
 
 
 if __name__ == "__main__":
@@ -57,6 +78,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--instance_config", default="res/device_instance_config.yml", help="Path to instance config YAML"
     )
+    parser.add_argument("--sender_config", default="res/sender_config.yml", help="Path to sender config YAML")
 
     args = parser.parse_args()
     asyncio.run(
@@ -65,5 +87,6 @@ if __name__ == "__main__":
             control_path=args.control,
             modbus_device_path=args.modbus_device,
             instance_config_path=args.instance_config,
+            sender_config_path=args.sender_config,
         )
     )

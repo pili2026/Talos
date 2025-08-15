@@ -11,7 +11,7 @@ class ControlActionType(StrEnum):
     WRITE_DO = "write_do"
     RESET = "reset"
     TURN_OFF = "turn_off"
-    TURN_ON = "turn_oN"
+    TURN_ON = "turn_on"
 
 
 class ControlActionModel(BaseModel):

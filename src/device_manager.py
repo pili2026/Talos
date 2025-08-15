@@ -27,7 +27,7 @@ class AsyncDeviceManager:
             model: str = model_config["model"]
             slave_id: str = device_conf["slave_id"]
             port: str = device_conf["port"]
-            device_type: str = device_conf.get("type", "generic")
+            device_type: str = device_conf["type"]
 
             if port not in self.client_dict:
                 client = AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)

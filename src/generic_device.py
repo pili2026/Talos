@@ -29,6 +29,25 @@ class AsyncGenericModbusDevice:
 
         self.output_register_map = [k for k, v in register_map.items() if v.get("writable")]
 
+    @property
+    def pin_type_map(self) -> dict[str, str]:
+        """
+        Converts pins with a defined 'type' in the register_map to their corresponding
+        unified sensor type.
+        Pins without a defined 'type' will not appear in the result.
+        """
+        type_mapping = {
+            "thermometer": "Temp",
+            "pressure": "Pressure",
+            # Extendable mapping for more driver-defined types
+        }
+
+        return {
+            pin: type_mapping[cfg["type"]]
+            for pin, cfg in self.register_map.items()
+            if "type" in cfg and cfg["type"] in type_mapping
+        }
+
     async def read_all(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
         for name, config in self.register_map.items():
