@@ -2,15 +2,25 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import aiofiles
 import httpx
 
 from device_manager import AsyncDeviceManager
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
+from sender.legacy.resend_file_util import (
+    extract_retry_count,
+    increment_retry_name,
+    mark_as_fail,
+)
 
 logger = logging.getLogger("LegacySender")
+
+MAX_RETRY = 3
+ATTEMPT_COUNT = 2
 
 
 class LegacySenderAdapter:
@@ -42,12 +52,15 @@ class LegacySenderAdapter:
         while True:
             await self._sleep_until_next_interval()
 
+            # Step 1: Try to resend failed files
+            await self._resend_failed_files()
+
+            # Step 2: Send new snapshots if available
             async with self._lock:
                 if not self._latest_snapshots:
                     logger.info(f"[{__class__.__name__}] No snapshot to send")
                     continue
 
-                # Transition use
                 snapshot_list = list(self._latest_snapshots.values())
                 self._latest_snapshots.clear()
 
@@ -89,7 +102,7 @@ class LegacySenderAdapter:
 
         json_str: str = json.dumps(payload)
 
-        for attempt in range(2):
+        for attempt in range(ATTEMPT_COUNT):
             try:
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.post(
@@ -108,7 +121,46 @@ class LegacySenderAdapter:
                 await asyncio.sleep(1)
 
                 if attempt == 1:
-                    filename = os.path.join(self.resend_dir, "manualtest-resend.xms")
-                    with open(filename, "w", encoding="utf-8") as f:
-                        f.write(json_str)
+                    now_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                    filename = os.path.join(self.resend_dir, f"resend_{now_str}.json")
+                    async with aiofiles.open(filename, "w", encoding="utf-8") as f:
+                        await f.write(json_str)
                     logger.warning(f"[{__class__.__name__}] Saved to retry file: {filename}")
+
+    async def _resend_failed_files(self) -> None:
+        file_list = sorted(
+            [f for f in os.listdir(self.resend_dir) if f.endswith(".json") or re.search(r"\.retry\d+\.json$", f)]
+        )
+
+        for file_name in file_list:
+            file_path = os.path.join(self.resend_dir, file_name)
+            retry_count = extract_retry_count(file_name)
+
+            try:
+                async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                    json_str = await f.read()
+
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.post(
+                        self.ima_url,
+                        data=json_str,
+                        headers={"Content-Type": "application/json"},
+                    )
+
+                logger.info(f"[{__class__.__name__}] Resend file: {file_name}, response: {resp.text}")
+
+                if "00000" in resp.text:
+                    os.remove(file_path)
+                    logger.info(f"[{__class__.__name__}] Resend success, deleted: {file_name}")
+                else:
+                    if retry_count + 1 >= MAX_RETRY:
+                        mark_as_fail(file_path)
+                        logger.warning(f"[{__class__.__name__}] Marked as .fail: {file_name}")
+                    else:
+                        new_name = increment_retry_name(file_name)
+                        new_path = os.path.join(self.resend_dir, new_name)
+                        os.rename(file_path, new_path)
+                        logger.info(f"[{__class__.__name__}] Retry {retry_count + 1}, renamed to: {new_name}")
+
+            except Exception as e:
+                logger.warning(f"[{__class__.__name__}] Resend failed for {file_name}: {e}")

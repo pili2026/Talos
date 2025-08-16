@@ -58,8 +58,11 @@ class AsyncDeviceManager:
             result[key] = await device.read_all()
         return result
 
-    def get_device_by_model_and_slave_id(self, model: str, slave_id: str) -> AsyncGenericModbusDevice | None:
+    # TODO: Determine if slave_id should be str or int
+    def get_device_by_model_and_slave_id(self, model: str, slave_id: str | int) -> AsyncGenericModbusDevice | None:
         for device in self.device_list:
+            if isinstance(slave_id, str):
+                slave_id = int(slave_id)
             if device.model == model and device.slave_id == slave_id:
                 return device
         return None

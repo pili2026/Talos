@@ -1,11 +1,14 @@
 import logging
 
+from model.equipment_enum import EqType
+
 logger = logging.getLogger("SnapshotConverter")
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str]) -> list[dict]:
     result = []
 
+    # TODO: Range need to refactor
     for i in range(1, 17):
         key = f"DIn{i:02d}"
         if key not in snapshot:
@@ -15,7 +18,7 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         except Exception:
             continue
 
-        suffix = build_device_suffix(slave_id, i - 1) + "SR"
+        suffix = build_device_suffix(slave_id, i - 1) + EqType.SR
         device_id = f"{gateway_id}_{suffix}"
 
         data = {
@@ -44,7 +47,7 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
         "RW_ON_OFF": ("on_off", int),
     }
 
-    suffix = build_device_suffix(slave_id, 0) + "CI"
+    suffix = build_device_suffix(slave_id, 0) + EqType.CI
     device_id = f"{gateway_id}_{suffix}"
 
     data = {}
@@ -66,8 +69,8 @@ def convert_ai_module_snapshot(
     pin_type_map: dict[str, str],
 ) -> list[dict]:
     pin_suffix_map = {
-        "Temp": "st",
-        "Pressure": "sp",
+        "Temp": EqType.ST,
+        "Pressure": EqType.SP,
     }
 
     result = []
@@ -91,7 +94,7 @@ def convert_ai_module_snapshot(
 
 
 def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dict]:
-    suffix = build_device_suffix(slave_id, 0) + "SF"
+    suffix = build_device_suffix(slave_id, 0) + EqType.SF
     device_id = f"{gateway_id}_{suffix}"
 
     return [

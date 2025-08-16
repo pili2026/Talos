@@ -1,0 +1,9 @@
+gateway_id: "talosedgedv"
+resend_dir: "./logs/resend"
+cloud:
+  ima_url: "http://imabox-server2.ima-ems.com"
+send_interval_sec: 60
+
+sender:
+  use_legacy: true
+  use_aggregator: false

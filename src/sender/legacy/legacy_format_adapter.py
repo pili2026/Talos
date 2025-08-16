@@ -12,11 +12,10 @@ def convert_snapshot_to_legacy_payload(
     try:
         device_type: str = snapshot.get("type")
         model: str = snapshot.get("model")
-        slave_id: str = str(snapshot.get("slave_id"))
+        slave_id: str = snapshot.get("slave_id")  # TODO: Slave id type issue
         values: dict = snapshot.get("values")
 
-        # FIXME: AI need to fix
-        converter = CONVERTER_MAP.get(device_type)
+        converter: dict = CONVERTER_MAP.get(device_type)
         if not converter:
             logger.debug(f"[LegacyFormat] Skip unsupported type: {device_type}")
             return []
@@ -29,12 +28,12 @@ def convert_snapshot_to_legacy_payload(
 
             return converter(
                 gateway_id=gateway_id,
-                slave_id=int(slave_id),
+                slave_id=slave_id,
                 snapshot=values,
                 pin_type_map=device.pin_type_map,
             )
 
-        return converter(gateway_id, int(slave_id), values)
+        return converter(gateway_id, slave_id, values)
 
     except Exception as e:
         logger.warning(f"[LegacyFormat] Error converting snapshot: {e}")

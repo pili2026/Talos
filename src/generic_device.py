@@ -20,7 +20,7 @@ class AsyncGenericModbusDevice:
     ):
         self.model = model
         self.client = client
-        self.slave_id = slave_id
+        self.slave_id = slave_id  # TODO: Need to determine if slave_id should be str or int
         self.register_type = register_type
         self.register_map = register_map
         self.logger = logging.getLogger(f"Device.{self.model}")
