@@ -44,4 +44,10 @@ devices:
     type: flow_meter
     model_file: driver/suto_flow.yml
     <<: *shared_config
-    slave_id: 7
+    slave_id: 8
+
+  - model: ADTEK_CPM10
+    type: power_meter
+    model_file: driver/adtek_cpm_10.yml
+    <<: *shared_config
+    slave_id: 9

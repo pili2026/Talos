@@ -1,0 +1,41 @@
+model: ADTEK_CPM10
+register_type: holding
+
+register_map:
+  # --- Energy (3-word big-endian) ---
+  Kwh_W1_HI:     { offset: 0,  readable: true }
+  Kwh_W2_MD:     { offset: 1,  readable: true }
+  Kwh_W3_LO:     { offset: 2,  readable: true }
+
+  Kvarh_W1_HI:   { offset: 3,  readable: true }
+  Kvarh_W2_MD:   { offset: 4,  readable: true }
+  Kvarh_W3_LO:   { offset: 5,  readable: true }
+
+  # --- Averages ---
+  AverageVoltage:      { offset: 6,  readable: true }   # raw × VoltageIndex
+  AverageCurrent:      { offset: 7,  readable: true }   # raw × CurrentIndex
+
+  # --- Instant Power Family (driver applies EnergyIndex multiplier) ---
+  Kw:                  { offset: 9,  readable: true }
+  Kvar:                { offset: 10, readable: true }
+  Kva:                 { offset: 11, readable: true }
+
+  # --- Power Factor ---
+  AveragePowerFactor:  { offset: 12, readable: true }   # raw × 0.001 (handled in code)
+
+  # --- Phase Currents (raw × CurrentIndex) ---
+  Phase_A_Current:     { offset: 16, readable: true }
+  Phase_B_Current:     { offset: 17, readable: true }
+  Phase_C_Current:     { offset: 18, readable: true }
+
+  # --- Scale Index Registers (driver reads and determines multipliers) ---
+  SCALE_CurrentIndex:  { offset: 31, readable: true }   # a_list = [0.001, 0.010, 0.1]
+  SCALE_VoltageIndex:  { offset: 32, readable: true }   # v_list = [0.1, 1.0, 10.0, 100.0]
+  SCALE_EnergyIndex:   { offset: 33, readable: true }   # k_list[...] × 0.001
+
+  # --- Config Registers (writable; writing triggers multiplier refresh in code) ---
+  CFG_WiringMethod:    { offset: 34, readable: true, writable: true }
+  CFG_PT_1st_Unit:     { offset: 35, readable: true, writable: true }
+  CFG_PT_1st:          { offset: 36, readable: true, writable: true }
+  CFG_PT_2nd:          { offset: 37, readable: true, writable: true }
+  CFG_CT_1st:          { offset: 38, readable: true, writable: true }
