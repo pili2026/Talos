@@ -96,7 +96,6 @@ class LegacySenderAdapter:
             "version": "6.0",
             "GatewayID": self.gateway_id,
             "Timestamp": timestamp,
-            "CommandID": 0,
             "Data": all_data,
         }
 
