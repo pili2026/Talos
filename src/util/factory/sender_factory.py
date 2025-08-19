@@ -8,7 +8,7 @@ from util.pubsub.subscriber.sender_subscriber import SenderSubscriber
 
 def build_sender_subscriber(
     pubsub: PubSub, sender_config_path: str, async_device_manager: AsyncDeviceManager
-) -> SenderSubscriber:
+) -> tuple[LegacySenderAdapter, SenderSubscriber]:
     sender_config = ConfigManager.load_yaml_file(sender_config_path)
     legacy_sender = LegacySenderAdapter(sender_config, async_device_manager)
     legacy_handler = LegacySnapshotHandler(legacy_sender)

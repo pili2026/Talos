@@ -1,0 +1,8 @@
+SUBSCRIBERS:
+  MONITOR: true
+  TIME_CONTROL: true
+  CONSTRAINT: true
+  ALERT: true
+  ALERT_NOTIFIERS: true
+  CONTROL: true
+  DATA_SENDER: true
