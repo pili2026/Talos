@@ -6,4 +6,4 @@ SMTP_USERNAME: ${SMTP_USERNAME}
 SMTP_PASSWORD: ${SMTP_PASSWORD}
 EMAIL_FROM: ${EMAIL_FROM}
 TO_ADDRESSES:
-  - b9813114@gmail.com # Need modify
+  - XXX@mail.com # Need modify

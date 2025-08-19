@@ -25,7 +25,12 @@ logger = logging.getLogger("Main")
 
 
 async def main(
-    alert_path: str, control_path: str, modbus_device_path: str, instance_config_path: str, sender_config_path: str
+    alert_path: str,
+    control_path: str,
+    modbus_device_path: str,
+    instance_config_path: str,
+    sender_config_path: str,
+    mail_config_path: str,
 ):
     setup_logging(log_to_file=True)
     load_dotenv()
@@ -38,7 +43,7 @@ async def main(
     monitor = AsyncDeviceMonitor(async_device_manager, pubsub)
 
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
-    email_notifier = EmailNotifier()
+    email_notifier = EmailNotifier(mail_config_path)
 
     constraint_subscriber: ConstraintSubscriber = build_constraint_subscriber(pubsub)
     alert_evaluator_subscriber, alert_notifiers_subscriber = build_alert_subscriber(
@@ -72,21 +77,23 @@ async def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--alert", default="res/alert_condition.yml", help="Path to alert condition YAML")
-    parser.add_argument("--control", default="res/control_condition.yml", help="Path to control condition YAML")
+    parser.add_argument("--alert_config", default="res/alert_condition.yml", help="Path to alert condition YAML")
+    parser.add_argument("--control_config", default="res/control_condition.yml", help="Path to control condition YAML")
     parser.add_argument("--modbus_device", default="res/modbus_device.yml", help="Path to modbus device YAML")
     parser.add_argument(
         "--instance_config", default="res/device_instance_config.yml", help="Path to instance config YAML"
     )
     parser.add_argument("--sender_config", default="res/sender_config.yml", help="Path to sender config YAML")
+    parser.add_argument("--mail_config", default="res/mail_config.yml", help="Path to mail config YAML")
 
     args = parser.parse_args()
     asyncio.run(
         main(
-            alert_path=args.alert,
-            control_path=args.control,
+            alert_path=args.alert_config,
+            control_path=args.control_config,
             modbus_device_path=args.modbus_device,
             instance_config_path=args.instance_config,
             sender_config_path=args.sender_config,
+            mail_config_path=args.mail_config,
         )
     )

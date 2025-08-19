@@ -13,7 +13,7 @@ from util.notifier.base import BaseNotifier
 
 
 class EmailNotifier(BaseNotifier):
-    def __init__(self, config_path: str = "res/email_config.yml", threshold_sec: float = 60.0):
+    def __init__(self, config_path: str, threshold_sec: float = 60.0):
         self.logger = logging.getLogger("EmailNotifier")
         self.threshold_sec = threshold_sec
         self.last_sent: dict[tuple[str, str], float] = defaultdict(lambda: 0.0)
