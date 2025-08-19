@@ -14,9 +14,9 @@ def build_alert_evaluator(path: str, valid_device_ids: set[str]) -> AlertEvaluat
 
 
 def build_alert_subscriber(
-    alert_path: str, pubsub: PubSub, valid_device_ids: set[str], notifiers: list[BaseNotifier]
+    alert_path: str, pubsub: PubSub, valid_device_ids: set[str], notifier_list: list[BaseNotifier]
 ) -> tuple[AlertEvaluatorSubscriber, AlertNotifierSubscriber]:
     alert_evaluator: AlertEvaluator = build_alert_evaluator(alert_path, valid_device_ids)
     alert_eval_subscriber = AlertEvaluatorSubscriber(pubsub, alert_evaluator)
-    alert_notifier_subscriber = AlertNotifierSubscriber(pubsub, notifiers)
+    alert_notifier_subscriber = AlertNotifierSubscriber(pubsub, notifier_list)
     return alert_eval_subscriber, alert_notifier_subscriber

@@ -6,8 +6,10 @@ from util.pubsub.base import PubSub
 from util.pubsub.subscriber.time_control_subscriber import TimeControlSubscriber
 
 
-def build_time_control_subscriber(pubsub: PubSub, valid_device_ids: set[str]) -> TimeControlSubscriber:
-    time_config = ConfigManager.load_yaml_file("res/time_condition.yml")
+def build_time_control_subscriber(
+    pubsub: PubSub, valid_device_ids: set[str], time_config_path: str
+) -> TimeControlSubscriber:
+    time_config: dict = ConfigManager.load_yaml_file(time_config_path)
     time_control_evaluator = TimeControlEvaluator(time_config["work_hours"])
     time_control_executor = TimeControlExecutor(pubsub)
     time_control_handler = TimeControlHandler(

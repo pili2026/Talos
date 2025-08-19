@@ -6,19 +6,17 @@ from dotenv import load_dotenv
 
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
-from sender.legacy.legacy_handler import LegacySnapshotHandler
-from sender.legacy.legacy_sender import LegacySenderAdapter
 from util.config_manager import ConfigManager
 from util.factory.alert_factory import build_alert_subscriber
 from util.factory.constraint_factory import build_constraint_subscriber
 from util.factory.control_factory import build_control_subscriber
+from util.factory.sender_factory import build_sender_subscriber, init_sender
 from util.factory.time_factory import build_time_control_subscriber
 from util.logger_config import setup_logging
 from util.notifier.email_notifier import EmailNotifier
 from util.pubsub.in_memory_pubsub import InMemoryPubSub
 from util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
-from util.pubsub.subscriber.sender_subscriber import SenderSubscriber
 from util.pubsub.subscriber.time_control_subscriber import TimeControlSubscriber
 
 logger = logging.getLogger("Main")
@@ -31,6 +29,7 @@ async def main(
     instance_config_path: str,
     sender_config_path: str,
     mail_config_path: str,
+    time_config_path: str,
 ):
     setup_logging(log_to_file=True)
     load_dotenv()
@@ -47,16 +46,19 @@ async def main(
 
     constraint_subscriber: ConstraintSubscriber = build_constraint_subscriber(pubsub)
     alert_evaluator_subscriber, alert_notifiers_subscriber = build_alert_subscriber(
-        alert_path, pubsub, valid_device_ids, [email_notifier]
+        alert_path=alert_path, pubsub=pubsub, valid_device_ids=valid_device_ids, notifier_list=[email_notifier]
     )
-    control_subscriber: ControlSubscriber = build_control_subscriber(control_path, pubsub, async_device_manager)
-    time_control_subscriber: TimeControlSubscriber = build_time_control_subscriber(pubsub, valid_device_ids)
+    control_subscriber: ControlSubscriber = build_control_subscriber(
+        control_path=control_path, pubsub=pubsub, async_device_manager=async_device_manager
+    )
+    time_control_subscriber: TimeControlSubscriber = build_time_control_subscriber(
+        pubsub=pubsub, valid_device_ids=valid_device_ids, time_config_path=time_config_path
+    )
 
-    sender_config: dict = ConfigManager.load_yaml_file(sender_config_path)
-    legacy_sender = LegacySenderAdapter(sender_config, async_device_manager)
-    await legacy_sender.start()
-    legacy_handler = LegacySnapshotHandler(legacy_sender)
-    sender_subscriber = SenderSubscriber(pubsub=pubsub, handlers=[legacy_handler])
+    legacy_sender, sender_subscriber = build_sender_subscriber(
+        pubsub=pubsub, async_device_manager=async_device_manager, sender_config_path=sender_config_path
+    )
+    await init_sender(legacy_sender)
 
     try:
         logger.info("Starting all subscribers...")
@@ -85,6 +87,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--sender_config", default="res/sender_config.yml", help="Path to sender config YAML")
     parser.add_argument("--mail_config", default="res/mail_config.yml", help="Path to mail config YAML")
+    parser.add_argument("--time_config", default="res/time_condition.yml", help="Path to time condition config YAML")
 
     args = parser.parse_args()
     asyncio.run(
@@ -95,5 +98,6 @@ if __name__ == "__main__":
             instance_config_path=args.instance_config,
             sender_config_path=args.sender_config,
             mail_config_path=args.mail_config,
+            time_config_path=args.time_config,
         )
     )
