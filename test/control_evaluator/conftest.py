@@ -60,3 +60,13 @@ def snapshot_condition_not_met():
         "AIn03": 10.0,
         "AIn04": 5.0,
     }
+
+
+@pytest.fixture
+def snapshot_all_same():
+    return {"AIn01": 2.0, "AIn02": 2.0}
+
+
+@pytest.fixture
+def snapshot_all_diff():
+    return {"AIn01": 2.0, "AIn02": 1.0}

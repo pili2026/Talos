@@ -8,14 +8,20 @@ class ControlEvaluator:
         self.control_config = control_config
 
     def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
-        action_list: list[ControlActionModel] = []
-        condition_list = self.control_config.get_control_list(model, slave_id)
-        sorted_conditions = sorted(condition_list, key=lambda c: c.priority, reverse=True)
+        conditions = self.control_config.get_control_list(model, slave_id)
 
-        for condition in sorted_conditions:
-            if self._check_condition(condition, snapshot):
-                action_list.append(condition.action)
-        return action_list
+        best_condition: ControlConditionModel | None = None
+        best_priority: int | None = None
+
+        for cond in conditions:
+            if not self._check_condition(cond, snapshot):
+                continue
+
+            if best_condition is None or cond.priority > best_priority:
+                best_condition = cond
+                best_priority = cond.priority
+
+        return [best_condition.action] if best_condition else []
 
     def _check_condition(self, condition: ControlConditionModel, snapshot: dict[str, float]) -> bool:
         if condition.type == ConditionType.DIFFERENCE:

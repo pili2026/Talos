@@ -233,9 +233,8 @@ def test_when_multiple_default_controls_trigger_then_return_actions_by_priority(
     result = evaluator.evaluate("SD400", "3", snapshot_all_high)
 
     # Assert
-    assert len(result) == 2
+    assert len(result) == 1
     assert result[0] == freq_action_50hz
-    assert result[1] == freq_action_30hz
 
 
 def test_when_only_one_of_multiple_controls_meets_condition_then_return_single_action(
@@ -269,6 +268,76 @@ def test_when_only_one_of_multiple_controls_meets_condition_then_return_single_a
 
     # Act
     result = evaluator.evaluate("SD400", "3", snapshot_temp_trigger_only)
+
+    # Assert
+    assert len(result) == 1
+    assert result[0] == freq_action_30hz
+
+
+def test_when_same_priority_then_pick_first_defined(
+    mock_control_config, freq_action_30hz, freq_action_50hz, snapshot_all_same
+):
+    # Arrange
+    index_one_condition = ControlConditionModel(
+        name="R1",
+        code="R1",
+        priority=100,
+        type=ConditionType.THRESHOLD,
+        source="AIn01",
+        operator=ConditionOperator.GREATER_THAN,
+        threshold=1.0,
+        action=freq_action_30hz,
+    )
+    index_two_condition = ControlConditionModel(
+        name="R2",
+        code="R2",
+        priority=100,
+        type=ConditionType.THRESHOLD,
+        source="AIn02",
+        operator=ConditionOperator.GREATER_THAN,
+        threshold=1.0,
+        action=freq_action_50hz,
+    )
+    mock_control_config.get_control_list.return_value = [index_one_condition, index_two_condition]
+    evaluator = ControlEvaluator(mock_control_config)
+
+    # Act
+    result = evaluator.evaluate("SD400", "3", snapshot_all_same)
+
+    # Assert
+    assert len(result) == 1
+    assert result[0] == freq_action_30hz
+
+
+def test_when_only_lower_priority_matches_then_return_it(
+    mock_control_config, freq_action_30hz, freq_action_50hz, snapshot_all_diff
+):
+    # Arrange
+    priority_low = ControlConditionModel(
+        name="LOW",
+        code="LOW",
+        priority=10,
+        type=ConditionType.THRESHOLD,
+        source="AIn01",
+        operator=ConditionOperator.GREATER_THAN,
+        threshold=1.0,
+        action=freq_action_30hz,
+    )
+    priority_high = ControlConditionModel(
+        name="HIGH",
+        code="HIGH",
+        priority=100,
+        type=ConditionType.THRESHOLD,
+        source="AIn02",
+        operator=ConditionOperator.GREATER_THAN,
+        threshold=999.0,
+        action=freq_action_50hz,
+    )
+    mock_control_config.get_control_list.return_value = [priority_low, priority_high]
+    evaluator = ControlEvaluator(mock_control_config)
+
+    # Act
+    result = evaluator.evaluate("SD400", "3", snapshot_all_diff)
 
     # Assert
     assert len(result) == 1
