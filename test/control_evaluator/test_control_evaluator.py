@@ -1,12 +1,12 @@
 import pytest
 
 from evaluator.control_evaluator import ControlEvaluator
-from model.condition_enum import ConditionOperator, ConditionType
 from model.control_model import (
     ControlActionModel,
     ControlActionType,
     ControlConditionModel,
 )
+from model.enum.condition_enum import ConditionOperator, ConditionType
 
 
 def test_when_snapshot_value_exceeds_threshold_then_trigger_action(mock_control_config):

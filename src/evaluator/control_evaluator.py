@@ -1,6 +1,6 @@
 from control_config import ControlConfig
-from model.condition_enum import ConditionOperator, ConditionType
 from model.control_model import ControlActionModel, ControlConditionModel
+from model.enum.condition_enum import ConditionOperator, ConditionType
 
 
 class ControlEvaluator:

@@ -2,7 +2,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, model_validator
 
-from model.condition_enum import ConditionOperator, ConditionType
+from model.enum.condition_enum import ConditionOperator, ConditionType
 
 
 # TODO: Uppercase the enum values to match the convention
@@ -24,17 +24,17 @@ class ControlActionModel(BaseModel):
     reason: str | None = None
 
     @model_validator(mode="after")
-    def check_value_type(cls, model: "ControlActionModel") -> "ControlActionModel":
-        if model.type == ControlActionType.SET_FREQUENCY:
-            if not isinstance(model.value, (int, float)):
+    def check_value_type(self) -> "ControlActionModel":
+        if self.type == ControlActionType.SET_FREQUENCY:
+            if not isinstance(self.value, (int, float)):
                 raise ValueError(f"{ControlActionType.SET_FREQUENCY} requires a numeric value")
-            model.value = float(model.value)
+            self.value = float(self.value)
 
-        if model.type in {ControlActionType.WRITE_DO, ControlActionType.RESET}:
-            if not isinstance(model.value, int):
-                raise ValueError(f"{model.type} requires an int value")
+        if self.type in {ControlActionType.WRITE_DO, ControlActionType.RESET}:
+            if not isinstance(self.value, int):
+                raise ValueError(f"{self.type} requires an int value")
 
-        return model
+        return self
 
 
 class ControlConditionModel(BaseModel):
@@ -48,11 +48,11 @@ class ControlConditionModel(BaseModel):
     priority: int = 0
 
     @model_validator(mode="after")
-    def check_required_fields(cls, model: "ControlConditionModel") -> "ControlConditionModel":
-        if model.type == ConditionType.THRESHOLD:
-            if not model.source or not isinstance(model.source, str):
+    def check_required_fields(self) -> "ControlConditionModel":
+        if self.type == ConditionType.THRESHOLD:
+            if not isinstance(self.source, str) or not self.source:
                 raise ValueError("Threshold condition must include a single 'source'")
-        if model.type == ConditionType.DIFFERENCE:
-            if not isinstance(model.source, list) or len(model.source) != 2:
+        if self.type == ConditionType.DIFFERENCE:
+            if not isinstance(self.source, list) or len(self.source) != 2:
                 raise ValueError("Difference condition must include exactly 2 sources")
-        return model
+        return self

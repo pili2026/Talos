@@ -1,15 +1,9 @@
 from datetime import datetime
-from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from model.condition_enum import ConditionOperator, ConditionType
-
-
-class AlertSeverity(StrEnum):
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
+from model.enum.alert_enum import AlertSeverity
+from model.enum.condition_enum import ConditionOperator, ConditionType
 
 
 class AlertMessageModel(BaseModel):

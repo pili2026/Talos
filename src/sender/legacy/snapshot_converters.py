@@ -1,6 +1,6 @@
 import logging
 
-from model.equipment_enum import EqType
+from model.enum.equipment_enum import EqType
 
 logger = logging.getLogger("SnapshotConverter")
 

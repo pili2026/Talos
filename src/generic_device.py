@@ -77,6 +77,22 @@ class AsyncGenericModbusDevice:
         await self._write_register(cfg["offset"], raw)
         self.logger.info(f"[{self.model}] Write {value} ({raw}) to {name} (offset={cfg['offset']})")
 
+    def supports_on_off(self) -> bool:
+        """
+        Determine whether the device supports RW_ON_OFF:
+          - inverter/vfd types → True
+          - others (AI, DI, IO module, flow meter, ...) → False
+          - if register_map explicitly defines RW_ON_OFF with writable=True,
+            it is also considered supported
+        """
+        cfg: dict = self.register_map.get("RW_ON_OFF")
+        if cfg and cfg.get("writable", False):
+            return True
+
+        # Decide according to device_type
+        onoff_supported_types = {"inverter", "vfd", "inverter_vfd"}
+        return self.device_type in onoff_supported_types
+
     async def _read_value(self, config: dict) -> float | int:
         # Read register based on configuration
         if config.get("combine_high") is not None:

@@ -35,17 +35,22 @@ async def main(
     setup_logging(log_to_file=True)
     load_dotenv()
 
+    system_config: dict = ConfigManager.load_yaml_file("res/system_config.yml")
+
     pubsub = InMemoryPubSub()
     instance_config: dict = ConfigManager.load_yaml_file(instance_config_path)
     async_device_manager = AsyncDeviceManager(modbus_device_path, instance_config)
     await async_device_manager.init()
 
-    monitor = AsyncDeviceMonitor(async_device_manager, pubsub)
+    monitor = AsyncDeviceMonitor(
+        async_device_manager=async_device_manager,
+        pubsub=pubsub,
+        interval=system_config.get("MONITOR_INTERVAL_SECONDS", 1.0),
+    )
 
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
     email_notifier = EmailNotifier(mail_config_path)
 
-    system_config: dict = ConfigManager.load_yaml_file("res/system_config.yml")
     enabled: dict[str, bool] = system_config.get("SUBSCRIBERS", {})
     subscriber_registry = SubscriberRegistry(enabled)
 
