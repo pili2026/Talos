@@ -7,6 +7,7 @@ from evaluator.constraint_evaluator import ConstraintEvaluator
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
+from util.time_util import sleep_exact_interval, sleep_until_next_tick
 
 
 class AsyncDeviceMonitor:
@@ -34,22 +35,29 @@ class AsyncDeviceMonitor:
 
     async def run(self):
         self.logger.info("Starting device monitor loop...")
+        # 1) Poll once at startup (immediately have data available)
+        await self._poll_once()
+
+        # 2) Align to the next tick (rounded by interval, e.g., on the minute / every 10 seconds)
+        await sleep_until_next_tick(self.interval, tz="Asia/Taipei")
+
+        # 3) Afterwards, maintain a stable rhythm using monotonic clock
+        next_mark = None
         while True:
             try:
-                raw_data: dict = await self.async_device_manager.read_all_from_all_devices()
-
-                tasks = [self._handle_device(device_id, snapshot) for device_id, snapshot in raw_data.items()]
-                results = await asyncio.gather(*tasks, return_exceptions=False)
-
-                for device_id, result in zip(raw_data.keys(), results):
-                    if isinstance(result, Exception):
-                        self.logger.error(f"[{device_id}] Task failed: {result}")
-
-                await asyncio.sleep(self.interval)
-
+                await self._poll_once()
+                next_mark = await sleep_exact_interval(self.interval, next_mark)
             except Exception as e:
                 self.logger.exception(f"Error during polling loop: {e}")
-                await asyncio.sleep(self.interval)
+                next_mark = await sleep_exact_interval(self.interval, next_mark)
+
+    async def _poll_once(self):
+        raw_data: dict = await self.async_device_manager.read_all_from_all_devices()
+        tasks = [self._handle_device(device_id, snapshot) for device_id, snapshot in raw_data.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        for device_id, result in zip(raw_data.keys(), results):
+            if isinstance(result, Exception):
+                self.logger.error(f"[{device_id}] Task failed: {result}")
 
     @async_retry(logger=logging.getLogger("AsyncDeviceMonitor"))
     async def _handle_device(self, device_id: str, snapshot: dict):
@@ -66,7 +74,7 @@ class AsyncDeviceMonitor:
             "model": config["model"],
             "type": config["type"],
             "slave_id": config["slave_id"],
-            "timestamp": datetime.now(),
+            "sampling_ts": datetime.now(),
             "values": snapshot,
             "device": self.async_device_manager.get_device_by_model_and_slave_id(config["model"], config["slave_id"]),
         }

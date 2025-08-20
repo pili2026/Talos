@@ -10,22 +10,6 @@ class ControlExecutor:
         self.device_manager = device_manager
         self.logger = logging.getLogger(__class__.__name__)
 
-    # ---- helpers ----
-    @staticmethod
-    def _has_register(device: AsyncGenericModbusDevice, name: str) -> bool:
-        return bool(name and name in device.register_map)
-
-    @staticmethod
-    def _is_writable(device: AsyncGenericModbusDevice, name: str) -> bool:
-        cfg = device.register_map.get(name, {})
-        return bool(cfg.get("writable", False))
-
-    @staticmethod
-    def _supports_on_off(device: AsyncGenericModbusDevice) -> bool:
-        """Check by register_map whether RW_ON_OFF is supported; if not present, treat as unsupported."""
-        cfg = device.register_map.get("RW_ON_OFF")
-        return bool(cfg and cfg.get("writable", False))
-
     async def execute(self, action_list: list[ControlActionModel]):
         for action in action_list:
             device: AsyncGenericModbusDevice | None = self.device_manager.get_device_by_model_and_slave_id(
@@ -75,3 +59,19 @@ class ControlExecutor:
             except Exception as e:
                 target_repr: str = getattr(action, "target", None) or "<RW_ON_OFF>"
                 self.logger.warning(f"[FAIL] Control failed for {device.model} {target_repr}: {e}")
+
+    # ---- helpers ----
+    @staticmethod
+    def _has_register(device: AsyncGenericModbusDevice, name: str) -> bool:
+        return bool(name and name in device.register_map)
+
+    @staticmethod
+    def _is_writable(device: AsyncGenericModbusDevice, name: str) -> bool:
+        cfg = device.register_map.get(name, {})
+        return bool(cfg.get("writable", False))
+
+    @staticmethod
+    def _supports_on_off(device: AsyncGenericModbusDevice) -> bool:
+        """Check by register_map whether RW_ON_OFF is supported; if not present, treat as unsupported."""
+        cfg = device.register_map.get("RW_ON_OFF")
+        return bool(cfg and cfg.get("writable", False))

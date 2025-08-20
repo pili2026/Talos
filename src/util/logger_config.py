@@ -45,5 +45,3 @@ def setup_logging(
             )
             rotating_handler.setFormatter(formatter)
             root_logger.addHandler(rotating_handler)
-            root_logger.addHandler(rotating_handler)
-            root_logger.addHandler(rotating_handler)
