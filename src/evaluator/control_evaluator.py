@@ -1,11 +1,35 @@
+import logging
+from functools import partial
+from typing import Optional
+
 from control_config import ControlConfig
+from evaluator.composite_evaluator import CompositeEvaluator
+from model.control_composite import CompositeNode
 from model.control_model import ControlActionModel, ControlConditionModel
-from model.enum.condition_enum import ConditionOperator, ConditionType
+
+logger = logging.getLogger(__name__)
 
 
 class ControlEvaluator:
+    """
+    Responsibilities:
+    - Retrieve the control rule list for the specified (model, slave_id)
+    - Evaluate each rule and select the one that matches with the highest priority
+    - Return the corresponding Action (at most one)
+    """
+
     def __init__(self, control_config: ControlConfig):
         self.control_config = control_config
+        self.composite_evaluator = CompositeEvaluator()
+
+    # Centralized snapshot access (easy to refactor later)
+    def get_snapshot_value(self, snapshot: dict[str, float], key: str) -> Optional[float]:
+        """
+        Fetch a numeric value by key from the given snapshot.
+        If your snapshot structure changes (namespacing, nesting, etc.),
+        just update this method.
+        """
+        return snapshot.get(key)
 
     def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
         conditions = self.control_config.get_control_list(model, slave_id)
@@ -13,42 +37,54 @@ class ControlEvaluator:
         best_condition: ControlConditionModel | None = None
         best_priority: int | None = None
 
-        for cond in conditions:
-            if not self._check_condition(cond, snapshot):
+        # Pre-bind snapshot so the callback fits Callable[[str], Optional[float]]
+        get_value = partial(self.get_snapshot_value, snapshot)
+
+        for condition_model in conditions:
+            composite: CompositeNode = getattr(condition_model, "composite", None)
+            if composite is None or getattr(composite, "invalid", False):
                 continue
 
-            if best_condition is None or cond.priority > best_priority:
-                best_condition = cond
-                best_priority = cond.priority
+            is_matched: bool = self.composite_evaluator.evaluate_composite_node(composite, get_value)
+            if not is_matched:
+                continue
 
-        return [best_condition.action] if best_condition else []
+            # Keep only the highest priority; if equal, keep the first encountered
+            if best_condition is None:
+                best_condition = condition_model
+                best_priority = condition_model.priority
+            else:
+                if best_priority is None or condition_model.priority > best_priority:
+                    best_condition = condition_model
+                    best_priority = condition_model.priority
 
-    def _check_condition(self, condition: ControlConditionModel, snapshot: dict[str, float]) -> bool:
-        if condition.type == ConditionType.DIFFERENCE:
-            if not isinstance(condition.source, list) or len(condition.source) != 2:
-                return False
+        if best_condition is None:
+            return []
 
-            v1: float | None = snapshot.get(condition.source[0])
-            v2: float | None = snapshot.get(condition.source[1])
-            if v1 is None or v2 is None:
-                return False
-            measured_value: float = abs(v1 - v2)
+        selected = best_condition
+        action: ControlActionModel = selected.action
 
-        elif condition.type == ConditionType.THRESHOLD:
-            if not isinstance(condition.source, str):
-                return False
-            measured_value = snapshot.get(condition.source)
-            if measured_value is None:
-                return False
+        # Normalize context (use evaluate() arguments as the source of truth)
+        if action.model and action.model != model:
+            logger.warning(f"[EVAL] Action.model '{action.model}' != context '{model}', override by context.")
+        if action.slave_id and action.slave_id != slave_id:
+            logger.warning(f"[EVAL] Action.slave_id '{action.slave_id}' != context '{slave_id}', override by context.")
+        action.model = model
+        action.slave_id = slave_id
 
-        else:
-            return False
+        # Concise reason (composite summary)
+        try:
+            comp_summary = (
+                self.composite_evaluator.build_composite_reason_summary(selected.composite)
+                if selected.composite
+                else "composite"
+            )
+        except Exception:
+            comp_summary = "composite"
 
-        return self._apply_operator(measured_value, condition.threshold, condition.operator)
+        action.reason = f"[{selected.code}] {selected.name} | {comp_summary} | priority={selected.priority}"
 
-    def _apply_operator(self, measured_value: float, threshold: float, operator: ConditionOperator) -> bool:
-        return {
-            ConditionOperator.GREATER_THAN: measured_value > threshold,
-            ConditionOperator.LESS_THAN: measured_value < threshold,
-            ConditionOperator.EQUAL: measured_value == threshold,
-        }[operator]
+        logger.info(
+            f"[EVAL] Pick '{selected.code}' (p={selected.priority}) " f"model={model} slave_id={slave_id} via composite"
+        )
+        return [action]
