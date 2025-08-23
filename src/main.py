@@ -51,8 +51,8 @@ async def main(
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
     email_notifier = EmailNotifier(mail_config_path)
 
-    enabled: dict[str, bool] = system_config.get("SUBSCRIBERS", {})
-    subscriber_registry = SubscriberRegistry(enabled)
+    enabled_sub: dict[str, bool] = system_config.get("SUBSCRIBERS", {})
+    subscriber_registry = SubscriberRegistry(enabled_sub)
 
     constraint_subscriber: ConstraintSubscriber = build_constraint_subscriber(pubsub)
     alert_evaluator_subscriber, alert_notifiers_subscriber = build_alert_subscriber(
@@ -81,7 +81,7 @@ async def main(
 
     try:
         logger.info("Starting subscribers...")
-        await subscriber_registry.start_enabled()
+        await subscriber_registry.start_enabled_sub()
 
         # Main loop to keep the program running, replace with actual event loop logic(like FastAPI or similar)
         await asyncio.Event().wait()

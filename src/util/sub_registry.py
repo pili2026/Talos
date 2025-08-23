@@ -8,11 +8,11 @@ Runner = Callable[[], Awaitable[None]]
 
 
 class SubscriberRegistry:
-    def __init__(self, enabled: dict[str, bool]) -> None:
+    def __init__(self, enabled_sub: dict[str, bool]) -> None:
         """
-        :param enabled: Switch setting from YAML/ENV
+        :param enabled_sub: Switch setting from YAML/ENV
         """
-        self.enabled = dict(enabled)
+        self.enabled_sub = dict(enabled_sub)
         self.subs: dict[str, Runner] = {}
         self.tasks: dict[str, asyncio.Task] = {}
 
@@ -21,9 +21,9 @@ class SubscriberRegistry:
             raise ValueError(f"Subscriber '{name}' already registered")
         self.subs[name] = runner
 
-    async def start_enabled(self) -> None:
+    async def start_enabled_sub(self) -> None:
         for name, runner in self.subs.items():
-            if not self.enabled.get(name, True):
+            if not self.enabled_sub.get(name, True):
                 logger.info(f" {name} disabled")
                 continue
             if name in self.tasks and not self.tasks[name].done():
@@ -47,15 +47,15 @@ class SubscriberRegistry:
         logger.info("All subscribers stopped")
 
     def status(self) -> dict[str, str]:
-        st = {}
+        status_dict = {}
         for name in self.subs:
             t = self.tasks.get(name)
             if t is None:
-                st[name] = "not started"
+                status_dict[name] = "not started"
             elif t.cancelled():
-                st[name] = "cancelled"
+                status_dict[name] = "cancelled"
             elif t.done():
-                st[name] = "done" if t.exception() is None else f"error: {t.exception()}"
+                status_dict[name] = "done" if t.exception() is None else f"error: {t.exception()}"
             else:
-                st[name] = "running"
-        return st
+                status_dict[name] = "running"
+        return status_dict
