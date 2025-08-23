@@ -39,7 +39,6 @@ devices:
     <<: *shared_config
     slave_id: 6
 
-
   - model: SUTO_FLOW
     type: flow_meter
     model_file: driver/suto_flow.yml

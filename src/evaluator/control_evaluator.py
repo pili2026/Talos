@@ -64,13 +64,18 @@ class ControlEvaluator:
         selected = best_condition
         action: ControlActionModel = selected.action
 
-        # Normalize context (use evaluate() arguments as the source of truth)
-        if action.model and action.model != model:
-            logger.warning(f"[EVAL] Action.model '{action.model}' != context '{model}', override by context.")
-        if action.slave_id and action.slave_id != slave_id:
-            logger.warning(f"[EVAL] Action.slave_id '{action.slave_id}' != context '{slave_id}', override by context.")
-        action.model = model
-        action.slave_id = slave_id
+        missing_field_list = []
+        if not action.model:
+            missing_field_list.append("model")
+        if not action.slave_id:
+            missing_field_list.append("slave_id")
+
+        if missing_field_list:
+            logger.warning(
+                f"[EVAL] Skip rule '{selected.code}' (p={selected.priority}) "
+                f"due to missing action fields: {', '.join(missing_field_list)}"
+            )
+            return []
 
         # Concise reason (composite summary)
         try:

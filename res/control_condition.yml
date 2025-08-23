@@ -1,70 +1,53 @@
 SD400:
   default_controls:
-    # Single-condition
     - name: "High Temperature Shutdown"
       code: "HIGH_TEMP"
       priority: 80
       composite:
-        any:                     # ← single condition directly as a "leaf node"
+        any:
           - type: threshold
-            source: AIn01                # Source: AI module pin AIn01
-            operator: gt                 # Greater than
-            threshold: 40.0              # Threshold: 40 °C
-            hysteresis: 1.0              # Anti-chatter; trigger at 40, reset at 39
-            debounce_ms: 500             # Must stay above 40 for 0.5 sec to be valid
-        action:
-        model: TECO_VFD
-        slave_id: 2
-        type: turn_off               # Action: shut down the motor
-        target: RW_ON_OFF
-        value: 0
-
-    # Multi-condition
-    - name: "Boost Pump by ΔT & Safe Pressure"
-      code: "BOOST_DT_PRESS"
-      priority: 100
-      composite:                     # ← multiple conditions → group with "all"
-        all:
-          - type: difference
-            sources: [AIn01, AIn02]  # Source: inlet–outlet temperature difference
+            source: AIn01
             operator: gt
-            threshold: 5.0           # ΔT > 5 °C
-            abs: true
-            hysteresis: 0.5
+            threshold: 40.0
+            hysteresis: 1.0
+            debounce_ms: 500
           - type: threshold
-            source: AIn03            # Source: pressure
+            source: AIn03
             operator: between
             min: 3.0
-            max: 5.0                 # Pressure must be within 3–5 bar
+            max: 5.0
             hysteresis: 0.2
       action:
         model: TECO_VFD
-        slave_id: 2
+        slave_id: "2"
+        type: turn_off
+        target: RW_ON_OFF
+        value: 0
+
+    - name: "Boost Pump by ΔT & Safe Pressure"
+      code: "BOOST_DT_PRESS"
+      priority: 100
+      composite:
+        all:
+          - type: difference
+            sources: [AIn01, AIn02]
+            operator: gt
+            threshold: 1.0
+            abs: true
+            hysteresis: 0.5
+          - type: threshold
+            source: AIn01
+            operator: gt
+            threshold: 40.0
+            hysteresis: 1.0
+            debounce_ms: 500
+      action:
+        model: TECO_VFD
+        slave_id: "2"
         type: set_frequency
         target: RW_HZ
         value: 45.0
 
-
   instances:
     "3":
       use_default_controls: true
-
-    "7":
-      controls:
-        - name: "High Temperature Shutdown"
-          code: "HIGH_TEMP"
-          priority: 80
-          composite:                     # ← single condition directly as a "leaf node"
-            any:
-              - type: threshold
-                source: AIn02                # Source: AI module pin AIn01
-                operator: gt                 # Greater than
-                threshold: 40.0              # Threshold: 40 °C
-                hysteresis: 1.0              # Anti-chatter; trigger at 40, reset at 39
-                debounce_ms: 500             # Must stay above 40 for 0.5 sec to be valid
-          action:
-            model: TECO_VFD
-            slave_id: 2
-            type: turn_off               # Action: shut down the motor
-            target: RW_ON_OFF
-            value: 0
