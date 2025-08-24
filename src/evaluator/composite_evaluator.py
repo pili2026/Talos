@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import Callable
 
 from model.control_model import CompositeNode
@@ -16,7 +17,7 @@ class CompositeEvaluator:
     - Supports any / all / not groups
     - Supports threshold / difference leaf nodes
     - EQUAL uses strict equality by default; an optional comparison_tolerance can be set
-    - debounce/hysteresis not yet implemented (fields are reserved but unused)
+    - Supports optional hysteresis (float) and debounce_sec (int) on leaf nodes  ← updated description
     """
 
     def __init__(self, *, comparison_tolerance: float | None = None):
@@ -25,6 +26,9 @@ class CompositeEvaluator:
                                      if None, strict equality is used.
         """
         self.comparison_tolerance = comparison_tolerance
+        # Maintain minimal state per leaf object (using id(node)): is_true / pending_since
+        # key: int(id(node)) → {"is_true": bool, "pending_since": float|None}
+        self._leaf_states: dict[int, dict[str, float | bool | None]] = {}  # ← added
 
     def evaluate_composite_node(self, node: CompositeNode, get_value: ValueGetter) -> bool:
         """Recursively evaluate whether a CompositeNode is satisfied."""
@@ -63,19 +67,6 @@ class CompositeEvaluator:
                 return f"difference([{srcs}] between {node.min}..{node.max}{' abs' if node.abs else ''})"
             return f"difference([{srcs}] {node.operator.value.lower()} {node.threshold}{' abs' if node.abs else ''})"
 
-        if node.all is not None:
-            inner = ", ".join(self.build_composite_reason_summary(c) for c in node.all)
-            return f"all({inner})"
-        if node.any is not None:
-            inner = ", ".join(self.build_composite_reason_summary(c) for c in node.any)
-            return f"any({inner})"
-        if node.not_ is not None:
-            return f"not({self.build_composite_reason_summary(node.not_)})"
-
-        return "invalid"
-
-    # ---- Internal helpers ----
-
     def _evaluate_threshold_leaf(self, node: CompositeNode, get_value: ValueGetter) -> bool:
         """Evaluate whether a threshold-type leaf node is satisfied."""
         if not node.source:
@@ -90,12 +81,25 @@ class CompositeEvaluator:
         except Exception:
             return False
 
-        return self._evaluate_operator_comparison(
+        raw_true = self._evaluate_operator_comparison(
             operator=node.operator,
             value=numeric_value,
             threshold=node.threshold,
             min_value=node.min,
             max_value=node.max,
+        )
+
+        # Add stabilization (hysteresis + debounce) using id(node) as the state key
+        return self._stabilize_leaf_truth(
+            key=id(node),
+            operator=node.operator,
+            value=numeric_value,
+            raw_true=raw_true,
+            threshold=node.threshold,
+            min_value=node.min,
+            max_value=node.max,
+            hysteresis=float(node.hysteresis or 0.0),
+            debounce_sec=float(node.debounce_sec or 0.0),
         )
 
     def _evaluate_difference_leaf(self, node: CompositeNode, get_value: ValueGetter) -> bool:
@@ -117,12 +121,25 @@ class CompositeEvaluator:
         if node.abs:
             diff = abs(diff)
 
-        return self._evaluate_operator_comparison(
+        raw_true = self._evaluate_operator_comparison(
             operator=node.operator,
             value=diff,
             threshold=node.threshold,
             min_value=node.min,
             max_value=node.max,
+        )
+
+        # ← Apply stabilization as well
+        return self._stabilize_leaf_truth(
+            key=id(node),
+            operator=node.operator,
+            value=diff,
+            raw_true=raw_true,
+            threshold=node.threshold,
+            min_value=node.min,
+            max_value=node.max,
+            hysteresis=float(node.hysteresis or 0.0),
+            debounce_sec=float(node.debounce_sec or 0.0),
         )
 
     def _evaluate_operator_comparison(
@@ -134,7 +151,7 @@ class CompositeEvaluator:
         min_value: Number | None = None,
         max_value: Number | None = None,
     ) -> bool:
-        """Compare a value based on the operator; EQUAL supports optional epsilon."""
+        """Compare a value based on the operator; EQUAL supports optional comparison_tolerance."""
         if operator == ConditionOperator.GREATER_THAN:
             return threshold is not None and value > threshold
 
@@ -152,3 +169,67 @@ class CompositeEvaluator:
             return (min_value is not None) and (max_value is not None) and (min_value <= value <= max_value)
 
         return False
+
+    # ====== Added: minimal implementation of hysteresis + debounce ======
+
+    def _stabilize_leaf_truth(
+        self,
+        *,
+        key: int,
+        operator: ConditionOperator,
+        value: float,
+        raw_true: bool,
+        threshold: float | None,
+        min_value: float | None,
+        max_value: float | None,
+        hysteresis: float,
+        debounce_sec: int,
+    ) -> bool:
+        """
+        Apply hysteresis based on the previous state, then debounce. Return the stabilized boolean.
+        """
+        st = self._leaf_states.setdefault(key, {"is_true": False, "pending_since": None})
+        hold = bool(st["is_true"])
+
+        # 1) Hysteresis (enabled only if defined)
+        if hysteresis > 0.0:
+            if operator == ConditionOperator.GREATER_THAN and threshold is not None:
+                raw_true = (value >= threshold - hysteresis) if hold else (value > threshold)
+            elif operator == ConditionOperator.LESS_THAN and threshold is not None:
+                raw_true = (value <= threshold + hysteresis) if hold else (value < threshold)
+            elif operator == ConditionOperator.BETWEEN and (min_value is not None) and (max_value is not None):
+                lo = min_value
+                hi = max_value
+                if hold:
+                    raw_true = (lo - hysteresis) <= value <= (hi + hysteresis)
+                else:
+                    raw_true = lo <= value <= hi
+            elif operator == ConditionOperator.EQUAL and threshold is not None:
+                eps = self.comparison_tolerance or 1e-9
+                raw_true = (abs(value - threshold) <= (eps + hysteresis)) if hold else (abs(value - threshold) <= eps)
+            # Other operators keep original logic
+
+        # 2) Debounce (must remain true continuously for debounce_sec)
+        if debounce_sec > 0:
+            now = time.monotonic()
+            if raw_true:
+                if st["pending_since"] is None:
+                    st["pending_since"] = now
+                    st["is_true"] = False
+                    return False
+                if (now - float(st["pending_since"])) >= debounce_sec:
+                    st["is_true"] = True
+                    return True
+                # Not yet reached the threshold duration
+                st["is_true"] = False
+                return False
+            else:
+                # Interrupted: reset timer and set false
+                st["pending_since"] = None
+                st["is_true"] = False
+                return False
+
+        # No debounce: use (hysteresis-adjusted) raw_true and keep pending_since only when true
+        st["pending_since"] = None if not raw_true else st["pending_since"]
+        st["is_true"] = bool(raw_true)
+        return st["is_true"]

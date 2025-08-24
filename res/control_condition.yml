@@ -10,7 +10,7 @@ SD400:
             operator: gt
             threshold: 40.0
             hysteresis: 1.0
-            debounce_ms: 500
+            debounce_sec: 0.5
           - type: threshold
             source: AIn03
             operator: between
@@ -40,7 +40,7 @@ SD400:
             operator: gt
             threshold: 40.0
             hysteresis: 1.0
-            debounce_ms: 500
+            debounce_sec: 0.5
       action:
         model: TECO_VFD
         slave_id: "2"

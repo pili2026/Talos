@@ -26,7 +26,7 @@ class CompositeNode(BaseModel):
     type: ConditionType | None = None
     operator: ConditionOperator | None = None
     hysteresis: float | None = None
-    debounce_ms: int | None = None
+    debounce_sec: float | None = None
 
     # threshold
     source: str | None = None
