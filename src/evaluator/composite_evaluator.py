@@ -223,11 +223,11 @@ class CompositeEvaluator:
                 # Not yet reached the threshold duration
                 st["is_true"] = False
                 return False
-            else:
-                # Interrupted: reset timer and set false
-                st["pending_since"] = None
-                st["is_true"] = False
-                return False
+
+            # Interrupted: reset timer and set false
+            st["pending_since"] = None
+            st["is_true"] = False
+            return False
 
         # No debounce: use (hysteresis-adjusted) raw_true and keep pending_since only when true
         st["pending_since"] = None if not raw_true else st["pending_since"]
