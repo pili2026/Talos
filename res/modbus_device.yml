@@ -1,6 +1,5 @@
 shared: &shared_config
-  # port: /tmp/ttyV0
-  port: /dev/ttyUSB0
+    port: /dev/ttyUSB0
 
 devices:
   - model: LITEON_EVO6800

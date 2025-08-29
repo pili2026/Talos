@@ -31,11 +31,12 @@ async def main(
     sender_config_path: str,
     mail_config_path: str,
     time_config_path: str,
+    system_config_path: str,
 ):
     setup_logging(log_to_file=True)
     load_dotenv()
 
-    system_config: dict = ConfigManager.load_yaml_file("res/system_config.yml")
+    system_config: dict = ConfigManager.load_yaml_file(system_config_path)
 
     pubsub = InMemoryPubSub()
     instance_config: dict = ConfigManager.load_yaml_file(instance_config_path)
@@ -101,6 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--sender_config", default="res/sender_config.yml", help="Path to sender config YAML")
     parser.add_argument("--mail_config", default="res/mail_config.yml", help="Path to mail config YAML")
     parser.add_argument("--time_config", default="res/time_condition.yml", help="Path to time condition config YAML")
+    parser.add_argument("--system_config", default="res/system_config.yml", help="Path to tsystem config YAML")
 
     args = parser.parse_args()
     asyncio.run(
@@ -112,5 +114,6 @@ if __name__ == "__main__":
             sender_config_path=args.sender_config,
             mail_config_path=args.mail_config,
             time_config_path=args.time_config,
+            system_config_path=args.system_config,
         )
     )
