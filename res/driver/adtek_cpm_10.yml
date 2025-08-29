@@ -2,40 +2,66 @@ model: ADTEK_CPM10
 register_type: holding
 
 register_map:
-  # --- Energy (3-word big-endian) ---
-  Kwh_W1_HI:     { offset: 0,  readable: true }
-  Kwh_W2_MD:     { offset: 1,  readable: true }
-  Kwh_W3_LO:     { offset: 2,  readable: true }
+  # --- Energy (3-word big-endian raw words) ---
+  Kwh_W1_HI:     { offset: 0,  readable: true, format: u16 }
+  Kwh_W2_MD:     { offset: 1,  readable: true, format: u16 }
+  Kwh_W3_LO:     { offset: 2,  readable: true, format: u16 }
 
-  Kvarh_W1_HI:   { offset: 3,  readable: true }
-  Kvarh_W2_MD:   { offset: 4,  readable: true }
-  Kvarh_W3_LO:   { offset: 5,  readable: true }
+  Kvarh_W1_HI:   { offset: 3,  readable: true, format: u16 }
+  Kvarh_W2_MD:   { offset: 4,  readable: true, format: u16 }
+  Kvarh_W3_LO:   { offset: 5,  readable: true, format: u16 }
 
-  # --- Averages ---
-  AverageVoltage:      { offset: 6,  readable: true }   # raw × VoltageIndex
-  AverageCurrent:      { offset: 7,  readable: true }   # raw × CurrentIndex
+  # --- Averages (raw × index scale) ---
+  AverageVoltage:      { offset: 6,  readable: true, format: u16, scale_from: voltage_index }
+  AverageCurrent:      { offset: 7,  readable: true, format: u16, scale_from: current_index }
 
-  # --- Instant Power Family (driver applies EnergyIndex multiplier) ---
-  Kw:                  { offset: 9,  readable: true }
-  Kvar:                { offset: 10, readable: true }
-  Kva:                 { offset: 11, readable: true }
+  # --- Instant Power Family (signed; × energy_index scale) ---
+  Kw:                  { offset: 9,  readable: true, format: i16, scale_from: energy_index }
+  Kvar:                { offset: 10, readable: true, format: i16, scale_from: energy_index }
+  Kva:                 { offset: 11, readable: true, format: i16, scale_from: energy_index }
 
-  # --- Power Factor ---
-  AveragePowerFactor:  { offset: 12, readable: true }   # raw × 0.001 (handled in code)
+  # --- Power Factor (signed × 0.001) ---
+  AveragePowerFactor:  { offset: 12, readable: true, format: i16, scale: 0.001 }
 
-  # --- Phase Currents (raw × CurrentIndex) ---
-  Phase_A_Current:     { offset: 16, readable: true }
-  Phase_B_Current:     { offset: 17, readable: true }
-  Phase_C_Current:     { offset: 18, readable: true }
+  # --- Phase Currents (raw × current_index) ---
+  Phase_A_Current:     { offset: 16, readable: true, format: u16, scale_from: current_index }
+  Phase_B_Current:     { offset: 17, readable: true, format: u16, scale_from: current_index }
+  Phase_C_Current:     { offset: 18, readable: true, format: u16, scale_from: current_index }
 
-  # --- Scale Index Registers (driver reads and determines multipliers) ---
-  SCALE_CurrentIndex:  { offset: 31, readable: true }   # a_list = [0.001, 0.010, 0.1]
-  SCALE_VoltageIndex:  { offset: 32, readable: true }   # v_list = [0.1, 1.0, 10.0, 100.0]
-  SCALE_EnergyIndex:   { offset: 33, readable: true }   # k_list[...] × 0.001
+  # --- Scale Index Registers ---
+  SCALE_CurrentIndex:  { offset: 31, readable: true, format: u16 }  # a_table idx
+  SCALE_VoltageIndex:  { offset: 32, readable: true, format: u16 }  # v_table idx
+  SCALE_EnergyIndex:   { offset: 33, readable: true, format: u16 }  # k_table idx
 
-  # --- Config Registers (writable; writing triggers multiplier refresh in code) ---
-  CFG_WiringMethod:    { offset: 34, readable: true, writable: true }
-  CFG_PT_1st_Unit:     { offset: 35, readable: true, writable: true }
-  CFG_PT_1st:          { offset: 36, readable: true, writable: true }
-  CFG_PT_2nd:          { offset: 37, readable: true, writable: true }
-  CFG_CT_1st:          { offset: 38, readable: true, writable: true }
+  # --- Config Registers (writing them will later trigger scale refresh) ---
+  CFG_WiringMethod:    { offset: 34, readable: true, writable: true, format: u16 }
+  CFG_PT_1st_Unit:     { offset: 35, readable: true, writable: true, format: u16 }
+  CFG_PT_1st:          { offset: 36, readable: true, writable: true, format: u16 }
+  CFG_PT_2nd:          { offset: 37, readable: true, writable: true, format: u16 }
+  CFG_CT_1st:          { offset: 38, readable: true, writable: true, format: u16 }
+
+  # --- NEW: Pre-combined energy outputs (more user-friendly for upper layers) ---
+  Kwh_SUM:
+    readable: true
+    composed_of: ["Kwh_W1_HI", "Kwh_W2_MD", "Kwh_W3_LO"]  # three u16 raw words
+    compose_format: u48_be                                 # HI|MD|LO → 48-bit
+    scale_from: kwh_scale                                  # KWh-specific: auto or fixed(0.01)
+
+  Kvarh_SUM:
+    readable: true
+    composed_of: ["Kvarh_W1_HI", "Kvarh_W2_MD", "Kvarh_W3_LO"]
+    compose_format: u48_be
+    scale_from: energy_index                               # Always based on reg33 table ×0.001
+
+# --- NEW: Scale lookup tables (static) ---
+tables:
+  current_table: [0.001, 0.010, 0.1]
+  voltage_table: [0.1, 1.0, 10.0, 100.0]
+  energy_table:  [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
+  energy_post_multiplier: 0.001   # From legacy driver: ×0.001
+
+# --- NEW: Modes (KWh-specific, support MV and non-MV) ---
+modes:
+  kwh:
+    mode: auto        # Non-MV mode: auto, MV mode: fixed.
+    fixed_scale: 0.01 # MV instances change mode to fixed to apply 0.01
