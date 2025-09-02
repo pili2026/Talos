@@ -76,6 +76,7 @@ class AsyncDeviceManager:
                 device_type=device_type,
                 tables=model_tables,
                 modes=final_modes,
+                write_hooks=model_config.get("write_hooks", []),
             )
             self.device_list.append(device)
 

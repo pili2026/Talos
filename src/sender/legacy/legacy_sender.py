@@ -193,8 +193,8 @@ class LegacySenderAdapter:
             "Data": all_data,
         }
 
-        ok = await self._post_with_retry(payload)
-        if ok:
+        is_ok = await self._post_with_retry(payload)
+        if is_ok:
             self._last_sent_ts_by_device.update(sent_candidates)
             await self._prune_buckets()
 

@@ -19,6 +19,7 @@ class AsyncGenericModbusDevice:
         constraints: dict = None,
         tables: dict | None = None,
         modes: dict | None = None,
+        write_hooks: list | None = None,
     ):
         self.model = model
         self.client = client
@@ -40,6 +41,7 @@ class AsyncGenericModbusDevice:
 
         # Simple scale cache (currently optional; field reserved for potential future write_hooks fallback).
         self._scale_cache: dict[str, float] = {}
+        self.write_hooks = write_hooks or register_map.pop("write_hooks", [])
 
     @property
     def pin_type_map(self) -> dict[str, str]:
@@ -88,6 +90,11 @@ class AsyncGenericModbusDevice:
 
         await self._write_register(cfg["offset"], raw)
         self.logger.info(f"[{self.model}] Write {value} ({raw}) to {name} (offset={cfg['offset']})")
+
+        try:
+            self._handle_write_hooks(name, cfg)
+        except Exception as e:
+            self.logger.warning(f"[{self.model}] write_hooks handling failed for {name}: {e}")
 
     def supports_on_off(self) -> bool:
         """
@@ -385,3 +392,65 @@ class AsyncGenericModbusDevice:
         except Exception:
             pass
         return None
+
+    def _invalidate_scales(self, keys: list[str] | None = None):
+        # NOTE: Invalidate scale cache (if no keys are given, clear all)
+        if not keys:
+            self._scale_cache.clear()
+            self.logger.debug(f"[{self.model}] scale cache invalidated (all)")
+            return
+        for k in keys:
+            self._scale_cache.pop(k, None)
+        self.logger.debug(f"[{self.model}] scale cache invalidated (keys={keys})")
+
+    def _handle_write_hooks(self, pin_name: str, cfg: dict):
+        # NOTE: Decide whether to invalidate cache based on YAML write_hooks
+        """
+        Supports 3 configuration styles:
+        1) String list: ["CFG_PT_1st", ...]
+           → If matched, clear all scale cache
+        2) Object:
+           - registers: [pinName...]
+           - offsets:   [34, 35, ...]      (optional)
+           - invalidate:[ "scales.current","scales.energy_auto","scales.kwh","scales.voltage" ]
+                        (optional; if not provided, clear all)
+        3) If the whole hooks is a dict, treat it as a single object
+        """
+        hooks = self.write_hooks or []
+        if isinstance(hooks, dict):
+            hooks = [hooks]
+
+        for h in hooks:
+            # 1) Simple string
+            if isinstance(h, str):
+                if h == pin_name:
+                    self._invalidate_scales()
+                    return
+                continue
+
+            # 2) Object
+            if not isinstance(h, dict):
+                continue
+
+            regs = h.get("registers", [])
+            offs = h.get("offsets", [])
+            hit = False
+            if pin_name in regs:
+                hit = True
+            elif offs and ("offset" in cfg) and (cfg["offset"] in offs):
+                hit = True
+
+            if not hit:
+                continue
+
+            inv = h.get("invalidate")
+            if inv:
+                # "scales.current" → "current"
+                keys = []
+                for item in inv:
+                    if isinstance(item, str) and item.startswith("scales."):
+                        keys.append(item.split(".", 1)[1])
+                self._invalidate_scales(keys if keys else None)
+            else:
+                self._invalidate_scales()
+            return

@@ -40,7 +40,7 @@ register_map:
   CFG_PT_2nd:          { offset: 37, readable: true, writable: true, format: u16 }
   CFG_CT_1st:          { offset: 38, readable: true, writable: true, format: u16 }
 
-  # --- NEW: Pre-combined energy outputs (more user-friendly for upper layers) ---
+  # --- Pre-combined energy outputs (more user-friendly for upper layers) ---
   Kwh_SUM:
     readable: true
     composed_of: ["Kwh_W1_HI", "Kwh_W2_MD", "Kwh_W3_LO"]  # three u16 raw words
@@ -53,14 +53,18 @@ register_map:
     compose_format: u48_be
     scale_from: energy_index                               # Always based on reg33 table ×0.001
 
-# --- NEW: Scale lookup tables (static) ---
+# --- Scale lookup tables (static) ---
 tables:
   current_table: [0.001, 0.010, 0.1]
   voltage_table: [0.1, 1.0, 10.0, 100.0]
   energy_table:  [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
   energy_post_multiplier: 0.001   # From legacy driver: ×0.001
 
-# --- NEW: Modes (KWh-specific, support MV and non-MV) ---
+write_hooks:
+  - registers: [ "CFG_WiringMethod", "CFG_PT_1st_Unit", "CFG_PT_1st", "CFG_PT_2nd", "CFG_CT_1st" ]
+    invalidate: [ "scales.current", "scales.voltage", "scales.energy_auto", "scales.kwh" ]
+
+# --- Modes (KWh-specific, support MV and non-MV) ---
 modes:
   kwh:
     mode: auto        # Non-MV mode: auto, MV mode: fixed.

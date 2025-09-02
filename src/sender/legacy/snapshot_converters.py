@@ -112,12 +112,17 @@ def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dic
 
 def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: dict[str, str]) -> list[dict]:
     """
-    Convert the new driver output of the power meter (without PM_ prefix) into SE's Data.
-    Required keys:
-      - (3-word) Kwh_W1_HI/W2_MD/W3_LO, Kvarh_W1_HI/W2_MD/W3_LO
-      - AverageVoltage/Current, Phase_A/B/C_Current
-      - Kw/Kva/Kvar, AveragePowerFactor
-      - SCALE_VoltageIndex/CurrentIndex/EnergyIndex
+    Convert driver snapshot into SE's Data.
+
+    New driver (M1+) already applies all scaling:
+      - AverageVoltage/Current, Phase_*_Current already applied index scaling
+      - Kw/Kva/Kvar already applied energy_index scaling
+      - AveragePowerFactor already multiplied by 0.001
+      - Kwh_SUM / Kvarh_SUM already composed from 3 words and scaled (KWh also handles MV mode)
+
+    Therefore we just map fields; no extra scaling.
+
+    Legacy fallback (pre-M1): if Kwh_SUM/Kvarh_SUM are missing, reconstruct them and use energy_index (no MV support).
     """
 
     def to_int(x):
@@ -132,43 +137,42 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
         except Exception:
             return 0.0
 
-    # Index → multiplier
-    vi = to_int(values.get("SCALE_VoltageIndex"))
-    ai = to_int(values.get("SCALE_CurrentIndex"))
-    ki = to_int(values.get("SCALE_EnergyIndex"))
-
-    v_list = [0.1, 1.0, 10.0, 100.0]
-    a_list = [0.001, 0.010, 0.1]
-    k_list = [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
-
-    v_mul = v_list[vi] if 0 <= vi < len(v_list) else 1.0
-    a_mul = a_list[ai] if 0 <= ai < len(a_list) else 0.01
-    e_mul = (k_list[ki] * 0.001) if 0 <= ki < len(k_list) else 1.0
-
-    # General measurements
-    data = {
-        "AverageVoltage": to_float(values.get("AverageVoltage")) * v_mul,
-        "AverageCurrent": to_float(values.get("AverageCurrent")) * a_mul,
-        "Phase_A_Current": to_float(values.get("Phase_A_Current")) * a_mul,
-        "Phase_B_Current": to_float(values.get("Phase_B_Current")) * a_mul,
-        "Phase_C_Current": to_float(values.get("Phase_C_Current")) * a_mul,
-        "Kw": to_float(values.get("Kw")) * e_mul,
-        "Kva": to_float(values.get("Kva")) * e_mul,
-        "Kvar": to_float(values.get("Kvar")) * e_mul,
-        "AveragePowerFactor": to_float(values.get("AveragePowerFactor")) * 0.001,
+    # --- Direct mapping (no further scaling) ---
+    mapped = {
+        "AverageVoltage": to_float(values.get("AverageVoltage")),
+        "AverageCurrent": to_float(values.get("AverageCurrent")),
+        "Phase_A_Current": to_float(values.get("Phase_A_Current")),
+        "Phase_B_Current": to_float(values.get("Phase_B_Current")),
+        "Phase_C_Current": to_float(values.get("Phase_C_Current")),
+        "Kw": to_float(values.get("Kw")),
+        "Kva": to_float(values.get("Kva")),
+        "Kvar": to_float(values.get("Kvar")),
+        "AveragePowerFactor": to_float(values.get("AveragePowerFactor")),
     }
 
-    # 3-word (48-bit, big-endian)
-    def read_3w(prefix: str) -> float:
-        w1 = to_int(values.get(f"{prefix}_W1_HI"))
-        w2 = to_int(values.get(f"{prefix}_W2_MD"))
-        w3 = to_int(values.get(f"{prefix}_W3_LO"))
-        return ((w1 << 32) | (w2 << 16) | w3) * e_mul
+    # Energies: prefer already composed SUM fields (new driver)
+    if "Kwh_SUM" in values and "Kvarh_SUM" in values:
+        mapped["Kwh"] = to_float(values.get("Kwh_SUM"))
+        mapped["Kvarh"] = to_float(values.get("Kvarh_SUM"))
+    else:
+        # ---- Legacy fallback (only for old driver): estimate with energy_index, without MV handling ----
+        ki = to_int(values.get("SCALE_EnergyIndex"))
 
-    data["Kwh"] = read_3w("Kwh")
-    data["Kvarh"] = read_3w("Kvarh")
+        k_list = [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
 
-    # Round according to documentation (PF: 3 decimals, others: 2 decimals; adjustable)
+        # Used only in fallback; for safety use default if index is invalid
+        e_mul = (k_list[ki] * 0.001) if 0 <= ki < len(k_list) else 0.001
+
+        def read_3w(prefix: str) -> float:
+            w1 = to_int(values.get(f"{prefix}_W1_HI"))
+            w2 = to_int(values.get(f"{prefix}_W2_MD"))
+            w3 = to_int(values.get(f"{prefix}_W3_LO"))
+            return ((w1 << 32) | (w2 << 16) | w3) * e_mul
+
+        mapped["Kwh"] = read_3w("Kwh")
+        mapped["Kvarh"] = read_3w("Kvarh")
+
+    # --- Rounding rules (same as your original convention) ---
     round2 = (
         "AverageVoltage",
         "AverageCurrent",
@@ -182,14 +186,14 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
         "Kvarh",
     )
     for k in round2:
-        data[k] = round(data.get(k, 0.0), 2)
-    data["AveragePowerFactor"] = round(data.get("AveragePowerFactor", 0.0), 3)
+        mapped[k] = round(mapped.get(k, 0.0), 2)
+    mapped["AveragePowerFactor"] = round(mapped.get("AveragePowerFactor", 0.0), 3)
 
     # Device ID (reuse your convention)
     suffix = build_device_suffix(slave_id, 0) + EqType.SE
     device_id = f"{gateway_id}_{suffix}"
 
-    return [{"DeviceID": device_id, "Data": data}]
+    return [{"DeviceID": device_id, "Data": mapped}]
 
 
 def build_device_suffix(slave_id: str | int, idx: int, loop_prefix: str = "1") -> str:

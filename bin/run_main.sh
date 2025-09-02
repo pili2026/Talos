@@ -5,11 +5,23 @@
 # Locate the project root directory (/home/pi/talos)
 BASE_DIR="$(dirname "$(dirname "$(realpath "$0")")")"
 
+# Path to your Python virtual environment
+VENV_PATH="/home/pi/py312-venv"
+
+# Activate virtual environment
+if [ -d "$VENV_PATH" ]; then
+  echo "[INFO] Activating virtualenv at $VENV_PATH"
+  source "$VENV_PATH/bin/activate"
+else
+  echo "[ERROR] Virtualenv not found at $VENV_PATH"
+  exit 1
+fi
+
 # Set environment variables (force log to flush immediately)
 export PYTHONUNBUFFERED=1
 
-# Execute main.py with configs
-python3.12 "$BASE_DIR/src/main.py" \
+# Run Talos main.py with configs (Python from venv will be used automatically)
+python "$BASE_DIR/src/main.py" \
   --alert_config "$BASE_DIR/res/alert_condition.yml" \
   --control_config "$BASE_DIR/res/control_condition.yml" \
   --modbus_device "$BASE_DIR/res/modbus_device.yml" \
