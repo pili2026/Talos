@@ -109,10 +109,11 @@ class AsyncGenericModbusDevice:
         self.hooks.on_write(name, cfg)
         self.logger.info(f"[{self.model}] Write {value} ({raw}) to {name} (offset={cfg['offset']})")
 
-    async def write_on_off(self, value: int):
+    async def write_on_off(self, value: int) -> None:
         cfg = self.register_map.get(REG_RW_ON_OFF)
         if not cfg or not cfg.get("writable"):
-            raise ValueError(f"[{self.model}] {REG_RW_ON_OFF} is not writable or not defined")
+            self.logger.error(f"[{self.model}] {REG_RW_ON_OFF} is not writable or not defined, skip write_on_off")
+            return
         await self.write_value(REG_RW_ON_OFF, int(value))
 
     # -----------------
@@ -123,7 +124,8 @@ class AsyncGenericModbusDevice:
         if cfg.get("composed_of"):
             names = cfg["composed_of"]
             if not isinstance(names, (list, tuple)) or len(names) != 3:
-                raise ValueError("composed_of must have exactly 3 entries for u48_be")
+                self.logger.error(f"[{self.model}] Invalid composed_of={names}, must have exactly 3 entries")
+                return 0  # fallback value
             words: list[int] = []
             for n in names:
                 pin_cfg = self.register_map.get(n) or {}
@@ -168,11 +170,13 @@ class AsyncGenericModbusDevice:
     def _require_readable(self, name: str) -> dict:
         cfg = self.register_map.get(name) or {}
         if not cfg.get("readable"):
-            raise ValueError(f"[{self.model}] register_map {name} is not readable")
+            self.logger.warning(f"[{self.model}] register_map {name} is not readable")
+            return {}
         return cfg
 
     def _require_writable(self, name: str) -> dict:
         cfg = self.register_map.get(name) or {}
         if not cfg.get("writable"):
-            raise ValueError(f"[{self.model}] register_map {name} is not writable")
+            self.logger.warning(f"[{self.model}] register_map {name} is not writable")
+            return {}
         return cfg

@@ -11,6 +11,7 @@ def async_retry(
     max_delay: float = 30.0,
     logger: logging.Logger = None,
     key_name: str = "device_id",  # Key to identify the device in kwargs
+    fallback: Any = None,
 ):
     def decorator(func: Callable):
         signature = inspect.signature(func)
@@ -40,7 +41,7 @@ def async_retry(
                     if max_retries is not None and retry_count >= max_retries:
                         if logger:
                             logger.error(f"{log_prefix} failed after {retry_count} retries. Giving up.")
-                        raise e
+                        return fallback
 
                     await asyncio.sleep(wait_sec)
 

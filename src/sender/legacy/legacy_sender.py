@@ -324,7 +324,7 @@ class LegacySenderAdapter:
                     )
                 logger.info(f"Response: {resp.text}")
                 if "00000" not in resp.text:
-                    raise ValueError("Server response error")
+                    logger.warning(f"[POST] server not OK (status={resp.status_code}). " f"preview={resp.text[:200]!r}")
                 return True
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {e}")

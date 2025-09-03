@@ -1,5 +1,8 @@
+import logging
+
 from pymodbus.client import AsyncModbusSerialClient
-from pymodbus.exceptions import ModbusException
+
+logger = logging.getLogger("ModbusBus")
 
 
 class ModbusBus:
@@ -14,16 +17,19 @@ class ModbusBus:
 
     async def read_regs(self, offset: int, count: int) -> list[int]:
         if not self.client.connected and not await self.client.connect():
-            raise ModbusException("connect failed")
+            logger.error(f"[Bus] connect failed (slave={self.slave_id}), return zeros")
+            return [0] * count
         if self.register_type == "holding":
             resp = await self.client.read_holding_registers(address=offset, count=count, slave=self.slave_id)
         elif self.register_type == "input":
             resp = await self.client.read_input_registers(address=offset, count=count, slave=self.slave_id)
         else:
-            raise ValueError(f"Unsupported register type: {self.register_type}")
+            logger.error(f"[Bus] Unsupported register type: {self.register_type}")
+            return [0] * count
 
         if resp.isError():
-            raise ModbusException(str(resp))
+            logger.warning(f"[Bus] Modbus error response: {resp}")
+            return [0] * count
         return resp.registers
 
     async def write_u16(self, offset: int, value: int):

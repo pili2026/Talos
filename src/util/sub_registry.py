@@ -18,7 +18,8 @@ class SubscriberRegistry:
 
     def register(self, name: str, runner: Runner) -> None:
         if name in self.subs:
-            raise ValueError(f"Subscriber '{name}' already registered")
+            logger.warning(f"[SUB] Subscriber '{name}' already registered, skip")
+            return
         self.subs[name] = runner
 
     async def start_enabled_sub(self) -> None:
