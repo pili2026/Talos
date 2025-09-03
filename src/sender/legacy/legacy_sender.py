@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import aiofiles
@@ -24,11 +24,15 @@ logger = logging.getLogger("LegacySender")
 
 class LegacySenderAdapter:
     """
-    Behavior:
-      - Warm-up: wait for the first snapshot → send once immediately (Timestamp = now).
-      - Periodic (leading-edge): at each aligned tick (e.g., 00:03:00) → send the *current latest* record per device
-        (Timestamp = the tick time), instead of the previous full window (no trailing window).
-      - De-dup: use the per-device last successfully sent timestamp to avoid resending the same snapshot.
+    Behavior (key points in this version):
+      - Warm-up: wait for the first snapshot → send once immediately
+        (Timestamp = now; also override item-level time fields to now).
+      - Periodic (leading-edge): at each aligned tick (e.g., 00:03:00):
+          1) Wait `tick_grace_ms` (default 900 ms) to allow the "current" snapshot to arrive
+          2) For each device, pick the "latest visible" snapshot with sampling_ts ≤ (tick + grace)
+          3) Deduplicate by using the tick as the label time (each device sends at most once per tick)
+          4) Before sending, override each item's time fields to the tick
+             (avoid the cloud showing the previous minute)
     """
 
     def __init__(self, sender_config: dict, device_manager: AsyncDeviceManager):
@@ -39,10 +43,14 @@ class LegacySenderAdapter:
         self.__attempt_count = int(sender_config.get("attempt_count", 2))
         self.__max_retry = int(sender_config.get("max_retry", 3))
 
+        # NEW: grace time after tick (milliseconds) + acceptable maximum lag (milliseconds)
+        self._tick_grace_ms = int(sender_config.get("tick_grace_ms", 900))
+        self._fresh_max_lag_ms = int(sender_config.get("fresh_max_lag_ms", 1500))
+
         self.device_manager = device_manager
         os.makedirs(self.resend_dir, exist_ok=True)
 
-        # window → { device_id → snapshot }; used only as an in-memory cache
+        # window → { device_id → snapshot }; in-memory cache only
         self._latest_per_window: dict[datetime, dict[str, dict]] = defaultdict(dict)
         self._lock = asyncio.Lock()
         self._tz = ZoneInfo("Asia/Taipei")
@@ -53,13 +61,19 @@ class LegacySenderAdapter:
         self._first_send_done = False
 
         # ---- De-dup tracker ----
-        # device_id → last successfully sent sampling_ts (tz-aware)
+        # Legacy: last successfully-sent sampling_ts (kept for bucket pruning)
         self._last_sent_ts_by_device: dict[str, datetime] = {}
+        # NEW: last sent "label time" (tick or warm-up now) → ensure at most once per device per tick
+        self._last_label_ts_by_device: dict[str, datetime] = {}
 
+    # -------------------------
+    # Public API
+    # -------------------------
     async def handle_snapshot(self, snapshot_map: dict) -> None:
         """
-        When a snapshot arrives, put it into the bucket for its window (keep only the last per device),
-        and trigger warm-up when the first one arrives.
+        On receiving a snapshot, place it into the bucket of its window
+        (within the same window keep only the last one per device),
+        and trigger warm-up once the first snapshot arrives.
         """
         device_id = snapshot_map.get("device_id")
         sampling_ts: datetime | None = snapshot_map.get("sampling_ts")
@@ -68,7 +82,7 @@ class LegacySenderAdapter:
             logger.warning(f"[LegacySender] Missing device_id or sampling_ts in snapshot: {snapshot_map}")
             return
 
-        # Ensure tz-aware; if an external naive datetime is given, set Asia/Taipei
+        # Ensure tz-aware (normalize to Asia/Taipei)
         if sampling_ts.tzinfo is None:
             sampling_ts = sampling_ts.replace(tzinfo=self._tz)
         else:
@@ -76,23 +90,30 @@ class LegacySenderAdapter:
 
         wstart = LegacySenderAdapter._window_start(sampling_ts, self.send_interval, tz="Asia/Taipei")
         async with self._lock:
-            # For the same window, keep only the last snapshot per device
             self._latest_per_window[wstart][device_id] = {**snapshot_map, "sampling_ts": sampling_ts}
 
-        # First snapshot arrived → notify warm-up
         if not self._first_snapshot_event.is_set():
             self._first_snapshot_event.set()
 
     async def start(self):
         """
-        Launch two background tasks:
-          1) _warmup_send_once: wait for the first snapshot → send once immediately (not aligned)
-          2) _periodic_send_task: align to whole minutes/intervals → send the single *latest at the moment* (leading-edge)
+        Start two background tasks:
+          1) _warmup_send_once: wait for the first snapshot → send immediately (unaligned)
+          2) _periodic_send_task: aligned by interval → leading-edge send
         """
         asyncio.create_task(self._warmup_send_once())
         asyncio.create_task(self._periodic_send_task())
 
+    # -------------------------
+    # Internal
+    # -------------------------
     async def _warmup_send_once(self, timeout_sec: int = 15, debounce_s: int = 1) -> None:
+        """
+        Warm-up logic:
+          - Wait up to `timeout_sec` for the first snapshot
+          - Debounce for `debounce_s` seconds if configured
+          - Send once immediately using "now" as the label timestamp
+        """
         try:
             await asyncio.wait_for(self._first_snapshot_event.wait(), timeout=timeout_sec)
         except asyncio.TimeoutError:
@@ -104,10 +125,17 @@ class LegacySenderAdapter:
 
         latest_by_device = await self._collect_latest_by_device_unlocked()
 
-        # Filter out data already sent or not updated
         all_data: list[dict] = []
-        sent_candidates: dict[str, datetime] = {}
+        sent_candidates_sampling_ts: dict[str, datetime] = {}
+        label_now = datetime.now(self._tz)
+
         for dev_id, snap in latest_by_device.items():
+            # Label-time dedup: for the first send use "now" as label time;
+            # if we already sent at or after this time for this device, skip it
+            last_label = self._last_label_ts_by_device.get(dev_id, self._epoch)
+            if label_now <= last_label:
+                continue
+
             last_ts = self._last_sent_ts_by_device.get(dev_id, self._epoch)
             if snap["sampling_ts"] <= last_ts:
                 continue
@@ -119,58 +147,86 @@ class LegacySenderAdapter:
             )
             if converted:
                 all_data.extend(converted)
-                sent_candidates[dev_id] = snap["sampling_ts"]
+                sent_candidates_sampling_ts[dev_id] = snap["sampling_ts"]
 
         if not all_data:
             logger.info("Warm-up: nothing new to send.")
             self._first_send_done = True
             return
 
+        # Override item-level time fields to "now" (avoid the cloud showing the previous minute)
+        self._force_item_timestamp(all_data, report_at=label_now)
+
         payload = {
             "FUNC": "PushIMAData",
             "version": "6.0",
             "GatewayID": self.gateway_id,
-            "Timestamp": datetime.now(self._tz).strftime("%Y%m%d%H%M%S"),  # not aligned; use current time
+            "Timestamp": label_now.strftime("%Y%m%d%H%M%S"),
             "Data": all_data,
         }
 
         ok = await self._post_with_retry(payload)
         if ok:
-            self._last_sent_ts_by_device.update(sent_candidates)
+            # Update label-time dedup and bucket pruning references
+            for dev_id in sent_candidates_sampling_ts.keys():
+                self._last_label_ts_by_device[dev_id] = label_now
+            self._last_sent_ts_by_device.update(sent_candidates_sampling_ts)
             await self._prune_buckets()
+
         self._first_send_done = True
 
     async def _periodic_send_task(self) -> None:
+        """
+        Periodic sending loop (leading-edge):
+          - Align to the interval using sleep_until_next_tick
+          - After the tick, wait the grace period to allow the current value to arrive
+          - Attempt to resend previously failed files
+          - Send one batch for this tick
+        """
         logger.info(f"Start periodic send task every {self.send_interval} seconds (leading-edge)")
         while True:
             tick_dt = await sleep_until_next_tick(self.send_interval, tz="Asia/Taipei")
-            logger.info(f"Tick @ {tick_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            # After the tick, wait a grace period so the “current” value has a chance to arrive
+            if self._tick_grace_ms > 0:
+                await asyncio.sleep(self._tick_grace_ms / 1000)
+
+            logger.info(f"Tick @ {tick_dt.strftime('%Y-%m-%d %H:%M:%S')} (+{self._tick_grace_ms}ms grace)")
 
             # Handle resend first
             await self._resend_failed_files()
 
-            # At the aligned tick, send the *current latest* one per device
+            # Send once for this tick
             await self._send_leading_edge_at_tick(tick_dt)
 
     async def _send_leading_edge_at_tick(self, tick_dt: datetime) -> None:
         """
-        At the tick time, aggregate the currently latest snapshot (sampling_ts <= tick_dt) for every device,
-        and send only those newer than the device's last successful send timestamp.
-        The payload Timestamp = tick_dt (aligned time).
+        At the tick moment, per device:
+          - Pick the latest visible snapshot (sampling_ts ≤ tick + grace)
+          - Deduplicate using the tick as "label time" (at most once per device per tick)
+          - Before sending, override each item's time fields to the tick (cloud alignment)
         """
         latest_by_device = await self._collect_latest_by_device_unlocked()
 
+        visible_deadline = tick_dt + timedelta(milliseconds=self._tick_grace_ms)
         all_data: list[dict] = []
-        sent_candidates: dict[str, datetime] = {}
+        sent_candidates_sampling_ts: dict[str, datetime] = {}
 
         for dev_id, snap in latest_by_device.items():
-            # Only send what is visible at this tick: avoid including samples that arrive after the tick
-            if snap["sampling_ts"] > tick_dt:
+            snap_ts: datetime = snap["sampling_ts"]
+
+            # Only consider “visible” data before the deadline (including just-arrived data after the tick)
+            if snap_ts > visible_deadline:
                 continue
 
-            last_ts = self._last_sent_ts_by_device.get(dev_id, self._epoch)
-            if snap["sampling_ts"] <= last_ts:
+            # Deduplicate by "label time = this tick": at most once for this device this minute
+            last_label = self._last_label_ts_by_device.get(dev_id, self._epoch)
+            if tick_dt <= last_label:
                 continue
+
+            # Freshness observation (tunable)
+            lag_ms = int((tick_dt - snap_ts).total_seconds() * 1000)
+            if lag_ms > self._fresh_max_lag_ms:
+                logger.warning(f"[Freshness] {dev_id} lag {lag_ms}ms > {self._fresh_max_lag_ms}ms @ {tick_dt}")
 
             converted = convert_snapshot_to_legacy_payload(
                 gateway_id=self.gateway_id,
@@ -179,23 +235,30 @@ class LegacySenderAdapter:
             )
             if converted:
                 all_data.extend(converted)
-                sent_candidates[dev_id] = snap["sampling_ts"]
+                sent_candidates_sampling_ts[dev_id] = snap_ts
 
         if not all_data:
             logger.info("Leading-edge: no new data at this tick, skip sending.")
             return
 
+        # Override item-level time fields to the tick → ensures the cloud shows “this tick”
+        self._force_item_timestamp(all_data, report_at=tick_dt)
+
         payload = {
             "FUNC": "PushIMAData",
             "version": "6.0",
             "GatewayID": self.gateway_id,
-            "Timestamp": tick_dt.strftime("%Y%m%d%H%M%S"),  # aligned: use tick time
+            "Timestamp": tick_dt.strftime("%Y%m%d%H%M%S"),  # packet-level time
             "Data": all_data,
         }
 
         is_ok = await self._post_with_retry(payload)
         if is_ok:
-            self._last_sent_ts_by_device.update(sent_candidates)
+            # Label time is the tick_dt to ensure the same device won't be sent twice within the same tick
+            for dev_id in list(sent_candidates_sampling_ts):
+                self._last_label_ts_by_device[dev_id] = tick_dt
+            # Keep the original sampling_ts as the reference for bucket pruning
+            self._last_sent_ts_by_device.update(sent_candidates_sampling_ts)
             await self._prune_buckets()
 
     # -------------------------
@@ -203,7 +266,7 @@ class LegacySenderAdapter:
     # -------------------------
     async def _collect_latest_by_device_unlocked(self) -> dict[str, dict]:
         """
-        Reduce all buckets into the single *currently latest* snapshot for each device.
+        Compress all buckets → obtain a single "current latest" snapshot per device.
         """
         async with self._lock:
             latest_by_device: dict[str, dict] = {}
@@ -216,7 +279,8 @@ class LegacySenderAdapter:
 
     async def _prune_buckets(self) -> None:
         """
-        Remove snapshots that have already been sent (or are older), to prevent unbounded bucket growth.
+        Remove snapshots that were already sent or are older,
+        to prevent buckets from growing indefinitely.
         """
         async with self._lock:
             for wstart in list(self._latest_per_window.keys()):
@@ -229,7 +293,25 @@ class LegacySenderAdapter:
                 if not bucket:
                     self._latest_per_window.pop(wstart, None)
 
+    def _force_item_timestamp(self, data_list: list[dict], report_at: datetime) -> None:
+        """
+        Override each data item's time fields with `report_at`,
+        so the cloud display aligns with the intended tick.
+        Adjust the key list below based on your converter's actual field names.
+        """
+        ts_str = report_at.strftime("%Y%m%d%H%M%S")
+        for it in data_list:
+            for k in ("Timestamp", "Time", "sampleTime", "TS"):
+                if k in it:
+                    it[k] = ts_str
+
     async def _post_with_retry(self, payload: dict) -> bool:
+        """
+        Post `payload` with retries.
+          - If response contains "00000" → success
+          - On failure, retry up to `attempt_count`
+          - If still failing, save the payload into `resend_dir` for later retry
+        """
         json_str: str = json.dumps(payload)
         for attempt in range(self.__attempt_count):
             try:
@@ -259,10 +341,10 @@ class LegacySenderAdapter:
 
     async def _resend_failed_files(self) -> None:
         """
-        Try resending files in the resend directory first:
-          - If successful (contains "00000"), delete the file
-          - If failed and the limit is reached, mark it as .fail
-          - If failed but still under the limit, increment retry count (rename)
+        Try resending files in the `resend` directory:
+          - Success (response contains "00000") → delete file
+          - Failure and reached the retry limit → rename to .fail
+          - Failure but not yet at the limit → increment retry count in filename
         """
         try:
             file_list = sorted(
@@ -306,7 +388,7 @@ class LegacySenderAdapter:
 
     @staticmethod
     def _window_start(ts: datetime, interval_sec: int, tz: str = "Asia/Taipei") -> datetime:
-        """Align sampling_ts to the start of its tumbling window (used only for internal bucketing)."""
+        """Align `sampling_ts` to the start of its tumbling window (for internal cache indexing only; does not affect sending)."""
         ts_tz = ts.astimezone(ZoneInfo(tz)).replace(microsecond=0)
         ival = int(interval_sec)
         sec = (ts_tz.second // ival) * ival
