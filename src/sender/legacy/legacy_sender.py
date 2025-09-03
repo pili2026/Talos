@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import socket
 from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -36,7 +37,7 @@ class LegacySenderAdapter:
     """
 
     def __init__(self, sender_config: dict, device_manager: AsyncDeviceManager):
-        self.gateway_id = sender_config["gateway_id"][:11]
+        self.gateway_id = self._resolve_gateway_id(sender_config["gateway_id"])
         self.resend_dir = sender_config["resend_dir"]
         self.ima_url = sender_config["cloud"]["ima_url"]
         self.send_interval = int(sender_config.get("send_interval_sec", 60))
@@ -393,3 +394,27 @@ class LegacySenderAdapter:
         ival = int(interval_sec)
         sec = (ts_tz.second // ival) * ival
         return ts_tz.replace(second=sec)
+
+    @staticmethod
+    def _resolve_gateway_id(config_gateway_id: str) -> str:
+        """
+        Logic for selecting gateway_id:
+          1. If hostname is exactly 11 characters:
+             - If it equals the default '99999999999' → use config_gid[:11]
+             - Otherwise → use hostname
+          2. In all other cases → use config_gid[:11]
+        """
+        hostname: str = socket.gethostname()
+
+        if len(hostname) == 11:
+            if hostname == "99999999999":
+                gateway_id = config_gateway_id[:11]
+                logger.info(f"[GatewayID] Using config gateway_id={gateway_id} (hostname is default {hostname})")
+                return gateway_id
+
+            logger.info(f"[GatewayID] Using hostname gateway_id={hostname}")
+            return hostname
+
+        gateway_id: str = config_gateway_id[:11]
+        logger.info(f"[GatewayID] Using config gateway_id={gateway_id} (hostname not 11 chars)")
+        return gateway_id
