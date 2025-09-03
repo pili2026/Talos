@@ -1,6 +1,6 @@
 import logging
 
-from generic_device import AsyncGenericModbusDevice
+from device.generic.generic_device import AsyncGenericModbusDevice
 from model.control_model import ControlActionModel, ControlActionType
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic

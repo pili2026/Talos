@@ -1,8 +1,8 @@
 import logging
 from typing import Optional
 
+from device.generic.generic_device import AsyncGenericModbusDevice
 from device_manager import AsyncDeviceManager
-from generic_device import AsyncGenericModbusDevice
 from model.control_model import ControlActionModel, ControlActionType
 
 logger = logging.getLogger(__name__)

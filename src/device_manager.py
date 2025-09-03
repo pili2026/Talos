@@ -4,7 +4,7 @@ from typing import Any
 
 from pymodbus.client import AsyncModbusSerialClient
 
-from generic_device import AsyncGenericModbusDevice
+from device.generic.generic_device import AsyncGenericModbusDevice
 from util.config_manager import ConfigManager
 
 logger = logging.getLogger("DeviceManager")
@@ -60,7 +60,7 @@ class AsyncDeviceManager:
             instance_constraints: dict = ConfigManager.get_instance_constraints(self.instance_config, model, slave_id)
             final_constraints = {**model_constraints, **instance_constraints}
 
-            # NEW: pass tables/modes into device; allow per-device override of modes in devices[].modes
+            # pass tables/modes into device; allow per-device override of modes in devices[].modes
             model_tables: dict = model_config.get("tables", {})
             model_modes: dict = model_config.get("modes", {})
             instance_modes_override: dict = device_conf.get("modes", {})  # optional per-instance MV switch, etc.
@@ -72,10 +72,10 @@ class AsyncDeviceManager:
                 slave_id=slave_id,
                 register_type=model_config.get("register_type", "holding"),
                 register_map=model_config["register_map"],
-                constraints=final_constraints,
+                constraint_dict=final_constraints,
                 device_type=device_type,
-                tables=model_tables,
-                modes=final_modes,
+                table_dict=model_tables,
+                mode_dict=final_modes,
                 write_hooks=model_config.get("write_hooks", []),
             )
             self.device_list.append(device)
