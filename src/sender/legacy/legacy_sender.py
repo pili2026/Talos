@@ -23,6 +23,7 @@ from util.time_util import sleep_until_next_tick
 logger = logging.getLogger("LegacySender")
 
 
+# TODO: Need to Refactor
 class LegacySenderAdapter:
     """
     Behavior (key points in this version):
@@ -169,7 +170,7 @@ class LegacySenderAdapter:
         ok = await self._post_with_retry(payload)
         if ok:
             # Update label-time dedup and bucket pruning references
-            for dev_id in sent_candidates_sampling_ts.keys():
+            for dev_id in sent_candidates_sampling_ts:
                 self._last_label_ts_by_device[dev_id] = label_now
             self._last_sent_ts_by_device.update(sent_candidates_sampling_ts)
             await self._prune_buckets()
@@ -313,6 +314,7 @@ class LegacySenderAdapter:
           - On failure, retry up to `attempt_count`
           - If still failing, save the payload into `resend_dir` for later retry
         """
+        payload = self._normalize_missing_deep(payload)
         json_str: str = json.dumps(payload)
         for attempt in range(self.__attempt_count):
             try:
@@ -418,3 +420,22 @@ class LegacySenderAdapter:
         gateway_id: str = config_gateway_id[:11]
         logger.info(f"[GatewayID] Using config gateway_id={gateway_id} (hostname not 11 chars)")
         return gateway_id
+
+    @staticmethod
+    def _normalize_missing_value(v):
+        """Normalize -1.0 / -1 into int(-1); leave other values unchanged."""
+        if isinstance(v, (int, float)) and v == -1:
+            return -1
+        return v
+
+    @staticmethod
+    def _normalize_missing_deep(obj):
+        """Recursively convert all -1.0 values in a payload back to -1 (supports nested dict/list)."""
+        if isinstance(obj, dict):
+            return {
+                k: LegacySenderAdapter._normalize_missing_deep(LegacySenderAdapter._normalize_missing_value(v))
+                for k, v in obj.items()
+            }
+        if isinstance(obj, list):
+            return [LegacySenderAdapter._normalize_missing_deep(x) for x in obj]
+        return LegacySenderAdapter._normalize_missing_value(obj)

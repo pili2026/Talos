@@ -11,6 +11,16 @@ class ModbusBus:
         self.slave_id = int(slave_id)
         self.register_type = register_type
 
+    async def ensure_connected(self) -> bool:
+        if self.client.connected:
+            return True
+
+        is_ok: bool = await self.client.connect()
+        if not is_ok:
+            logger.error(f"[Bus] connect failed (slave={self.slave_id})")
+
+        return is_ok
+
     async def read_u16(self, offset: int) -> int:
         regs = await self.read_regs(offset, 1)
         return int(regs[0])

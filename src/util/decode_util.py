@@ -8,6 +8,9 @@ class NumericFormat(StrEnum):
     UINT32 = "uint32"
     INT16 = "int16"
     UINT16 = "uint16"
+    U16 = "u16"
+    U32 = "u32"
+    F32 = "f32"
 
 
 def decode_numeric_by_format(raw: list[int], fmt: NumericFormat) -> float | int:

@@ -1,15 +1,16 @@
 import logging
+import re
 
-from model.enum.equipment_enum import EqType
+from model.enum.equipment_enum import EquipmentType
+from util.device_id_policy import POLICY
 
 logger = logging.getLogger("SnapshotConverter")
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str]) -> list[dict]:
     result = []
-
     # TODO: Range need to refactor
-    for i in range(1, 17):
+    for i in range(1, 17):  # pins 1..16 → idx = i-1 (zero-based)
         key = f"DIn{i:02d}"
         if key not in snapshot:
             continue
@@ -18,9 +19,9 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         except Exception:
             continue
 
-        suffix = build_device_suffix(slave_id, i - 1) + EqType.SR
-        device_id = f"{gateway_id}_{suffix}"
-
+        device_id = POLICY.build_device_id(
+            gateway_id=gateway_id, slave_id=slave_id, idx=i - 1, eq_suffix=EquipmentType.SR
+        )  # ← unified generation
         data = {
             "Relay0": relay,
             "Relay1": 0,
@@ -47,19 +48,25 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
         "RW_ON_OFF": ("on_off", int),
     }
 
-    suffix = build_device_suffix(slave_id, 0) + EqType.CI
-    device_id = f"{gateway_id}_{suffix}"
-
+    device_id = POLICY.build_device_id(
+        gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.CI
+    )  # ← idx=0
     data = {}
     for raw_key, (target_key, caster) in field_map.items():
         val = snapshot.get(raw_key)
-        if val is not None:
-            try:
-                data[target_key] = caster(float(val))
-            except Exception:
-                continue
+        if val is None:
+            continue
+        try:
+            data[target_key] = caster(float(val))
+        except Exception:
+            pass
 
     return [{"DeviceID": device_id, "Data": data}] if data else []
+
+
+def _infer_idx_from_key(key: str) -> int:
+    m = re.search(r"(\d+)$", key)  # extract trailing number
+    return int(m.group(1)) - 1 if m else 0  # 1-based → 0-based
 
 
 def convert_ai_module_snapshot(
@@ -68,35 +75,29 @@ def convert_ai_module_snapshot(
     snapshot: dict[str, str],
     pin_type_map: dict[str, str],
 ) -> list[dict]:
-    pin_suffix_map = {
-        "Temp": EqType.ST,
-        "Pressure": EqType.SP,
-    }
-
+    pin_suffix_map = {"Temp": EquipmentType.ST, "Pressure": EquipmentType.SP}
     result = []
 
-    for idx, (key, val) in enumerate(snapshot.items()):
+    for key, val in snapshot.items():
+        sensor_type = pin_type_map.get(key)
+        if not sensor_type:
+            continue
         try:
             value = float(val)
         except Exception:
             continue
 
-        sensor_type = pin_type_map.get(key)
-        if not sensor_type:
-            continue
-
-        suffix = build_device_suffix(slave_id, idx) + pin_suffix_map.get(sensor_type, "")
-        device_id = f"{gateway_id}_{suffix}"
-
+        idx = _infer_idx_from_key(key)  # ← ensure stable idx
+        device_id = POLICY.build_device_id(
+            gateway_id=gateway_id, slave_id=slave_id, idx=idx, eq_suffix=pin_suffix_map.get(sensor_type, "")
+        )
         result.append({"DeviceID": device_id, "Data": {sensor_type: value}})
 
     return result
 
 
 def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dict]:
-    suffix = build_device_suffix(slave_id, 0) + EqType.SF
-    device_id = f"{gateway_id}_{suffix}"
-
+    device_id = POLICY.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SF)
     return [
         {
             "DeviceID": device_id,
@@ -190,30 +191,5 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     mapped["AveragePowerFactor"] = round(mapped.get("AveragePowerFactor", 0.0), 3)
 
     # Device ID (reuse your convention)
-    suffix = build_device_suffix(slave_id, 0) + EqType.SE
-    device_id = f"{gateway_id}_{suffix}"
-
+    device_id: str = POLICY.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
     return [{"DeviceID": device_id, "Data": mapped}]
-
-
-def build_device_suffix(slave_id: str | int, idx: int, loop_prefix: str = "1") -> str:
-    """
-    Convert slave_id and idx (pin/channel) into a 3-digit HEX, then replace the highest digit with loop_prefix.
-    - slave_id can be int or str; if str is not purely numeric, try base36 (supports alphanumeric IDs).
-    - Calculation: code = slave * 0x10 + idx → format as %03X → replace the highest digit with loop_prefix.
-    """
-
-    def parse_sid(sid) -> int:
-        if isinstance(sid, int):
-            return sid
-        s = str(sid).strip()
-        # First try decimal (base10), then fallback to base36 (supports alphanumeric IDs)
-        try:
-            return int(s, 10)
-        except Exception:
-            return int(s, 36)
-
-    sid = parse_sid(slave_id)
-    code = sid * 0x10 + idx
-    raw = f"{code:03X}"
-    return f"{loop_prefix}{raw[1:]}"

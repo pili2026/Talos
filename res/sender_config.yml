@@ -3,7 +3,7 @@ resend_dir: "./logs/resend"
 cloud:
   ima_url: "http://imabox-server2.ima-ems.com"
 send_interval_sec: 60
-attempt_countt: 2
+attempt_count: 2
 max_retry: 3
 grace_period_sec: 3 # tolerance for second-level delay
 

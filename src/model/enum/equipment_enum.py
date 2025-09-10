@@ -1,7 +1,7 @@
 from enum import StrEnum
 
 
-class EqType(StrEnum):
+class EquipmentType(StrEnum):
     """
     Enumeration for equipment types in POC Sender.
 

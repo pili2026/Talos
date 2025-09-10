@@ -7,10 +7,13 @@ from device.generic.hooks import HookManager
 from device.generic.modbus_bus import ModbusBus
 from device.generic.scales import ScaleService
 from device.generic.value_codecs import ValueDecoder
+from model.device_constant import (
+    DEFAULT_MISSING_VALUE,
+    HI_SHIFT,
+    MD_SHIFT,
+    REG_RW_ON_OFF,
+)
 from util.decode_util import NumericFormat
-
-# TODO: Move to model
-REG_RW_ON_OFF = "RW_ON_OFF"
 
 
 class AsyncGenericModbusDevice:
@@ -67,6 +70,12 @@ class AsyncGenericModbusDevice:
         return supports_on_off(self.device_type, self.register_map)
 
     async def read_all(self) -> dict[str, Any]:
+        # 1) First check connectivity: if not connected → return an offline snapshot immediately
+        if not await self.bus.ensure_connected():
+            self.logger.warning("[OFFLINE] bus not connected; return default -1 snapshot")
+            return self._default_offline_snapshot()
+
+        # 2) If connected → read normally; if a single read fails → set that field to -1
         result: dict[str, Any] = {}
         for name, cfg in self.register_map.items():
             if not cfg.get("readable"):
@@ -74,29 +83,36 @@ class AsyncGenericModbusDevice:
             try:
                 result[name] = await self.read_value(name)
             except Exception as e:
-                self.logger.warning(f"Failed to read {name}: {e}")
+                self.logger.warning(f"Failed to read {name}: {e}; set -1")
+                result[name] = DEFAULT_MISSING_VALUE
+
         return result
 
     async def read_value(self, name: str) -> float | int:
-        cfg = self._require_readable(name)
+        config: dict = self._require_readable(name)
+        if not config:
+            return DEFAULT_MISSING_VALUE
+
         # 1) raw
-        value = await self._read_raw(cfg)
+        value: int | float = await self._read_raw(config)
+        if value == DEFAULT_MISSING_VALUE:
+            return value
 
         # 2) bit
-        if cfg.get("bit") is not None:
-            value = self.decoder.apply_bit(value, cfg["bit"])
+        if config.get("bit") is not None:
+            value = self.decoder.apply_bit(value, config["bit"])
 
         # 3) linear formula
-        if cfg.get("formula"):
-            value = self.decoder.apply_formula(value, cfg["formula"])
+        if config.get("formula"):
+            value = self.decoder.apply_formula(value, config["formula"])
 
         # 4) constant scale
-        value = self.decoder.apply_scale(value, cfg.get("scale", 1.0))
+        value = self.decoder.apply_scale(value, config.get("scale", 1.0))
 
         # 5) dynamic scale
-        sf = cfg.get("scale_from")
-        if sf:
-            factor = await self._resolve_dynamic_scale(sf)
+        scale_from: str = config.get("scale_from")
+        if scale_from:
+            factor = await self._resolve_dynamic_scale(scale_from)
             value = self.decoder.apply_scale(value, factor)
         return value
 
@@ -119,41 +135,55 @@ class AsyncGenericModbusDevice:
     # -----------------
     # internal helpers
     # -----------------
-    async def _read_raw(self, cfg: dict) -> float | int:
+    async def _read_raw(self, reg_config: dict) -> float | int:
+        if not await self.bus.ensure_connected():
+            self.logger.warning("[OFFLINE] bus not connected; return -1 for raw read")
+            return DEFAULT_MISSING_VALUE
+
         # composed 48-bit (HI|MD|LO)
-        if cfg.get("composed_of"):
-            names = cfg["composed_of"]
-            if not isinstance(names, (list, tuple)) or len(names) != 3:
-                self.logger.error(f"[{self.model}] Invalid composed_of={names}, must have exactly 3 entries")
-                return 0  # fallback value
-            words: list[int] = []
-            for n in names:
-                pin_cfg = self.register_map.get(n) or {}
-                words.append(await self.bus.read_u16(pin_cfg["offset"]))
-            hi, md, lo = [int(w) & 0xFFFF for w in words]
-            return (hi << 32) | (md << 16) | lo
+        if reg_config.get("composed_of"):
+            # TODO: Need to clarify the format of composed_of
+            sub_registers: list | tuple = reg_config["composed_of"]
+            if not isinstance(sub_registers, (list, tuple)) or len(sub_registers) != 3:
+                self.logger.error(f"[{self.model}] Invalid composed_of={sub_registers}, must have exactly 3 entries")
+                return DEFAULT_MISSING_VALUE  # fallback value
+
+            register_value_list: list[int] = []
+            for sub_register in sub_registers:
+                pin_cfg = self.register_map.get(sub_register) or {}
+                if "offset" not in pin_cfg:
+                    return DEFAULT_MISSING_VALUE
+
+                register_value_list.append(await self.bus.read_u16(pin_cfg["offset"]))
+            hi, md, lo = [int(w) & 0xFFFF for w in register_value_list]
+            return (hi << HI_SHIFT) | (md << MD_SHIFT) | lo
 
         # normal path: choose register count by format
-        fmt = cfg.get("format", "u16")
-        needs2 = str(fmt).lower() in {"u32", "uint32", "f32", "float32"} or fmt in {
+        fmt = reg_config.get("format", NumericFormat.U16)
+        requires_two_words: bool = str(fmt).lower() in {
+            NumericFormat.U32,
+            NumericFormat.UINT32,
+            NumericFormat.F32,
+            NumericFormat.FLOAT32,
+        } or fmt in {
             NumericFormat.UINT32,
             NumericFormat.FLOAT32,
         }
-        count = 2 if needs2 else 1
-        words = await self.bus.read_regs(cfg["offset"], count)
-        return self.decoder.decode_words(fmt, words)
+        word_count = 2 if requires_two_words else 1
+        register_value_list = await self.bus.read_regs(reg_config["offset"], word_count)
+        return self.decoder.decode_words(fmt, register_value_list)
 
-    async def _resolve_dynamic_scale(self, sf: str) -> float:
+    async def _resolve_dynamic_scale(self, scale_from: str) -> float:
         async def index_reader(index_name: str) -> int:
             pin = self.register_map.get(index_name)
             if not pin:
                 self.logger.warning(f"[{self.model}] index '{index_name}' not defined; fallback -1")
-                return -1
+                return DEFAULT_MISSING_VALUE
             try:
                 return await self.bus.read_u16(pin["offset"])
             except Exception as e:
                 self.logger.warning(f"[{self.model}] read index '{index_name}' failed: {e}")
-                return -1
+                return DEFAULT_MISSING_VALUE
 
         mapping = {
             "current_index": "current",
@@ -161,9 +191,9 @@ class AsyncGenericModbusDevice:
             "energy_index": "energy_auto",
             "kwh_scale": "kwh",
         }
-        kind = mapping.get(sf)
+        kind = mapping.get(scale_from)
         if not kind:
-            self.logger.warning(f"[{self.model}] Unknown scale_from '{sf}'")
+            self.logger.warning(f"[{self.model}] Unknown scale_from '{scale_from}'")
             return 1.0
         return await self.scales.get_factor(kind, index_reader)
 
@@ -180,3 +210,10 @@ class AsyncGenericModbusDevice:
             self.logger.warning(f"[{self.model}] register_map {name} is not writable")
             return {}
         return cfg
+
+    def _default_offline_snapshot(self) -> dict[str, float | int]:
+        # All readable fields → -1
+        snap: dict[str, float | int] = {
+            name: DEFAULT_MISSING_VALUE for name, cfg in self.register_map.items() if cfg.get("readable")
+        }
+        return snap

@@ -7,12 +7,14 @@ from dotenv import load_dotenv
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from util.config_manager import ConfigManager
+from util.device_id_policy import load_device_id_policy
 from util.factory.alert_factory import build_alert_subscriber
 from util.factory.constraint_factory import build_constraint_subscriber
 from util.factory.control_factory import build_control_subscriber
 from util.factory.sender_factory import build_sender_subscriber, init_sender
 from util.factory.time_factory import build_time_control_subscriber
 from util.logger_config import setup_logging
+from util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
 from util.notifier.email_notifier import EmailNotifier
 from util.pubsub.in_memory_pubsub import InMemoryPubSub
 from util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
@@ -34,9 +36,13 @@ async def main(
     system_config_path: str,
 ):
     setup_logging(log_to_file=True)
+    quiet_pymodbus_logs()
+
     load_dotenv()
+    install_asyncio_noise_suppressor()
 
     system_config: dict = ConfigManager.load_yaml_file(system_config_path)
+    load_device_id_policy(system_config)
 
     pubsub = InMemoryPubSub()
     instance_config: dict = ConfigManager.load_yaml_file(instance_config_path)
