@@ -36,7 +36,6 @@ class LegacySenderAdapter:
         self.anchor_offset_sec = float(self.sender_config_model.anchor_offset_sec)
         self.tick_grace_sec = float(self.sender_config_model.tick_grace_sec)
         self.fresh_window_sec = float(self.sender_config_model.fresh_window_sec)
-        self.heartbeat_on_empty = bool(self.sender_config_model.heartbeat_on_empty)
         self.last_known_ttl_sec = float(self.sender_config_model.last_known_ttl_sec or 0.0)
 
         self.device_manager = device_manager
@@ -106,12 +105,6 @@ class LegacySenderAdapter:
     # Internal
     # -------------------------
     async def _warmup_send_once(self, timeout_sec: int = 15, debounce_s: int = 1) -> None:
-        """
-        Warm-up logic:
-          - Wait up to `timeout_sec` for the first snapshot
-          - Debounce for `debounce_s` seconds if configured
-          - Send once immediately using "now" as the label timestamp
-        """
         try:
             await asyncio.wait_for(self._first_snapshot_event.wait(), timeout=timeout_sec)
         except asyncio.TimeoutError:
@@ -128,27 +121,17 @@ class LegacySenderAdapter:
         label_now = datetime.now(self._tz)
 
         for dev_id, snap in latest_by_device.items():
-            # 以 "now" 為 label，避免重複送同一 label_time
             last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_now <= last_label:
                 continue
 
             snap_ts: datetime = snap["sampling_ts"]
             age_sec = (label_now - snap_ts).total_seconds()
-
-            # --- Fresh / TTL gating（不要先 early-continue）---
-            use_it = False
-            is_stale = 0
-            if age_sec <= self.fresh_window_sec:
-                use_it = True
-            elif self.last_known_ttl_sec > 0 and age_sec <= self.last_known_ttl_sec:
-                use_it = True
-                is_stale = 1
-
-            if not use_it:
+            if age_sec > self.fresh_window_sec and not (
+                getattr(self, "last_known_ttl_sec", 0) > 0 and age_sec <= self.last_known_ttl_sec
+            ):
                 continue
 
-            # 每個裝置只送尚未送過的樣本
             last_ts = self.__last_sent_ts_by_device.get(dev_id, self._epoch)
             if snap_ts <= last_ts:
                 continue
@@ -160,6 +143,7 @@ class LegacySenderAdapter:
             )
             if converted:
                 age_ms = int(age_sec * 1000)
+                is_stale = 1 if age_sec > self.fresh_window_sec else 0
                 for it in converted:
                     it.setdefault("Data", {})
                     it["Data"]["sampling_ts"] = snap_ts.isoformat()
@@ -168,26 +152,23 @@ class LegacySenderAdapter:
                     if is_stale:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
-
                 all_data.extend(converted)
                 sent_candidates_sampling_ts[dev_id] = snap_ts
 
-        if not all_data:
-            logger.info("Warm-up: nothing new to send.")
-            self._first_send_done = True
-            return
+        # ★ 無論 all_data 是否為空，都附加 GW 心跳
+        items = list(all_data)
+        items.append(self._make_gw_heartbeat(label_now))
 
         payload = {
             "FUNC": "PushIMAData",
             "version": "6.0",
             "GatewayID": self.gateway_id,
             "Timestamp": label_now.strftime("%Y%m%d%H%M%S"),
-            "Data": all_data,
+            "Data": items,
         }
 
-        is_ok: bool = await self._post_with_retry(payload)
-        if is_ok:
-            # Update label-time dedup and bucket pruning references
+        ok = await self._post_with_retry(payload)
+        if ok and sent_candidates_sampling_ts:
             for dev_id in sent_candidates_sampling_ts:
                 self.__last_label_ts_by_device[dev_id] = label_now
             self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
@@ -384,10 +365,9 @@ class LegacySenderAdapter:
             next_label = next_label + timedelta(seconds=self.send_interval_sec)
 
     def _compute_next_label_time(self, now: datetime) -> datetime:
-        base = now.replace(microsecond=0)
-        # 先對齊到當分鐘錨點
+        base_datatime = now.replace(microsecond=0)
         anchor = int(self.anchor_offset_sec)
-        candidate = base.replace(second=anchor)
+        candidate = base_datatime.replace(second=anchor)
         interval = float(self.send_interval_sec)
 
         while candidate <= now:
@@ -405,14 +385,9 @@ class LegacySenderAdapter:
 
         for dev_id, snap in latest_by_device.items():
             snap_ts: datetime = snap["sampling_ts"]
-
-            # 僅納入「可見窗口」內的樣本（允許 tick 後 grace 期間到達）
             if snap_ts > visible_deadline:
                 continue
-
             age_sec = (label_time - snap_ts).total_seconds()
-
-            # --- Fresh / TTL gating ---
             use_it = False
             is_stale = 0
             if age_sec <= fresh_limit_sec:
@@ -420,11 +395,9 @@ class LegacySenderAdapter:
             elif self.last_known_ttl_sec > 0 and age_sec <= self.last_known_ttl_sec:
                 use_it = True
                 is_stale = 1
-
             if not use_it:
                 continue
 
-            # 每裝置每個 label_time 僅送一次
             last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_time <= last_label:
                 continue
@@ -444,37 +417,22 @@ class LegacySenderAdapter:
                     if is_stale:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
-
                 all_items.extend(converted)
                 sent_candidates_ts[dev_id] = snap_ts
 
-        if not all_items:
-            if self.heartbeat_on_empty:
-                payload = {
-                    "FUNC": "PushIMAData",
-                    "version": "6.0",
-                    "GatewayID": self.gateway_id,
-                    "Timestamp": label_time.strftime("%Y%m%d%H%M%S"),
-                    "Data": [
-                        {"DeviceID": f"{self.gateway_id}_000GW", "Data": {"HB": 1, "report_ts": label_time.isoformat()}}
-                    ],
-                }
-
-                await self._post_with_retry(payload)
-            else:
-                logger.info("No fresh data and heartbeat disabled; skip sending.")
-            return
+        items = list(all_items)
+        items.append(self._make_gw_heartbeat(label_time))
 
         payload = {
             "FUNC": "PushIMAData",
             "version": "6.0",
             "GatewayID": self.gateway_id,
             "Timestamp": label_time.strftime("%Y%m%d%H%M%S"),
-            "Data": all_items,
+            "Data": items,
         }
 
         ok = await self._post_with_retry(payload)
-        if ok:
+        if ok and sent_candidates_ts:
             for dev_id in list(sent_candidates_ts):
                 self.__last_label_ts_by_device[dev_id] = label_time
             self.__last_sent_ts_by_device.update(sent_candidates_ts)
@@ -554,3 +512,9 @@ class LegacySenderAdapter:
             )
         except Exception as e:
             logger.error(f"[RESEND] cleanup error: {e}")
+
+    def _make_gw_heartbeat(self, at: datetime) -> dict:
+        return {
+            "DeviceID": f"{self.gateway_id}_000GW",  # TODO: GW ID need to modify by config on future
+            "Data": {"HB": 1, "report_ts": at.isoformat()},
+        }

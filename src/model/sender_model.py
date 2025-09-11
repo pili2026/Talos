@@ -50,7 +50,6 @@ class SenderModel(BaseModel):
     last_known_ttl_sec: float = Field(
         0.0, description="0 to disable. If >0, allow last-known value within TTL (seconds)."
     )
-    heartbeat_on_empty: bool = Field(True, description="Send GW heartbeat when no fresh device data in a tick")
 
     # --- Resend space protection (MB/seconds) ---
     resend_quota_mb: int = Field(256, description="Max size for resend_dir in MB (>0)")
