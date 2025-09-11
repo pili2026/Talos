@@ -1,11 +1,26 @@
-gateway_id: "talosedgedv"
+gateway_id: "talosjeremy"
 resend_dir: "./logs/resend"
+
 cloud:
   ima_url: "http://imabox-server2.ima-ems.com"
-send_interval_sec: 60
+
+# Scheduling
+anchor_offset_sec: 40        # second offset to start each minute (recommended integer 0..59)
+send_interval_sec: 10        # fixed interval (seconds; integer allowed, decimals if needed)
+tick_grace_sec: 1          # grace period after tick (seconds; originally 800ms -> 0.8s)
+fresh_window_sec: 2        # max delay considered “fresh” (seconds; originally 1000ms -> 1.0s)
+
+# Transmission / Resend
 attempt_count: 2
 max_retry: 3
-grace_period_sec: 3 # tolerance for second-level delay
+last_known_ttl_sec: 0        # disable fallback using old values (you want authenticity)
+heartbeat_on_empty: true
+
+# Resend space protection
+resend_quota_mb: 256
+fs_free_min_mb: 512
+resend_cleanup_batch: 100
+resend_protect_recent_sec: 300
 
 sender:
   use_legacy: true

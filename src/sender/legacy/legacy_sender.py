@@ -12,45 +12,38 @@ import aiofiles
 import httpx
 
 from device_manager import AsyncDeviceManager
+from model.sender_model import SenderModel
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 from sender.legacy.resend_file_util import (
     extract_retry_count,
     increment_retry_name,
     mark_as_fail,
 )
-from util.time_util import sleep_until_next_tick
 
 logger = logging.getLogger("LegacySender")
 
 
 # TODO: Need to Refactor
 class LegacySenderAdapter:
-    """
-    Behavior (key points in this version):
-      - Warm-up: wait for the first snapshot → send once immediately
-        (Timestamp = now; also override item-level time fields to now).
-      - Periodic (leading-edge): at each aligned tick (e.g., 00:03:00):
-          1) Wait `tick_grace_ms` (default 900 ms) to allow the "current" snapshot to arrive
-          2) For each device, pick the "latest visible" snapshot with sampling_ts ≤ (tick + grace)
-          3) Deduplicate by using the tick as the label time (each device sends at most once per tick)
-          4) Before sending, override each item's time fields to the tick
-             (avoid the cloud showing the previous minute)
-    """
 
-    def __init__(self, sender_config: dict, device_manager: AsyncDeviceManager):
-        self.gateway_id = self._resolve_gateway_id(sender_config["gateway_id"])
-        self.resend_dir = sender_config["resend_dir"]
-        self.ima_url = sender_config["cloud"]["ima_url"]
-        self.send_interval = int(sender_config.get("send_interval_sec", 60))
-        self.__attempt_count = int(sender_config.get("attempt_count", 2))
-        self.__max_retry = int(sender_config.get("max_retry", 3))
+    def __init__(self, sender_config_model: SenderModel, device_manager: AsyncDeviceManager):
+        self.sender_config_model = sender_config_model
+        self.gateway_id = self._resolve_gateway_id(self.sender_config_model.gateway_id)
+        self.resend_dir = self.sender_config_model.resend_dir
+        self.ima_url = self.sender_config_model.cloud.ima_url
 
-        # NEW: grace time after tick (milliseconds) + acceptable maximum lag (milliseconds)
-        self._tick_grace_ms = int(sender_config.get("tick_grace_ms", 900))
-        self._fresh_max_lag_ms = int(sender_config.get("fresh_max_lag_ms", 1500))
+        self.send_interval_sec = float(self.sender_config_model.send_interval_sec)
+        self.anchor_offset_sec = float(self.sender_config_model.anchor_offset_sec)
+        self.tick_grace_sec = float(self.sender_config_model.tick_grace_sec)
+        self.fresh_window_sec = float(self.sender_config_model.fresh_window_sec)
+        self.heartbeat_on_empty = bool(self.sender_config_model.heartbeat_on_empty)
+        self.last_known_ttl_sec = float(self.sender_config_model.last_known_ttl_sec or 0.0)
 
         self.device_manager = device_manager
         os.makedirs(self.resend_dir, exist_ok=True)
+
+        self.__attempt_count = int(self.sender_config_model.attempt_count)
+        self.__max_retry = int(self.sender_config_model.max_retry)
 
         # window → { device_id → snapshot }; in-memory cache only
         self._latest_per_window: dict[datetime, dict[str, dict]] = defaultdict(dict)
@@ -63,10 +56,11 @@ class LegacySenderAdapter:
         self._first_send_done = False
 
         # ---- De-dup tracker ----
-        # Legacy: last successfully-sent sampling_ts (kept for bucket pruning)
-        self._last_sent_ts_by_device: dict[str, datetime] = {}
-        # NEW: last sent "label time" (tick or warm-up now) → ensure at most once per device per tick
-        self._last_label_ts_by_device: dict[str, datetime] = {}
+        self.__last_sent_ts_by_device: dict[str, datetime] = {}
+        self.__last_label_ts_by_device: dict[str, datetime] = {}
+
+        self.resend_quota_mb = self.sender_config_model.resend_quota_mb
+        self.fs_free_min_mb = self.sender_config_model.fs_free_min_mb
 
     # -------------------------
     # Public API
@@ -90,7 +84,7 @@ class LegacySenderAdapter:
         else:
             sampling_ts = sampling_ts.astimezone(self._tz)
 
-        wstart = LegacySenderAdapter._window_start(sampling_ts, self.send_interval, tz="Asia/Taipei")
+        wstart = LegacySenderAdapter._window_start(sampling_ts, int(self.send_interval_sec), tz="Asia/Taipei")
         async with self._lock:
             self._latest_per_window[wstart][device_id] = {**snapshot_map, "sampling_ts": sampling_ts}
 
@@ -100,11 +94,13 @@ class LegacySenderAdapter:
     async def start(self):
         """
         Start two background tasks:
-          1) _warmup_send_once: wait for the first snapshot → send immediately (unaligned)
-          2) _periodic_send_task: aligned by interval → leading-edge send
+          1) _resend_failed_files: resent fail message
+          2) _warmup_send_once: wait for the first snapshot → send immediately (unaligned)
+          3) _scheduler_loop:
         """
+        await self._resend_failed_files()
         asyncio.create_task(self._warmup_send_once())
-        asyncio.create_task(self._periodic_send_task())
+        asyncio.create_task(self._scheduler_loop())
 
     # -------------------------
     # Internal
@@ -132,14 +128,29 @@ class LegacySenderAdapter:
         label_now = datetime.now(self._tz)
 
         for dev_id, snap in latest_by_device.items():
-            # Label-time dedup: for the first send use "now" as label time;
-            # if we already sent at or after this time for this device, skip it
-            last_label = self._last_label_ts_by_device.get(dev_id, self._epoch)
+            # 以 "now" 為 label，避免重複送同一 label_time
+            last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_now <= last_label:
                 continue
 
-            last_ts = self._last_sent_ts_by_device.get(dev_id, self._epoch)
-            if snap["sampling_ts"] <= last_ts:
+            snap_ts: datetime = snap["sampling_ts"]
+            age_sec = (label_now - snap_ts).total_seconds()
+
+            # --- Fresh / TTL gating（不要先 early-continue）---
+            use_it = False
+            is_stale = 0
+            if age_sec <= self.fresh_window_sec:
+                use_it = True
+            elif self.last_known_ttl_sec > 0 and age_sec <= self.last_known_ttl_sec:
+                use_it = True
+                is_stale = 1
+
+            if not use_it:
+                continue
+
+            # 每個裝置只送尚未送過的樣本
+            last_ts = self.__last_sent_ts_by_device.get(dev_id, self._epoch)
+            if snap_ts <= last_ts:
                 continue
 
             converted = convert_snapshot_to_legacy_payload(
@@ -148,16 +159,23 @@ class LegacySenderAdapter:
                 device_manager=self.device_manager,
             )
             if converted:
+                age_ms = int(age_sec * 1000)
+                for it in converted:
+                    it.setdefault("Data", {})
+                    it["Data"]["sampling_ts"] = snap_ts.isoformat()
+                    it["Data"]["report_ts"] = label_now.isoformat()
+                    it["Data"]["sample_age_ms"] = age_ms
+                    if is_stale:
+                        it["Data"]["is_stale"] = 1
+                        it["Data"]["stale_age_ms"] = age_ms
+
                 all_data.extend(converted)
-                sent_candidates_sampling_ts[dev_id] = snap["sampling_ts"]
+                sent_candidates_sampling_ts[dev_id] = snap_ts
 
         if not all_data:
             logger.info("Warm-up: nothing new to send.")
             self._first_send_done = True
             return
-
-        # Override item-level time fields to "now" (avoid the cloud showing the previous minute)
-        self._force_item_timestamp(all_data, report_at=label_now)
 
         payload = {
             "FUNC": "PushIMAData",
@@ -167,101 +185,15 @@ class LegacySenderAdapter:
             "Data": all_data,
         }
 
-        ok = await self._post_with_retry(payload)
-        if ok:
+        is_ok: bool = await self._post_with_retry(payload)
+        if is_ok:
             # Update label-time dedup and bucket pruning references
             for dev_id in sent_candidates_sampling_ts:
-                self._last_label_ts_by_device[dev_id] = label_now
-            self._last_sent_ts_by_device.update(sent_candidates_sampling_ts)
+                self.__last_label_ts_by_device[dev_id] = label_now
+            self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
             await self._prune_buckets()
 
         self._first_send_done = True
-
-    async def _periodic_send_task(self) -> None:
-        """
-        Periodic sending loop (leading-edge):
-          - Align to the interval using sleep_until_next_tick
-          - After the tick, wait the grace period to allow the current value to arrive
-          - Attempt to resend previously failed files
-          - Send one batch for this tick
-        """
-        logger.info(f"Start periodic send task every {self.send_interval} seconds (leading-edge)")
-        while True:
-            tick_dt = await sleep_until_next_tick(self.send_interval, tz="Asia/Taipei")
-            # After the tick, wait a grace period so the “current” value has a chance to arrive
-            if self._tick_grace_ms > 0:
-                await asyncio.sleep(self._tick_grace_ms / 1000)
-
-            logger.info(f"Tick @ {tick_dt.strftime('%Y-%m-%d %H:%M:%S')} (+{self._tick_grace_ms}ms grace)")
-
-            # Handle resend first
-            await self._resend_failed_files()
-
-            # Send once for this tick
-            await self._send_leading_edge_at_tick(tick_dt)
-
-    async def _send_leading_edge_at_tick(self, tick_dt: datetime) -> None:
-        """
-        At the tick moment, per device:
-          - Pick the latest visible snapshot (sampling_ts ≤ tick + grace)
-          - Deduplicate using the tick as "label time" (at most once per device per tick)
-          - Before sending, override each item's time fields to the tick (cloud alignment)
-        """
-        latest_by_device = await self._collect_latest_by_device_unlocked()
-
-        visible_deadline = tick_dt + timedelta(milliseconds=self._tick_grace_ms)
-        all_data: list[dict] = []
-        sent_candidates_sampling_ts: dict[str, datetime] = {}
-
-        for dev_id, snap in latest_by_device.items():
-            snap_ts: datetime = snap["sampling_ts"]
-
-            # Only consider “visible” data before the deadline (including just-arrived data after the tick)
-            if snap_ts > visible_deadline:
-                continue
-
-            # Deduplicate by "label time = this tick": at most once for this device this minute
-            last_label = self._last_label_ts_by_device.get(dev_id, self._epoch)
-            if tick_dt <= last_label:
-                continue
-
-            # Freshness observation (tunable)
-            lag_ms = int((tick_dt - snap_ts).total_seconds() * 1000)
-            if lag_ms > self._fresh_max_lag_ms:
-                logger.warning(f"[Freshness] {dev_id} lag {lag_ms}ms > {self._fresh_max_lag_ms}ms @ {tick_dt}")
-
-            converted = convert_snapshot_to_legacy_payload(
-                gateway_id=self.gateway_id,
-                snapshot=snap,
-                device_manager=self.device_manager,
-            )
-            if converted:
-                all_data.extend(converted)
-                sent_candidates_sampling_ts[dev_id] = snap_ts
-
-        if not all_data:
-            logger.info("Leading-edge: no new data at this tick, skip sending.")
-            return
-
-        # Override item-level time fields to the tick → ensures the cloud shows “this tick”
-        self._force_item_timestamp(all_data, report_at=tick_dt)
-
-        payload = {
-            "FUNC": "PushIMAData",
-            "version": "6.0",
-            "GatewayID": self.gateway_id,
-            "Timestamp": tick_dt.strftime("%Y%m%d%H%M%S"),  # packet-level time
-            "Data": all_data,
-        }
-
-        is_ok = await self._post_with_retry(payload)
-        if is_ok:
-            # Label time is the tick_dt to ensure the same device won't be sent twice within the same tick
-            for dev_id in list(sent_candidates_sampling_ts):
-                self._last_label_ts_by_device[dev_id] = tick_dt
-            # Keep the original sampling_ts as the reference for bucket pruning
-            self._last_sent_ts_by_device.update(sent_candidates_sampling_ts)
-            await self._prune_buckets()
 
     # -------------------------
     # Helpers
@@ -289,66 +221,36 @@ class LegacySenderAdapter:
                 bucket = self._latest_per_window[wstart]
                 for dev_id in list(bucket.keys()):
                     snap_ts = bucket[dev_id]["sampling_ts"]
-                    last_ts = self._last_sent_ts_by_device.get(dev_id, self._epoch)
+                    last_ts = self.__last_sent_ts_by_device.get(dev_id, self._epoch)
                     if snap_ts <= last_ts:
                         bucket.pop(dev_id, None)
                 if not bucket:
                     self._latest_per_window.pop(wstart, None)
 
-    def _force_item_timestamp(self, data_list: list[dict], report_at: datetime) -> None:
-        """
-        Override each data item's time fields with `report_at`,
-        so the cloud display aligns with the intended tick.
-        Adjust the key list below based on your converter's actual field names.
-        """
-        ts_str = report_at.strftime("%Y%m%d%H%M%S")
-        for it in data_list:
-            for k in ("Timestamp", "Time", "sampleTime", "TS"):
-                if k in it:
-                    it[k] = ts_str
-
     async def _post_with_retry(self, payload: dict) -> bool:
-        """
-        Post `payload` with retries.
-          - If response contains "00000" → success
-          - On failure, retry up to `attempt_count`
-          - If still failing, save the payload into `resend_dir` for later retry
-        """
         payload = self._normalize_missing_deep(payload)
-        json_str: str = json.dumps(payload)
-        for attempt in range(self.__attempt_count):
+        backoffs = [1, 2][: max(self.__attempt_count - 1, 0)]  # 1s, 2s...
+
+        for i in range(self.__attempt_count):
             try:
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(
-                        self.ima_url,
-                        data=json_str,
-                        headers={"Content-Type": "application/json"},
-                    )
-                logger.info(f"Response: {resp.text}")
-                if "00000" not in resp.text:
-                    logger.warning(f"[POST] server not OK (status={resp.status_code}). " f"preview={resp.text[:200]!r}")
-                return True
+                    resp = await client.post(self.ima_url, json=payload)
+                if self._is_ok(resp):
+                    logger.info(f"[POST] ok: {resp.status_code}")
+                    return True
+                else:
+                    logger.warning(f"[POST] not ok (status={resp.status_code}) preview={resp.text[:200]!r}")
             except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
-                await asyncio.sleep(1)
-                if attempt == self.__attempt_count - 1:
-                    now_str = datetime.now(self._tz).strftime("%Y%m%d%H%M%S")
-                    filename = os.path.join(self.resend_dir, f"resend_{now_str}.json")
-                    try:
-                        async with aiofiles.open(filename, "w", encoding="utf-8") as f:
-                            await f.write(json_str)
-                        logger.warning(f"Saved to retry file: {filename}")
-                    except Exception as we:
-                        logger.error(f"Failed to write retry file {filename}: {we}")
-                    return False
+                logger.warning(f"[POST] attempt {i+1} failed: {e}")
+
+            if i < len(backoffs):
+                await asyncio.sleep(backoffs[i])
+
+        await self._persist_failed_json(payload)
+        await self._enforce_resend_storage_budget()
+        return False
 
     async def _resend_failed_files(self) -> None:
-        """
-        Try resending files in the `resend` directory:
-          - Success (response contains "00000") → delete file
-          - Failure and reached the retry limit → rename to .fail
-          - Failure but not yet at the limit → increment retry count in filename
-        """
         try:
             file_list = sorted(
                 [f for f in os.listdir(self.resend_dir) if f.endswith(".json") or re.search(r"\.retry\d+\.json$", f)]
@@ -363,31 +265,37 @@ class LegacySenderAdapter:
 
             try:
                 async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-                    json_str = await f.read()
+                    raw = await f.read()
+
+                json_obj = None
+                try:
+                    json_obj = json.loads(raw)
+                except Exception:
+                    pass
 
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(
-                        self.ima_url,
-                        data=json_str,
-                        headers={"Content-Type": "application/json"},
-                    )
+                    if json_obj is not None:
+                        resp = await client.post(self.ima_url, json=json_obj)
+                    else:
+                        resp = await client.post(self.ima_url, data=raw, headers={"Content-Type": "application/json"})
 
-                logger.info(f"Resend file: {file_name}, response: {resp.text}")
+                logger.info(f"[RESEND] {file_name}, resp: {resp.status_code} {resp.text[:120]!r}")
 
-                if "00000" in resp.text:
+                if self._is_ok(resp):
                     os.remove(file_path)
-                    logger.info(f"Resend success, deleted: {file_name}")
+                    logger.info(f"[RESEND] success, deleted: {file_name}")
                 else:
                     if retry_count + 1 >= self.__max_retry:
                         mark_as_fail(file_path)
-                        logger.warning(f"Marked as .fail: {file_name}")
+                        logger.warning(f"[RESEND] marked .fail: {file_name}")
                     else:
                         new_name = increment_retry_name(file_name)
-                        new_path = os.path.join(self.resend_dir, new_name)
-                        os.rename(file_path, new_path)
-                        logger.info(f"Retry {retry_count + 1}, renamed to: {new_name}")
+                        os.rename(file_path, os.path.join(self.resend_dir, new_name))
+                        logger.info(f"[RESEND] retry {retry_count + 1}, renamed to: {new_name}")
             except Exception as e:
-                logger.warning(f"Resend failed for {file_name}: {e}")
+                logger.warning(f"[RESEND] failed for {file_name}: {e}")
+
+        await self._enforce_resend_storage_budget()
 
     @staticmethod
     def _window_start(ts: datetime, interval_sec: int, tz: str = "Asia/Taipei") -> datetime:
@@ -439,3 +347,210 @@ class LegacySenderAdapter:
         if isinstance(obj, list):
             return [LegacySenderAdapter._normalize_missing_deep(x) for x in obj]
         return LegacySenderAdapter._normalize_missing_value(obj)
+
+    @staticmethod
+    def _is_ok(resp: httpx.Response) -> bool:
+        return (resp is not None) and (resp.status_code == 200) and ("00000" in (resp.text or ""))
+
+    async def _persist_failed_json(self, obj: dict) -> None:
+        now = datetime.now(self._tz)
+        base = now.strftime("%Y%m%d%H%M%S")
+        ms = f"{int(now.microsecond/1000):03d}"
+        suffix = os.urandom(2).hex()  # 4 hex chars
+        filename = os.path.join(self.resend_dir, f"resend_{base}_{ms}_{suffix}.json")
+        try:
+            async with aiofiles.open(filename, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(obj, ensure_ascii=False))
+            logger.warning(f"[RESEND] persisted: {filename}")
+        except Exception as e:
+            logger.error(f"[RESEND] persist failed: {e}")
+
+    async def _scheduler_loop(self):
+        logger.info(f"Scheduler: anchor={self.anchor_offset_sec}s, interval={self.send_interval_sec}s")
+        next_label = self._compute_next_label_time(datetime.now(self._tz))
+
+        while True:
+            now = datetime.now(self._tz)
+            wait_sec = (next_label - now).total_seconds()
+            if wait_sec > 0:
+                await asyncio.sleep(wait_sec)
+
+            if self.tick_grace_sec > 0:
+                await asyncio.sleep(self.tick_grace_sec)
+
+            await self._resend_failed_files()
+            await self._send_at_label_time(next_label)
+
+            next_label = next_label + timedelta(seconds=self.send_interval_sec)
+
+    def _compute_next_label_time(self, now: datetime) -> datetime:
+        base = now.replace(microsecond=0)
+        # 先對齊到當分鐘錨點
+        anchor = int(self.anchor_offset_sec)
+        candidate = base.replace(second=anchor)
+        interval = float(self.send_interval_sec)
+
+        while candidate <= now:
+            candidate += timedelta(seconds=interval)
+        return candidate
+
+    async def _send_at_label_time(self, label_time: datetime) -> None:
+        latest_by_device = await self._collect_latest_by_device_unlocked()
+
+        all_items: list[dict] = []
+        sent_candidates_ts: dict[str, datetime] = {}
+
+        visible_deadline = label_time + timedelta(seconds=self.tick_grace_sec)
+        fresh_limit_sec = self.fresh_window_sec
+
+        for dev_id, snap in latest_by_device.items():
+            snap_ts: datetime = snap["sampling_ts"]
+
+            # 僅納入「可見窗口」內的樣本（允許 tick 後 grace 期間到達）
+            if snap_ts > visible_deadline:
+                continue
+
+            age_sec = (label_time - snap_ts).total_seconds()
+
+            # --- Fresh / TTL gating ---
+            use_it = False
+            is_stale = 0
+            if age_sec <= fresh_limit_sec:
+                use_it = True
+            elif self.last_known_ttl_sec > 0 and age_sec <= self.last_known_ttl_sec:
+                use_it = True
+                is_stale = 1
+
+            if not use_it:
+                continue
+
+            # 每裝置每個 label_time 僅送一次
+            last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
+            if label_time <= last_label:
+                continue
+
+            converted = convert_snapshot_to_legacy_payload(
+                gateway_id=self.gateway_id,
+                snapshot=snap,
+                device_manager=self.device_manager,
+            )
+            if converted:
+                age_ms = int(age_sec * 1000)
+                for it in converted:
+                    it.setdefault("Data", {})
+                    it["Data"]["sampling_ts"] = snap_ts.isoformat()
+                    it["Data"]["report_ts"] = label_time.isoformat()
+                    it["Data"]["sample_age_ms"] = age_ms
+                    if is_stale:
+                        it["Data"]["is_stale"] = 1
+                        it["Data"]["stale_age_ms"] = age_ms
+
+                all_items.extend(converted)
+                sent_candidates_ts[dev_id] = snap_ts
+
+        if not all_items:
+            if self.heartbeat_on_empty:
+                payload = {
+                    "FUNC": "PushIMAData",
+                    "version": "6.0",
+                    "GatewayID": self.gateway_id,
+                    "Timestamp": label_time.strftime("%Y%m%d%H%M%S"),
+                    "Data": [
+                        {"DeviceID": f"{self.gateway_id}_000GW", "Data": {"HB": 1, "report_ts": label_time.isoformat()}}
+                    ],
+                }
+
+                await self._post_with_retry(payload)
+            else:
+                logger.info("No fresh data and heartbeat disabled; skip sending.")
+            return
+
+        payload = {
+            "FUNC": "PushIMAData",
+            "version": "6.0",
+            "GatewayID": self.gateway_id,
+            "Timestamp": label_time.strftime("%Y%m%d%H%M%S"),
+            "Data": all_items,
+        }
+
+        ok = await self._post_with_retry(payload)
+        if ok:
+            for dev_id in list(sent_candidates_ts):
+                self.__last_label_ts_by_device[dev_id] = label_time
+            self.__last_sent_ts_by_device.update(sent_candidates_ts)
+            await self._prune_buckets()
+
+    def _dir_size_mb(self, path: str) -> float:
+        total = 0
+        for root, _, files in os.walk(path):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    pass
+        return total / (1024 * 1024)
+
+    def _fs_free_mb(self, path: str) -> float:
+        st = os.statvfs(path)
+        return (st.f_bavail * st.f_frsize) / (1024 * 1024)
+
+    async def _enforce_resend_storage_budget(self) -> None:
+        try:
+            over_quota = self._dir_size_mb(self.resend_dir) > self.resend_quota_mb
+            low_free = self._fs_free_mb(self.resend_dir) < self.fs_free_min_mb
+            if not (over_quota or low_free):
+                return
+
+            files = []
+            now_ts = datetime.now(self._tz).timestamp()
+            for fn in os.listdir(self.resend_dir):
+                if not (fn.endswith(".json") or re.search(r"\.retry\d+\.json$", fn) or fn.endswith(".fail")):
+                    continue
+                fp = os.path.join(self.resend_dir, fn)
+                try:
+                    age = now_ts - os.path.getmtime(fp)
+                except OSError:
+                    continue
+                files.append((age, fn))
+
+            files.sort(reverse=True)
+            deleted = 0
+            protect_sec = float(self.sender_config_model.resend_protect_recent_sec)
+            batch = int(self.sender_config_model.resend_cleanup_batch)
+
+            def eligible(age):
+                return age >= protect_sec
+
+            for age, fn in list(files):
+                if deleted >= batch:
+                    break
+                if not eligible(age):
+                    continue
+                if fn.endswith(".fail"):
+                    continue
+                try:
+                    os.remove(os.path.join(self.resend_dir, fn))
+                    deleted += 1
+                except OSError:
+                    pass
+
+            if deleted < batch:
+                for age, fn in list(files):
+                    if deleted >= batch:
+                        break
+                    if not eligible(age):
+                        continue
+                    if not fn.endswith(".fail"):
+                        continue
+                    try:
+                        os.remove(os.path.join(self.resend_dir, fn))
+                        deleted += 1
+                    except OSError:
+                        pass
+
+            logger.warning(
+                f"[RESEND] cleanup deleted={deleted}, dir_mb={self._dir_size_mb(self.resend_dir):.1f}, free_mb={self._fs_free_mb(self.resend_dir):.1f}"
+            )
+        except Exception as e:
+            logger.error(f"[RESEND] cleanup error: {e}")
