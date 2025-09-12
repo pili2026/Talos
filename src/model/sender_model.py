@@ -1,6 +1,5 @@
 import os
 import pathlib
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -10,7 +9,7 @@ class CloudConfig(BaseModel):
     ima_url: str = Field(..., description="Cloud IMA endpoint (HTTP/HTTPS)")
 
     class Config:
-        anystr_strip_whitespace = True
+        str_strip_whitespace = True
         extra = "ignore"
 
 
@@ -63,8 +62,8 @@ class SenderModel(BaseModel):
     sender: SenderFlag = Field(default_factory=SenderFlag)
 
     class Config:
-        anystr_strip_whitespace = True
-        allow_population_by_field_name = True
+        str_strip_whitespace = True
+        validate_by_name = True
         extra = "ignore"
 
     # ---------- Backward compatibility: grace_period_sec -> tick_grace_sec ----------

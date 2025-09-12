@@ -5,8 +5,8 @@ cloud:
   ima_url: "http://imabox-server2.ima-ems.com"
 
 # Scheduling
-anchor_offset_sec: 40        # second offset to start each minute (recommended integer 0..59)
-send_interval_sec: 10        # fixed interval (seconds; integer allowed, decimals if needed)
+anchor_offset_sec: 0        # second offset to start each minute (recommended integer 0..59)
+send_interval_sec: 60        # fixed interval (seconds; integer allowed, decimals if needed)
 tick_grace_sec: 1          # grace period after tick (seconds; originally 800ms -> 0.8s)
 fresh_window_sec: 2        # max delay considered “fresh” (seconds; originally 1000ms -> 1.0s)
 
