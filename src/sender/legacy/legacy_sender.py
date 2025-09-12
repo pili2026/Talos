@@ -14,11 +14,7 @@ import httpx
 from device_manager import AsyncDeviceManager
 from model.sender_model import SenderModel
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
-from sender.legacy.resend_file_util import (
-    extract_retry_count,
-    increment_retry_name,
-    mark_as_fail,
-)
+from sender.legacy.resend_file_util import extract_retry_count, increment_retry_name, mark_as_fail
 
 logger = logging.getLogger("LegacySender")
 
@@ -127,10 +123,7 @@ class LegacySenderAdapter:
 
             snap_ts: datetime = snap["sampling_ts"]
             age_sec = (label_now - snap_ts).total_seconds()
-            if age_sec > self.fresh_window_sec and not (
-                getattr(self, "last_known_ttl_sec", 0) > 0 and age_sec <= self.last_known_ttl_sec
-            ):
-                continue
+            is_stale = 1 if age_sec > self.fresh_window_sec else 0
 
             last_ts = self.__last_sent_ts_by_device.get(dev_id, self._epoch)
             if snap_ts <= last_ts:
@@ -143,7 +136,6 @@ class LegacySenderAdapter:
             )
             if converted:
                 age_ms = int(age_sec * 1000)
-                is_stale = 1 if age_sec > self.fresh_window_sec else 0
                 for it in converted:
                     it.setdefault("Data", {})
                     it["Data"]["sampling_ts"] = snap_ts.isoformat()
@@ -155,7 +147,6 @@ class LegacySenderAdapter:
                 all_data.extend(converted)
                 sent_candidates_sampling_ts[dev_id] = snap_ts
 
-        # ★ 無論 all_data 是否為空，都附加 GW 心跳
         items = list(all_data)
         items.append(self._make_gw_heartbeat(label_now))
 
@@ -381,22 +372,14 @@ class LegacySenderAdapter:
         sent_candidates_ts: dict[str, datetime] = {}
 
         visible_deadline = label_time + timedelta(seconds=self.tick_grace_sec)
-        fresh_limit_sec = self.fresh_window_sec
 
         for dev_id, snap in latest_by_device.items():
             snap_ts: datetime = snap["sampling_ts"]
             if snap_ts > visible_deadline:
                 continue
+
             age_sec = (label_time - snap_ts).total_seconds()
-            use_it = False
-            is_stale = 0
-            if age_sec <= fresh_limit_sec:
-                use_it = True
-            elif self.last_known_ttl_sec > 0 and age_sec <= self.last_known_ttl_sec:
-                use_it = True
-                is_stale = 1
-            if not use_it:
-                continue
+            is_stale = 1 if age_sec > self.fresh_window_sec else 0
 
             last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_time <= last_label:
