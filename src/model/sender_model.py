@@ -67,6 +67,10 @@ class SenderModel(BaseModel):
     # --- Preserve existing block ---
     sender: SenderFlag = Field(default_factory=SenderFlag)
 
+    resend_cleanup_enabled: bool = Field(
+        False, description="Enable resend_dir cleanup. Recommended to keep disabled in POC/Phase2 to preserve all files"
+    )
+
     class Config:
         str_strip_whitespace = True
         validate_by_name = True

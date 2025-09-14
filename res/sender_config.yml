@@ -12,7 +12,7 @@ fresh_window_sec: 2        # max delay considered “fresh” (seconds; original
 
 # Transmission / Resend
 attempt_count: 2
-max_retry: 3
+max_retry: -1                # -1 means unlimited retries
 last_known_ttl_sec: 0        # disable fallback using old values (you want authenticity)
 
 # Resend space protection
@@ -25,6 +25,8 @@ fail_resend_enabled: true
 fail_resend_interval_sec: 60
 fail_resend_batch: 10
 last_post_ok_within_sec: 300
+
+resend_cleanup_enabled: false
 
 sender:
   use_legacy: true
