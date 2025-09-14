@@ -14,11 +14,8 @@ import httpx
 from device_manager import AsyncDeviceManager
 from model.sender_model import SenderModel
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
-from sender.legacy.resend_file_util import (
-    extract_retry_count,
-    increment_retry_name,
-    mark_as_fail,
-)
+from sender.outbox_store import OutboxStore
+from sender.transport import ResendTransport
 
 logger = logging.getLogger("LegacySender")
 
@@ -38,7 +35,7 @@ class LegacySenderAdapter:
         self.fresh_window_sec = float(self.sender_config_model.fresh_window_sec)
         self.last_known_ttl_sec = float(self.sender_config_model.last_known_ttl_sec or 0.0)
 
-        # Phase 0 NEW keys (stored for future phases; do not change behavior here)
+        # Phase 0/2 keys
         self.fail_resend_enabled = bool(self.sender_config_model.fail_resend_enabled)
         self.fail_resend_interval_sec = int(self.sender_config_model.fail_resend_interval_sec)
         self.fail_resend_batch = int(self.sender_config_model.fail_resend_batch)
@@ -64,11 +61,13 @@ class LegacySenderAdapter:
         self.__last_sent_ts_by_device: dict[str, datetime] = {}
         self.__last_label_ts_by_device: dict[str, datetime] = {}
 
+        # ---- Storage limits (delegate to store) ----
         self.resend_quota_mb = self.sender_config_model.resend_quota_mb
         self.fs_free_min_mb = self.sender_config_model.fs_free_min_mb
 
         # ---- Phase 0: shared HTTP client & last success time ----
         self._client: httpx.AsyncClient | None = None
+        self._transport: ResendTransport | None = None
         self.last_post_ok_at: datetime | None = None
 
         # ---- Phase 2: background worker state ----
@@ -76,7 +75,17 @@ class LegacySenderAdapter:
         self._resend_wakeup: asyncio.Event = asyncio.Event()
         self._stopping: bool = False
 
-        self._cleanup_enabled = self.sender_config_model.resend_cleanup_enabled
+        # ---- Outbox store ----
+        self._store = OutboxStore(
+            dirpath=self.resend_dir,
+            tz=self._tz,
+            gateway_id=self.gateway_id,
+            resend_quota_mb=self.resend_quota_mb,
+            fs_free_min_mb=self.fs_free_min_mb,
+            protect_recent_sec=self.sender_config_model.resend_protect_recent_sec,
+            cleanup_batch=self.sender_config_model.resend_cleanup_batch,
+            cleanup_enabled=self.sender_config_model.resend_cleanup_enabled,
+        )
 
     # -------------------------
     # Public API
@@ -108,10 +117,19 @@ class LegacySenderAdapter:
             self._first_snapshot_event.set()
 
     async def start(self):
-        # Phase 0: create shared client
+        """
+        Start background tasks:
+          - Create shared AsyncClient + Transport
+          - _warmup_send_once(): wait first snapshot → send immediately
+          - _scheduler_loop(): aligned periodic sending
+          - (Phase 2) _resend_worker_loop(): background resend
+        """
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=5.0)
             logger.info("[Sender] Shared HTTP client created (timeout=5.0s)")
+
+        if self._transport is None:
+            self._transport = ResendTransport(self.ima_url, self._client, self._is_ok)
 
         asyncio.create_task(self._warmup_send_once())
         asyncio.create_task(self._scheduler_loop())
@@ -125,8 +143,7 @@ class LegacySenderAdapter:
             )
 
     async def stop(self):
-        """Phase 0/2: graceful shutdown."""
-        # ---- Stop worker first ----
+        """Graceful shutdown: stop worker first, then close HTTP client."""
         try:
             self._stopping = True
             self._resend_wakeup.set()
@@ -198,8 +215,8 @@ class LegacySenderAdapter:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
 
-                    # Phase 1: persist each item first
-                    fp = await self._persist_item_json({"DeviceID": it["DeviceID"], "Data": it["Data"]})
+                    # Phase 1: persist each item first → OutboxStore
+                    fp = await self._store.persist_item({"DeviceID": it["DeviceID"], "Data": it["Data"]})
                     outbox_files.append(fp)
 
                 all_data.extend(converted)
@@ -208,10 +225,10 @@ class LegacySenderAdapter:
         # Treat GW heartbeat also as an item to be resent
         gw_item = self._make_gw_heartbeat(label_now)
         all_data.append(gw_item)
-        fp_gw = await self._persist_item_json(gw_item)
+        fp_gw = await self._store.persist_item(gw_item)
         outbox_files.append(fp_gw)
 
-        payload = self._wrap_items_as_payload(all_data, label_now)
+        payload = self._store.wrap_items_as_payload(all_data, label_now)
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_sampling_ts:
@@ -220,9 +237,10 @@ class LegacySenderAdapter:
             self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
             await self._prune_buckets()
 
-        # Phase 1: delete persisted files only after success
+        # delete persisted files only after success
         if ok and outbox_files:
-            await self._delete_files(outbox_files)
+            for fp in outbox_files:
+                self._store.delete(fp)
 
         self._first_send_done = True
 
@@ -262,35 +280,37 @@ class LegacySenderAdapter:
         payload = self._normalize_missing_deep(payload)
         backoffs = [1, 2][: max(self.__attempt_count - 1, 0)]  # 1s, 2s...
 
-        # ensure client exists (defensive for tests)
-        client = self._client or httpx.AsyncClient(timeout=5.0)
+        temp_client = None
+        transport = self._transport
+        if transport is None:
+            temp_client = httpx.AsyncClient(timeout=5.0)
+            transport = ResendTransport(self.ima_url, temp_client, self._is_ok)
 
         try:
             for i in range(self.__attempt_count):
                 try:
-                    resp = await client.post(self.ima_url, json=payload)
-                    if self._is_ok(resp):
-                        logger.info(f"[POST] ok: {resp.status_code}")
-                        # Phase 0: update last success time
+                    ok, status, text = await transport.send(payload)
+                    if ok:
+                        logger.info(f"[POST] ok: {status}")
+                        # update last success time & wake worker to clear backlog
                         self.last_post_ok_at = datetime.now(self._tz)
                         self._resend_wakeup.set()
                         return True
                     else:
-                        logger.warning(f"[POST] not ok (status={resp.status_code}) preview={resp.text[:200]!r}")
+                        logger.warning(f"[POST] not ok (status={status}) preview={text[:200]!r}")
                 except Exception as e:
                     logger.warning(f"[POST] attempt {i+1} failed: {e}")
 
                 if i < len(backoffs):
                     await asyncio.sleep(backoffs[i])
         finally:
-            # if we created a temp client (no shared), close it
-            if self._client is None:
+            if temp_client is not None:
                 try:
-                    await client.aclose()
+                    await temp_client.aclose()
                 except Exception:
                     pass
 
-        await self._enforce_resend_storage_budget()
+        self._store.enforce_budget()
         return False
 
     @staticmethod
@@ -347,19 +367,6 @@ class LegacySenderAdapter:
     @staticmethod
     def _is_ok(resp: httpx.Response) -> bool:
         return (resp is not None) and (resp.status_code == 200) and ("00000" in (resp.text or ""))
-
-    async def _persist_failed_json(self, obj: dict) -> None:
-        now = datetime.now(self._tz)
-        base = now.strftime("%Y%m%d%H%M%S")
-        ms = f"{int(now.microsecond/1000):03d}"
-        suffix = os.urandom(2).hex()  # 4 hex chars
-        filename = os.path.join(self.resend_dir, f"resend_{base}_{ms}_{suffix}.json")
-        try:
-            async with aiofiles.open(filename, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(obj, ensure_ascii=False))
-            logger.warning(f"[RESEND] persisted: {filename}")
-        except Exception as e:
-            logger.error(f"[RESEND] persist failed: {e}")
 
     async def _scheduler_loop(self):
         logger.info(
@@ -430,8 +437,8 @@ class LegacySenderAdapter:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
 
-                    # Phase 1: persist each item first
-                    fp = await self._persist_item_json({"DeviceID": it["DeviceID"], "Data": it["Data"]})
+                    # Phase 1: persist each item first → OutboxStore
+                    fp = await self._store.persist_item({"DeviceID": it["DeviceID"], "Data": it["Data"]})
                     outbox_files.append(fp)
 
                 all_items.extend(converted)
@@ -440,10 +447,10 @@ class LegacySenderAdapter:
         # Treat GW heartbeat also as an item to be resent
         gw_item = self._make_gw_heartbeat(label_time)
         all_items.append(gw_item)
-        fp_gw = await self._persist_item_json(gw_item)
+        fp_gw = await self._store.persist_item(gw_item)
         outbox_files.append(fp_gw)
 
-        payload = self._wrap_items_as_payload(all_items, label_time)
+        payload = self._store.wrap_items_as_payload(all_items, label_time)
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_ts:
@@ -452,135 +459,16 @@ class LegacySenderAdapter:
             self.__last_sent_ts_by_device.update(sent_candidates_ts)
             await self._prune_buckets()
 
-        # Phase 1: delete persisted files only after success
+        # delete persisted files only after success
         if ok and outbox_files:
-            await self._delete_files(outbox_files)
-
-    def _dir_size_mb(self, path: str) -> float:
-        total = 0
-        for root, _, files in os.walk(path):
-            for fn in files:
-                fp = os.path.join(root, fn)
-                try:
-                    total += os.path.getsize(fp)
-                except OSError:
-                    pass
-        return total / (1024 * 1024)
-
-    def _fs_free_mb(self, path: str) -> float:
-        st = os.statvfs(path)
-        return (st.f_bavail * st.f_frsize) / (1024 * 1024)
-
-    async def _enforce_resend_storage_budget(self) -> None:
-
-        if not self._cleanup_enabled:
-            return
-
-        try:
-            over_quota = self._dir_size_mb(self.resend_dir) > self.resend_quota_mb
-            low_free = self._fs_free_mb(self.resend_dir) < self.fs_free_min_mb
-            if not (over_quota or low_free):
-                return
-
-            files = []
-            now_ts = datetime.now(self._tz).timestamp()
-            for fn in os.listdir(self.resend_dir):
-                if not (fn.endswith(".json") or re.search(r"\.retry\d+\.json$", fn) or fn.endswith(".fail")):
-                    continue
-                fp = os.path.join(self.resend_dir, fn)
-                try:
-                    age = now_ts - os.path.getmtime(fp)
-                except OSError:
-                    continue
-                files.append((age, fn))
-
-            files.sort(reverse=True)
-            deleted = 0
-            protect_sec = float(self.sender_config_model.resend_protect_recent_sec)
-            batch = int(self.sender_config_model.resend_cleanup_batch)
-
-            def eligible(age):
-                return age >= protect_sec
-
-            for age, fn in list(files):
-                if deleted >= batch:
-                    break
-                if not eligible(age):
-                    continue
-                if fn.endswith(".fail"):
-                    continue
-                try:
-                    os.remove(os.path.join(self.resend_dir, fn))
-                    deleted += 1
-                except OSError:
-                    pass
-
-            if deleted < batch:
-                for age, fn in list(files):
-                    if deleted >= batch:
-                        break
-                    if not eligible(age):
-                        continue
-                    if not fn.endswith(".fail"):
-                        continue
-                    try:
-                        os.remove(os.path.join(self.resend_dir, fn))
-                        deleted += 1
-                    except OSError:
-                        pass
-
-            logger.warning(
-                f"[RESEND] cleanup deleted={deleted}, dir_mb={self._dir_size_mb(self.resend_dir):.1f}, free_mb={self._fs_free_mb(self.resend_dir):.1f}"
-            )
-        except Exception as e:
-            logger.error(f"[RESEND] cleanup error: {e}")
+            for fp in outbox_files:
+                self._store.delete(fp)
 
     def _make_gw_heartbeat(self, at: datetime) -> dict:
         return {
             "DeviceID": f"{self.gateway_id}_000GW",  # TODO: GW ID need to modify by config on future
             "Data": {"HB": 1, "report_ts": at.isoformat()},
         }
-
-    # ---------- Phase 1 helpers: per-item persist / wrap / delete ----------
-
-    async def _persist_item_json(self, item: dict) -> str:
-        """
-        Persist a SINGLE Data item (with DeviceID/Data fields) to outbox.
-        Return the absolute file path.
-        """
-        now = datetime.now(self._tz)
-        base = now.strftime("%Y%m%d%H%M%S")
-        ms = f"{int(now.microsecond/1000):03d}"
-        suffix = os.urandom(2).hex()  # 4 hex chars
-        fp = os.path.join(self.resend_dir, f"resend_{base}_{ms}_{suffix}.json")
-        try:
-            async with aiofiles.open(fp, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(item, ensure_ascii=False))
-            logger.info(f"[OUTBOX] persisted item: {os.path.basename(fp)}")
-        except Exception as e:
-            logger.error(f"[OUTBOX] persist item failed: {e}")
-        return fp
-
-    def _wrap_items_as_payload(self, items: list[dict], ts: datetime) -> dict:
-        """Wrap a list of item dicts into a PushIMAData payload."""
-        return {
-            "FUNC": "PushIMAData",
-            "version": "6.0",
-            "GatewayID": self.gateway_id,
-            "Timestamp": ts.strftime("%Y%m%d%H%M%S"),
-            "Data": items,
-        }
-
-    async def _delete_files(self, files: list[str]) -> None:
-        deleted = 0
-        for fp in files:
-            try:
-                os.remove(fp)
-                deleted += 1
-            except Exception:
-                pass
-        if deleted:
-            logger.info(f"[OUTBOX] deleted {deleted} sent item file(s)")
 
     # ---------- Phase 2: background resend worker ----------
 
@@ -597,7 +485,6 @@ class LegacySenderAdapter:
                     await asyncio.wait_for(self._resend_wakeup.wait(), timeout=self.fail_resend_interval_sec)
                 except asyncio.TimeoutError:
                     pass  # Normal timeout, continue execution as usual
-
                 finally:
                     self._resend_wakeup.clear()
 
@@ -608,8 +495,11 @@ class LegacySenderAdapter:
                 now = datetime.now(self._tz)
                 if (
                     self.last_post_ok_at is None
-                    or (now - self.last_post_ok_at).total_seconds() > self.last_post_ok_within_sec
-                ):
+                    or (
+                        self.last_post_ok_at
+                        and (now - self.last_post_ok_at).total_seconds() > self.last_post_ok_within_sec
+                    )
+                ) and self.last_post_ok_within_sec > 0:
                     logger.info(
                         "[ResendWorker] skip: no recent success within %ss (last_ok=%s)",
                         self.last_post_ok_within_sec,
@@ -620,10 +510,7 @@ class LegacySenderAdapter:
                 try:
                     processed, success = await self._resend_process_batch(self.fail_resend_batch)
                     if processed == 0:
-                        # Nothing to do, wait for next round
                         continue
-
-                    # If there were successful uploads, wake up immediately to speed up clearing (until no more files can be processed in the batch)
                     if success > 0:
                         self._resend_wakeup.set()
                 except Exception as e:
@@ -640,19 +527,22 @@ class LegacySenderAdapter:
         2) Then, pick *.json (fresh files)              → ordered by oldest mtime (FIFO)
         Send them one by one; return (total processed, successfully deleted).
         """
-
-        files = self._pick_outbox_files(batch)
+        files = self._store.pick_batch(batch, min_age_sec=0.0)
         if not files:
             return 0, 0
 
-        client = self._client or httpx.AsyncClient(timeout=5.0)
+        temp_client: httpx.AsyncClient | None = None
+        transport = self._transport
+        if transport is None:
+            temp_client = httpx.AsyncClient(timeout=5.0)
+            transport = ResendTransport(self.ima_url, temp_client, self._is_ok)
+
         processed = 0
         success = 0
 
         try:
             for file_path in files:
                 file_name = os.path.basename(file_path)
-                retry_count = extract_retry_count(file_name)
 
                 try:
                     async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
@@ -664,111 +554,55 @@ class LegacySenderAdapter:
                     except Exception:
                         pass
 
-                    # Support full package and single item; otherwise send the raw string as JSON
-                    headers = None
                     if isinstance(json_obj, dict) and "FUNC" in json_obj:
                         payload = json_obj
                     elif isinstance(json_obj, dict) and "DeviceID" in json_obj:
-                        payload = self._wrap_items_as_payload([json_obj], datetime.now(self._tz))
+                        payload = self._store.wrap_items_as_payload([json_obj], datetime.now(self._tz))
                     else:
                         payload = raw
-                        headers = {"Content-Type": "application/json"}
 
-                    if isinstance(payload, dict):
-                        resp = await client.post(self.ima_url, json=payload)
-                    else:
-                        resp = await client.post(self.ima_url, data=payload, headers=headers)
+                    ok, status, text = await transport.send(payload)  # type: ignore[arg-type]
+                    logger.info(f"[ResendWorker] {file_name}, resp: {status} {text[:120]!r}")
 
-                    logger.info(f"[ResendWorker] {file_name}, resp: {resp.status_code} {resp.text[:120]!r}")
-
-                    if self._is_ok(resp):
-                        try:
-                            os.remove(file_path)
-                        except FileNotFoundError:
-                            pass  # Might have already been handled by another process
-
+                    if ok:
+                        self._store.delete(file_path)
                         self.last_post_ok_at = datetime.now(self._tz)
                         success += 1
                         logger.info(f"[ResendWorker] success, deleted: {file_name}")
                     else:
-                        if self._reached_retry_limit(retry_count):
-                            mark_as_fail(file_path)
+                        new_path, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
+                        if failed:
                             logger.warning(f"[ResendWorker] marked .fail: {file_name}")
-                        else:
-                            new_name = increment_retry_name(file_name)
+                        elif new_path:
+                            # 取新的 retry 次數展示
                             try:
-                                os.rename(file_path, os.path.join(self.resend_dir, new_name))
-                                logger.info(f"[ResendWorker] retry {retry_count + 1}, renamed to: {new_name}")
-                            except FileNotFoundError:
-                                pass
+                                m = re.search(r"\.retry(\d+)\.json$", os.path.basename(new_path))
+                                retryN = m.group(1) if m else "?"
+                            except Exception:
+                                retryN = "?"
+                            logger.info(f"[ResendWorker] retry {retryN}, renamed: {os.path.basename(new_path)}")
 
                 except Exception as e:
-                    # For example: DNS resolution failure, connection error, etc.; still need to advance retry/fail
                     logger.warning(f"[ResendWorker] failed for {file_name}: {e}")
-                    if retry_count + 1 >= self.__max_retry:
-                        try:
-                            mark_as_fail(file_path)
-                        except FileNotFoundError:
-                            pass
+                    new_path, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
+                    if failed:
                         logger.warning(f"[ResendWorker] marked .fail: {file_name}")
-                    else:
-                        new_name = increment_retry_name(file_name)
+                    elif new_path:
                         try:
-                            os.rename(file_path, os.path.join(self.resend_dir, new_name))
-                            logger.info(f"[ResendWorker] retry {retry_count + 1}, renamed to: {new_name}")
-                        except FileNotFoundError:
-                            pass
+                            m = re.search(r"\.retry(\d+)\.json$", os.path.basename(new_path))
+                            retryN = m.group(1) if m else "?"
+                        except Exception:
+                            retryN = "?"
+                        logger.info(f"[ResendWorker] retry {retryN}, renamed: {os.path.basename(new_path)}")
                 finally:
                     processed += 1
         finally:
-            if self._client is None:
+            if temp_client is not None:
                 try:
-                    await client.aclose()
+                    await temp_client.aclose()
                 except Exception:
                     pass
 
-            # Perform space protection after each batch
-            await self._enforce_resend_storage_budget()
+            self._store.enforce_budget()
 
         return processed, success
-
-    def _pick_outbox_files(self, limit: int) -> list[str]:
-        """
-        File selection rules:
-          1. Pick *.retryN.json (previously failed) first → FIFO (oldest to newest by mtime)
-          2. Then pick *.json (initially persisted) → FIFO (oldest to newest by mtime)
-        """
-
-        try:
-            entries = os.listdir(self.resend_dir)
-        except FileNotFoundError:
-            return []
-
-        retry_files = []
-        fresh_files = []
-        for fn in entries:
-            if re.search(r"\.retry\d+\.json$", fn):
-                retry_files.append(fn)
-            elif fn.endswith(".json"):
-                fresh_files.append(fn)
-
-        def sort_key(fn: str) -> float:
-            fp = os.path.join(self.resend_dir, fn)
-            try:
-                return os.path.getmtime(fp)
-            except OSError:
-                return float("inf")
-
-        retry_files.sort(key=sort_key)
-        fresh_files.sort(key=sort_key)
-
-        selected = retry_files + fresh_files
-        selected = selected[: max(0, int(limit))]
-        return [os.path.join(self.resend_dir, fn) for fn in selected]
-
-    def _reached_retry_limit(self, retry_count: int) -> bool:
-        """
-        Return True if the file should be marked as .fail;
-        max_retry < 0 means unlimited retries, never return True.
-        """
-        return (self.__max_retry >= 0) and (retry_count + 1 >= self.__max_retry)

@@ -131,7 +131,7 @@ class SenderModel(BaseModel):
 
     @field_validator("max_retry")
     def _check_max_retry(cls, v):
-        if v < 0:
+        if v < -1:
             raise ValueError("max_retry must be >= 0")
         return v
 
