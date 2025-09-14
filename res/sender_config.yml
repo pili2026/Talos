@@ -21,6 +21,11 @@ fs_free_min_mb: 512
 resend_cleanup_batch: 100
 resend_protect_recent_sec: 300
 
+fail_resend_enabled: true
+fail_resend_interval_sec: 60
+fail_resend_batch: 10
+last_post_ok_within_sec: 300
+
 sender:
   use_legacy: true
   use_aggregator: false

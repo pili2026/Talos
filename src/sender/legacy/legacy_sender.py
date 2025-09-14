@@ -14,7 +14,11 @@ import httpx
 from device_manager import AsyncDeviceManager
 from model.sender_model import SenderModel
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
-from sender.legacy.resend_file_util import extract_retry_count, increment_retry_name, mark_as_fail
+from sender.legacy.resend_file_util import (
+    extract_retry_count,
+    increment_retry_name,
+    mark_as_fail,
+)
 
 logger = logging.getLogger("LegacySender")
 
@@ -33,6 +37,12 @@ class LegacySenderAdapter:
         self.tick_grace_sec = float(self.sender_config_model.tick_grace_sec)
         self.fresh_window_sec = float(self.sender_config_model.fresh_window_sec)
         self.last_known_ttl_sec = float(self.sender_config_model.last_known_ttl_sec or 0.0)
+
+        # Phase 0 NEW keys (stored for future phases; do not change behavior here)
+        self.fail_resend_enabled = bool(self.sender_config_model.fail_resend_enabled)
+        self.fail_resend_interval_sec = int(self.sender_config_model.fail_resend_interval_sec)
+        self.fail_resend_batch = int(self.sender_config_model.fail_resend_batch)
+        self.last_post_ok_within_sec = float(self.sender_config_model.last_post_ok_within_sec)
 
         self.device_manager = device_manager
         os.makedirs(self.resend_dir, exist_ok=True)
@@ -56,6 +66,10 @@ class LegacySenderAdapter:
 
         self.resend_quota_mb = self.sender_config_model.resend_quota_mb
         self.fs_free_min_mb = self.sender_config_model.fs_free_min_mb
+
+        # ---- Phase 0: shared HTTP client & last success time ----
+        self._client: httpx.AsyncClient | None = None
+        self.last_post_ok_at: datetime | None = None
 
     # -------------------------
     # Public API
@@ -88,14 +102,30 @@ class LegacySenderAdapter:
 
     async def start(self):
         """
-        Start two background tasks:
-          1) _resend_failed_files: resent fail message
-          2) _warmup_send_once: wait for the first snapshot → send immediately (unaligned)
-          3) _scheduler_loop:
+        Start background tasks (Phase 0 keeps original behavior):
+          - Create shared AsyncClient
+          - _resend_failed_files(): run once at start (legacy behavior)
+          - _warmup_send_once(): wait first snapshot → send immediately
+          - _scheduler_loop(): aligned periodic sending
         """
+        # Phase 0: create shared client
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=5.0)
+            logger.info("[Sender] Shared HTTP client created (timeout=5.0s)")
+
+        # Keep existing boot-time resend
         await self._resend_failed_files()
         asyncio.create_task(self._warmup_send_once())
         asyncio.create_task(self._scheduler_loop())
+
+    async def stop(self):
+        """Phase 0: graceful close shared client (optional if service never stops)."""
+        try:
+            if self._client is not None:
+                await self._client.aclose()
+                logger.info("[Sender] Shared HTTP client closed")
+        except Exception as e:
+            logger.warning(f"[Sender] Error closing HTTP client: {e}")
 
     # -------------------------
     # Internal
@@ -203,26 +233,41 @@ class LegacySenderAdapter:
         payload = self._normalize_missing_deep(payload)
         backoffs = [1, 2][: max(self.__attempt_count - 1, 0)]  # 1s, 2s...
 
-        for i in range(self.__attempt_count):
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(self.ima_url, json=payload)
-                if self._is_ok(resp):
-                    logger.info(f"[POST] ok: {resp.status_code}")
-                    return True
-                else:
-                    logger.warning(f"[POST] not ok (status={resp.status_code}) preview={resp.text[:200]!r}")
-            except Exception as e:
-                logger.warning(f"[POST] attempt {i+1} failed: {e}")
+        # ensure client exists (defensive for tests)
+        client = self._client or httpx.AsyncClient(timeout=5.0)
 
-            if i < len(backoffs):
-                await asyncio.sleep(backoffs[i])
+        try:
+            for i in range(self.__attempt_count):
+                try:
+                    resp = await client.post(self.ima_url, json=payload)
+                    if self._is_ok(resp):
+                        logger.info(f"[POST] ok: {resp.status_code}")
+                        # Phase 0: update last success time
+                        self.last_post_ok_at = datetime.now(self._tz)
+                        return True
+                    else:
+                        logger.warning(f"[POST] not ok (status={resp.status_code}) preview={resp.text[:200]!r}")
+                except Exception as e:
+                    logger.warning(f"[POST] attempt {i+1} failed: {e}")
+
+                if i < len(backoffs):
+                    await asyncio.sleep(backoffs[i])
+        finally:
+            # if we created a temp client (no shared), close it
+            if self._client is None:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
 
         await self._persist_failed_json(payload)
         await self._enforce_resend_storage_budget()
         return False
 
     async def _resend_failed_files(self) -> None:
+        """
+        Legacy boot-time resend. Phase 0 keeps behavior, but switches to shared client and updates last_post_ok_at on success.
+        """
         try:
             file_list = sorted(
                 [f for f in os.listdir(self.resend_dir) if f.endswith(".json") or re.search(r"\.retry\d+\.json$", f)]
@@ -231,43 +276,53 @@ class LegacySenderAdapter:
             os.makedirs(self.resend_dir, exist_ok=True)
             file_list = []
 
-        for file_name in file_list:
-            file_path = os.path.join(self.resend_dir, file_name)
-            retry_count = extract_retry_count(file_name)
+        client = self._client or httpx.AsyncClient(timeout=5.0)
 
-            try:
-                async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-                    raw = await f.read()
+        try:
+            for file_name in file_list:
+                file_path = os.path.join(self.resend_dir, file_name)
+                retry_count = extract_retry_count(file_name)
 
-                json_obj = None
                 try:
-                    json_obj = json.loads(raw)
-                except Exception:
-                    pass
+                    async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                        raw = await f.read()
 
-                async with httpx.AsyncClient(timeout=5.0) as client:
+                    json_obj = None
+                    try:
+                        json_obj = json.loads(raw)
+                    except Exception:
+                        pass
+
                     if json_obj is not None:
                         resp = await client.post(self.ima_url, json=json_obj)
                     else:
                         resp = await client.post(self.ima_url, data=raw, headers={"Content-Type": "application/json"})
 
-                logger.info(f"[RESEND] {file_name}, resp: {resp.status_code} {resp.text[:120]!r}")
+                    logger.info(f"[RESEND] {file_name}, resp: {resp.status_code} {resp.text[:120]!r}")
 
-                if self._is_ok(resp):
-                    os.remove(file_path)
-                    logger.info(f"[RESEND] success, deleted: {file_name}")
-                else:
-                    if retry_count + 1 >= self.__max_retry:
-                        mark_as_fail(file_path)
-                        logger.warning(f"[RESEND] marked .fail: {file_name}")
+                    if self._is_ok(resp):
+                        os.remove(file_path)
+                        # Phase 0: update last success time
+                        self.last_post_ok_at = datetime.now(self._tz)
+                        logger.info(f"[RESEND] success, deleted: {file_name}")
                     else:
-                        new_name = increment_retry_name(file_name)
-                        os.rename(file_path, os.path.join(self.resend_dir, new_name))
-                        logger.info(f"[RESEND] retry {retry_count + 1}, renamed to: {new_name}")
-            except Exception as e:
-                logger.warning(f"[RESEND] failed for {file_name}: {e}")
+                        if retry_count + 1 >= self.__max_retry:
+                            mark_as_fail(file_path)
+                            logger.warning(f"[RESEND] marked .fail: {file_name}")
+                        else:
+                            new_name = increment_retry_name(file_name)
+                            os.rename(file_path, os.path.join(self.resend_dir, new_name))
+                            logger.info(f"[RESEND] retry {retry_count + 1}, renamed to: {new_name}")
+                except Exception as e:
+                    logger.warning(f"[RESEND] failed for {file_name}: {e}")
 
-        await self._enforce_resend_storage_budget()
+            await self._enforce_resend_storage_budget()
+        finally:
+            if self._client is None:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
 
     @staticmethod
     def _window_start(ts: datetime, interval_sec: int, tz: str = "Asia/Taipei") -> datetime:
@@ -338,7 +393,11 @@ class LegacySenderAdapter:
             logger.error(f"[RESEND] persist failed: {e}")
 
     async def _scheduler_loop(self):
-        logger.info(f"Scheduler: anchor={self.anchor_offset_sec}s, interval={self.send_interval_sec}s")
+        logger.info(
+            f"Scheduler: anchor={self.anchor_offset_sec}s, interval={self.send_interval_sec}s, "
+            f"fail_resend_enabled={self.fail_resend_enabled}, fail_resend_interval_sec={self.fail_resend_interval_sec}, "
+            f"fail_resend_batch={self.fail_resend_batch}, last_post_ok_within_sec={self.last_post_ok_within_sec}"
+        )
         next_label = self._compute_next_label_time(datetime.now(self._tz))
 
         while True:
@@ -350,6 +409,7 @@ class LegacySenderAdapter:
             if self.tick_grace_sec > 0:
                 await asyncio.sleep(self.tick_grace_sec)
 
+            # Phase 0 keeps legacy behavior (resend here)
             await self._resend_failed_files()
             await self._send_at_label_time(next_label)
 

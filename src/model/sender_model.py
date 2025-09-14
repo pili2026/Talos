@@ -58,6 +58,12 @@ class SenderModel(BaseModel):
         300.0, description="Protect newly persisted files from cleanup for N seconds (>=0)"
     )
 
+    # --- NEW (Phase 0 minimum keys) ---
+    fail_resend_enabled: bool = Field(True, description="Enable background resend worker (no-op in Phase 0)")
+    fail_resend_interval_sec: int = Field(60, description="Background resend scan interval (seconds)")
+    fail_resend_batch: int = Field(10, description="Max files to process per resend cycle (>=1)")
+    last_post_ok_within_sec: float = Field(300.0, description="Health window to consider cloud recently OK (seconds)")
+
     # --- Preserve existing block ---
     sender: SenderFlag = Field(default_factory=SenderFlag)
 
@@ -95,7 +101,13 @@ class SenderModel(BaseModel):
             raise ValueError("send_interval_sec must be > 0")
         return float(v)
 
-    @field_validator("tick_grace_sec", "fresh_window_sec", "last_known_ttl_sec", "resend_protect_recent_sec")
+    @field_validator(
+        "tick_grace_sec",
+        "fresh_window_sec",
+        "last_known_ttl_sec",
+        "resend_protect_recent_sec",
+        "last_post_ok_within_sec",
+    )
     def _check_non_negative(cls, v, field):
         if float(v) < 0.0:
             raise ValueError(f"{field.name} must be >= 0")
@@ -125,10 +137,10 @@ class SenderModel(BaseModel):
             raise ValueError(f"{field.name} must be > 0")
         return v
 
-    @field_validator("resend_cleanup_batch")
-    def _check_cleanup_batch(cls, v):
+    @field_validator("resend_cleanup_batch", "fail_resend_batch")
+    def _check_cleanup_batch(cls, v, field):
         if v < 1:
-            raise ValueError("resend_cleanup_batch must be >= 1")
+            raise ValueError(f"{field.name} must be >= 1")
         return v
 
     # ---------- Path check / creation ----------
