@@ -146,6 +146,9 @@ class LegacySenderAdapter:
         sent_candidates_sampling_ts: dict[str, datetime] = {}
         label_now = datetime.now(self._tz)
 
+        # --- List of files persisted in this round (only deleted after success) ---
+        outbox_files: list[str] = []
+
         for dev_id, snap in latest_by_device.items():
             last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_now <= last_label:
@@ -174,19 +177,21 @@ class LegacySenderAdapter:
                     if is_stale:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
+
+                    # Phase 1: persist each item first
+                    fp = await self._persist_item_json({"DeviceID": it["DeviceID"], "Data": it["Data"]})
+                    outbox_files.append(fp)
+
                 all_data.extend(converted)
                 sent_candidates_sampling_ts[dev_id] = snap_ts
 
-        items = list(all_data)
-        items.append(self._make_gw_heartbeat(label_now))
+        # Treat GW heartbeat also as an item to be resent
+        gw_item = self._make_gw_heartbeat(label_now)
+        all_data.append(gw_item)
+        fp_gw = await self._persist_item_json(gw_item)
+        outbox_files.append(fp_gw)
 
-        payload = {
-            "FUNC": "PushIMAData",
-            "version": "6.0",
-            "GatewayID": self.gateway_id,
-            "Timestamp": label_now.strftime("%Y%m%d%H%M%S"),
-            "Data": items,
-        }
+        payload = self._wrap_items_as_payload(all_data, label_now)
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_sampling_ts:
@@ -194,6 +199,10 @@ class LegacySenderAdapter:
                 self.__last_label_ts_by_device[dev_id] = label_now
             self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
             await self._prune_buckets()
+
+        # Phase 1: delete persisted files only after success
+        if ok and outbox_files:
+            await self._delete_files(outbox_files)
 
         self._first_send_done = True
 
@@ -260,13 +269,15 @@ class LegacySenderAdapter:
                 except Exception:
                     pass
 
-        await self._persist_failed_json(payload)
         await self._enforce_resend_storage_budget()
         return False
 
     async def _resend_failed_files(self) -> None:
         """
-        Legacy boot-time resend. Phase 0 keeps behavior, but switches to shared client and updates last_post_ok_at on success.
+        Phase 1: Support two file formats
+        A) Old: full PushIMAData packet (with FUNC/version/...)
+        B) New: single item ({'DeviceID':..., 'Data': {...}})
+           -> Automatically wrapped into a PushIMAData packet before sending
         """
         try:
             file_list = sorted(
@@ -293,16 +304,26 @@ class LegacySenderAdapter:
                     except Exception:
                         pass
 
-                    if json_obj is not None:
-                        resp = await client.post(self.ima_url, json=json_obj)
+                    if isinstance(json_obj, dict) and "FUNC" in json_obj:
+                        payload = json_obj
+                    elif isinstance(json_obj, dict) and "DeviceID" in json_obj:
+                        payload = self._wrap_items_as_payload([json_obj], datetime.now(self._tz))
                     else:
-                        resp = await client.post(self.ima_url, data=raw, headers={"Content-Type": "application/json"})
+                        payload = raw
+
+                    headers = None
+                    if isinstance(payload, str):
+                        headers = {"Content-Type": "application/json"}
+
+                    if isinstance(payload, dict):
+                        resp = await client.post(self.ima_url, json=payload)
+                    else:
+                        resp = await client.post(self.ima_url, data=payload, headers=headers)
 
                     logger.info(f"[RESEND] {file_name}, resp: {resp.status_code} {resp.text[:120]!r}")
 
                     if self._is_ok(resp):
                         os.remove(file_path)
-                        # Phase 0: update last success time
                         self.last_post_ok_at = datetime.now(self._tz)
                         logger.info(f"[RESEND] success, deleted: {file_name}")
                     else:
@@ -430,8 +451,10 @@ class LegacySenderAdapter:
 
         all_items: list[dict] = []
         sent_candidates_ts: dict[str, datetime] = {}
-
         visible_deadline = label_time + timedelta(seconds=self.tick_grace_sec)
+
+        # --- List of files persisted in this round (only deleted after success) ---
+        outbox_files: list[str] = []
 
         for dev_id, snap in latest_by_device.items():
             snap_ts: datetime = snap["sampling_ts"]
@@ -460,19 +483,21 @@ class LegacySenderAdapter:
                     if is_stale:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
+
+                    # Phase 1: persist each item first
+                    fp = await self._persist_item_json({"DeviceID": it["DeviceID"], "Data": it["Data"]})
+                    outbox_files.append(fp)
+
                 all_items.extend(converted)
                 sent_candidates_ts[dev_id] = snap_ts
 
-        items = list(all_items)
-        items.append(self._make_gw_heartbeat(label_time))
+        # Treat GW heartbeat also as an item to be resent
+        gw_item = self._make_gw_heartbeat(label_time)
+        all_items.append(gw_item)
+        fp_gw = await self._persist_item_json(gw_item)
+        outbox_files.append(fp_gw)
 
-        payload = {
-            "FUNC": "PushIMAData",
-            "version": "6.0",
-            "GatewayID": self.gateway_id,
-            "Timestamp": label_time.strftime("%Y%m%d%H%M%S"),
-            "Data": items,
-        }
+        payload = self._wrap_items_as_payload(all_items, label_time)
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_ts:
@@ -480,6 +505,10 @@ class LegacySenderAdapter:
                 self.__last_label_ts_by_device[dev_id] = label_time
             self.__last_sent_ts_by_device.update(sent_candidates_ts)
             await self._prune_buckets()
+
+        # Phase 1: delete persisted files only after success
+        if ok and outbox_files:
+            await self._delete_files(outbox_files)
 
     def _dir_size_mb(self, path: str) -> float:
         total = 0
@@ -561,3 +590,44 @@ class LegacySenderAdapter:
             "DeviceID": f"{self.gateway_id}_000GW",  # TODO: GW ID need to modify by config on future
             "Data": {"HB": 1, "report_ts": at.isoformat()},
         }
+
+    # ---------- Phase 1 helpers: per-item persist / wrap / delete ----------
+
+    async def _persist_item_json(self, item: dict) -> str:
+        """
+        Persist a SINGLE Data item (with DeviceID/Data fields) to outbox.
+        Return the absolute file path.
+        """
+        now = datetime.now(self._tz)
+        base = now.strftime("%Y%m%d%H%M%S")
+        ms = f"{int(now.microsecond/1000):03d}"
+        suffix = os.urandom(2).hex()  # 4 hex chars
+        fp = os.path.join(self.resend_dir, f"resend_{base}_{ms}_{suffix}.json")
+        try:
+            async with aiofiles.open(fp, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(item, ensure_ascii=False))
+            logger.info(f"[OUTBOX] persisted item: {os.path.basename(fp)}")
+        except Exception as e:
+            logger.error(f"[OUTBOX] persist item failed: {e}")
+        return fp
+
+    def _wrap_items_as_payload(self, items: list[dict], ts: datetime) -> dict:
+        """Wrap a list of item dicts into a PushIMAData payload."""
+        return {
+            "FUNC": "PushIMAData",
+            "version": "6.0",
+            "GatewayID": self.gateway_id,
+            "Timestamp": ts.strftime("%Y%m%d%H%M%S"),
+            "Data": items,
+        }
+
+    async def _delete_files(self, files: list[str]) -> None:
+        deleted = 0
+        for fp in files:
+            try:
+                os.remove(fp)
+                deleted += 1
+            except Exception:
+                pass
+        if deleted:
+            logger.info(f"[OUTBOX] deleted {deleted} sent item file(s)")
