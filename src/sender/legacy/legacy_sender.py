@@ -520,17 +520,43 @@ class LegacySenderAdapter:
         except Exception as e:
             logger.error(f"[ResendWorker] crashed: {e}")
 
+    def _parse_iso_ts(self, s: str | None) -> datetime | None:
+        if not s:
+            return None
+        try:
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=self._tz)
+            else:
+                dt = dt.astimezone(self._tz)
+            return dt
+        except Exception:
+            return None
+
+    def _ts_from_filename(self, fn: str) -> datetime | None:
+        # Support resend_YYYYmmddHHMMSS_ms_xxxx(.retryN)?.json
+        m = re.match(r"resend_(\d{14})_", fn)
+        if not m:
+            return None
+        try:
+            base = datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
+            return base.replace(tzinfo=self._tz)
+        except Exception:
+            return None
+
     async def _resend_process_batch(self, batch: int) -> tuple[int, int]:
         """
-        Scan the outbox and pick up to `batch` files for processing:
-        1) First, pick *.retryN.json (previously failed) → ordered by oldest mtime (FIFO)
-        2) Then, pick *.json (fresh files)              → ordered by oldest mtime (FIFO)
-        Send them one by one; return (total processed, successfully deleted).
+        Pick up to `batch` files.
+        - Full packets are sent as-is (their own Timestamp).
+        - Single-item files are grouped by report_ts (fallback: filename ts -> now),
+        and each group is sent ONCE as a merged PushIMAData payload using that ts.
+        Returns: (total files processed, total files successfully deleted)
         """
         files = self._store.pick_batch(batch, min_age_sec=0.0)
         if not files:
             return 0, 0
 
+        # Prepare transport (use existing client if available)
         temp_client: httpx.AsyncClient | None = None
         transport = self._transport
         if transport is None:
@@ -538,71 +564,129 @@ class LegacySenderAdapter:
             transport = ResendTransport(self.ima_url, temp_client, self._is_ok)
 
         processed = 0
-        success = 0
+        deleted_total = 0
 
-        try:
-            for file_path in files:
-                file_name = os.path.basename(file_path)
+        # Stage 1: read & bucketize
+        full_packets: list[tuple[str, dict]] = []  # [(file_path, packet_json)]
+        item_groups: dict[str, dict] = {}  # ts_key -> { "ts": datetime, "items": [dict], "paths": [str] }
 
-                try:
-                    async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-                        raw = await f.read()
+        for file_path in files:
+            file_name = os.path.basename(file_path)
+            try:
+                async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                    raw = await f.read()
+            except FileNotFoundError:
+                logger.info(f"[ResendWorker] skipped, already gone: {file_name}")
+                processed += 1
+                continue
+            except Exception as e:
+                logger.warning(f"[ResendWorker] read failed for {file_name}: {e}")
+                # 無法讀檔也要前進 retry/fail，避免卡住
+                _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
+                if failed:
+                    logger.warning(f"[ResendWorker] marked .fail: {file_name}")
+                processed += 1
+                continue
 
-                    json_obj = None
-                    try:
-                        json_obj = json.loads(raw)
-                    except Exception:
-                        pass
+            json_obj = None
+            try:
+                json_obj = json.loads(raw)
+            except Exception:
+                # Not a valid JSON, treated as raw (using now instead of ts)
+                json_obj = None
 
-                    if isinstance(json_obj, dict) and "FUNC" in json_obj:
-                        payload = json_obj
-                    elif isinstance(json_obj, dict) and "DeviceID" in json_obj:
-                        payload = self._store.wrap_items_as_payload([json_obj], datetime.now(self._tz))
-                    else:
-                        payload = raw
+            if isinstance(json_obj, dict) and "FUNC" in json_obj:
+                # Complete packet: sent independently
+                full_packets.append((file_path, json_obj))
+            elif isinstance(json_obj, dict) and "DeviceID" in json_obj:
+                # Single item: grouped by report_ts
+                report_ts = (json_obj.get("Data") or {}).get("report_ts")
+                ts_dt = self._parse_iso_ts(report_ts) or self._ts_from_filename(file_name) or datetime.now(self._tz)
+                ts_key = ts_dt.strftime(
+                    "%Y%m%d%H%M%S"
+                )  # Use second-level time as the key to make the outer timestamp consistent
+                g = item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
+                g["items"].append(json_obj)
+                g["paths"].append(file_path)
+            else:
+                # Unable to determine the structure, treat it as a separate raw packet and use the file name time/now as the Timestamp
+                ts_dt = self._ts_from_filename(file_name) or datetime.now(self._tz)
+                ts_key = f"RAW-{ts_dt.strftime('%Y%m%d%H%M%S')}#{file_name}"
+                item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
+                # Wrap it into a single item of Data using raw (keep it as is)
+                item_groups[ts_key]["items"].append(json_obj if isinstance(json_obj, dict) else {"_raw": raw})
+                item_groups[ts_key]["paths"].append(file_path)
 
-                    ok, status, text = await transport.send(payload)  # type: ignore[arg-type]
-                    logger.info(f"[ResendWorker] {file_name}, resp: {status} {text[:120]!r}")
+            processed += 1
 
-                    if ok:
-                        self._store.delete(file_path)
-                        self.last_post_ok_at = datetime.now(self._tz)
-                        success += 1
-                        logger.info(f"[ResendWorker] success, deleted: {file_name}")
-                    else:
-                        new_path, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
-                        if failed:
-                            logger.warning(f"[ResendWorker] marked .fail: {file_name}")
-                        elif new_path:
-                            # 取新的 retry 次數展示
-                            try:
-                                m = re.search(r"\.retry(\d+)\.json$", os.path.basename(new_path))
-                                retryN = m.group(1) if m else "?"
-                            except Exception:
-                                retryN = "?"
-                            logger.info(f"[ResendWorker] retry {retryN}, renamed: {os.path.basename(new_path)}")
-
-                except Exception as e:
-                    logger.warning(f"[ResendWorker] failed for {file_name}: {e}")
-                    new_path, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
+        # Stage 2: send full packets one-by-one
+        for file_path, packet in full_packets:
+            file_name = os.path.basename(file_path)
+            try:
+                ok, status, text = await transport.send(packet)
+                logger.info(f"[ResendWorker] (packet) {file_name}, resp: {status} {text[:120]!r}")
+                if ok:
+                    self._store.delete(file_path)
+                    self.last_post_ok_at = datetime.now(self._tz)
+                    deleted_total += 1
+                    logger.info(f"[ResendWorker] success, deleted: {file_name}")
+                else:
+                    _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
                     if failed:
                         logger.warning(f"[ResendWorker] marked .fail: {file_name}")
-                    elif new_path:
-                        try:
-                            m = re.search(r"\.retry(\d+)\.json$", os.path.basename(new_path))
-                            retryN = m.group(1) if m else "?"
-                        except Exception:
-                            retryN = "?"
-                        logger.info(f"[ResendWorker] retry {retryN}, renamed: {os.path.basename(new_path)}")
-                finally:
-                    processed += 1
-        finally:
-            if temp_client is not None:
-                try:
-                    await temp_client.aclose()
-                except Exception:
+            except Exception as e:
+                logger.warning(f"[ResendWorker] failed (packet) for {file_name}: {e}")
+                _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
+                if failed:
+                    logger.warning(f"[ResendWorker] marked .fail: {file_name}")
+
+        # Stage 3: send grouped single-items (one request per Timestamp)
+        # Send in order of ts to ensure FIFO
+        for ts_key, group in sorted(item_groups.items(), key=lambda kv: kv[1]["ts"]):
+            ts_dt = group["ts"]
+            items = []
+            # Filter out the previously inserted RAW styles and only accept legal items
+            for it in group["items"]:
+                if isinstance(it, dict) and "DeviceID" in it:
+                    items.append(it)
+                else:
+                    # If necessary, you can also wrap RAW into a special DeviceID here; this version will skip this.
                     pass
 
-            self._store.enforce_budget()
+            if not items:
+                continue
 
-        return processed, success
+            payload = self._store.wrap_items_as_payload(items, ts_dt)
+            file_paths = group["paths"]
+
+            try:
+                ok, status, text = await transport.send(payload)
+                logger.info(f"[ResendWorker] (group ts={ts_key}) resp: {status} {text[:120]!r}")
+                if ok:
+                    for p in file_paths:
+                        self._store.delete(p)
+                        deleted_total += 1
+                    self.last_post_ok_at = datetime.now(self._tz)
+                    logger.info(f"[ResendWorker] success, deleted group of {len(file_paths)} file(s) for ts={ts_key}")
+                else:
+                    # When a failure occurs, each file in the group must advance once retry/fail
+                    for p in file_paths:
+                        _, failed = self._store.retry_or_fail(p, max_retry=self.__max_retry)
+                        if failed:
+                            logger.warning(f"[ResendWorker] marked .fail: {os.path.basename(p)}")
+            except Exception as e:
+                logger.warning(f"[ResendWorker] failed (group ts={ts_key}): {e}")
+                for p in file_paths:
+                    _, failed = self._store.retry_or_fail(p, max_retry=self.__max_retry)
+                    if failed:
+                        logger.warning(f"[ResendWorker] marked .fail: {os.path.basename(p)}")
+
+        # Cleanup & return
+        if temp_client is not None:
+            try:
+                await temp_client.aclose()
+            except Exception:
+                pass
+
+        self._store.enforce_budget()
+        return processed, deleted_total
