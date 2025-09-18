@@ -35,6 +35,8 @@ class AsyncDeviceManager:
         self.instance_config = instance_config
         self.model_base_path = model_base_path
 
+        self.driver_config_by_model: dict[str, dict] = {}
+
     async def init(self):
         config: dict = ConfigManager().load_yaml_file(self.config_path)
 
@@ -43,6 +45,10 @@ class AsyncDeviceManager:
             model_config: dict = ConfigManager().load_yaml_file(model_path)
 
             model: str = model_config["model"]
+            if model not in self.driver_config_by_model:
+                # NOTE: Check model_config reference to avoid re-loading same model file
+                self.driver_config_by_model[model] = model_config
+
             # cast slave_id to int to be safe for pymodbus
             slave_id: int = int(device_conf["slave_id"])
             port: str = device_conf["port"]

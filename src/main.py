@@ -69,7 +69,11 @@ async def main(
         control_path=control_path, pubsub=pubsub, async_device_manager=async_device_manager
     )
     time_control_subscriber: TimeControlSubscriber = build_time_control_subscriber(
-        pubsub=pubsub, valid_device_ids=valid_device_ids, time_config_path=time_config_path
+        pubsub=pubsub,
+        valid_device_ids=valid_device_ids,
+        time_config_path=time_config_path,
+        driver_config=async_device_manager.driver_config_by_model,
+        instance_config=instance_config,
     )
 
     legacy_sender, sender_subscriber = build_sender_subscriber(

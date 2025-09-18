@@ -4,6 +4,7 @@ from typing import Optional
 from device.generic.generic_device import AsyncGenericModbusDevice
 from device_manager import AsyncDeviceManager
 from model.control_model import ControlActionModel, ControlActionType
+from model.device_constant import REG_RW_ON_OFF
 
 logger = logging.getLogger(__name__)
 
@@ -56,22 +57,22 @@ class ControlExecutor:
                     # Read current state to avoid redundant writes (fallback to write if read fails)
                     current_state = None
                     try:
-                        current_state = await device.read_value("RW_ON_OFF")
+                        current_state = await device.read_value(REG_RW_ON_OFF)
                     except Exception as re:
                         self.logger.warning(
-                            f"[EXEC] read RW_ON_OFF failed on {device.model}: {re}. Will try to write anyway."
+                            f"[EXEC] read {REG_RW_ON_OFF} failed on {device.model}: {re}. Will try to write anyway."
                         )
 
                     normalized_state = self._normalize_on_off_state(current_state)
                     if normalized_state is not None and normalized_state == desired_state:
                         self.logger.info(
-                            f"[EXEC] [SKIP] {device.model} RW_ON_OFF already {desired_state}.{self._get_reason_suffix(action)}"
+                            f"[EXEC] [SKIP] {device.model} {REG_RW_ON_OFF} already {desired_state}.{self._get_reason_suffix(action)}"
                         )
                         continue
 
                     await device.write_on_off(desired_state)
                     self.logger.info(
-                        f"[EXEC] [WRITE] {device.model} RW_ON_OFF => {desired_state}.{self._get_reason_suffix(action)}"
+                        f"[EXEC] [WRITE] {device.model} {REG_RW_ON_OFF} => {desired_state}.{self._get_reason_suffix(action)}"
                     )
                     continue
 
@@ -121,7 +122,7 @@ class ControlExecutor:
 
             except Exception as e:
                 target = action.target or (
-                    "RW_ON_OFF"
+                    REG_RW_ON_OFF
                     if action.type in {ControlActionType.TURN_ON, ControlActionType.TURN_OFF}
                     else "<unknown>"
                 )

@@ -7,7 +7,7 @@ from evaluator.constraint_evaluator import ConstraintEvaluator
 from util.decorator.retry import async_retry
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
-from util.time_util import sleep_exact_interval, sleep_until_next_tick
+from util.time_util import TIMEZONE_INFO, sleep_exact_interval, sleep_until_next_tick
 
 
 class AsyncDeviceMonitor:
@@ -39,7 +39,7 @@ class AsyncDeviceMonitor:
         await self._poll_once()
 
         # 2) Align to the next tick (rounded by interval, e.g., on the minute / every 10 seconds)
-        await sleep_until_next_tick(self.interval, tz="Asia/Taipei")
+        await sleep_until_next_tick(self.interval, tz=TIMEZONE_INFO)
 
         # 3) Afterwards, maintain a stable rhythm using monotonic clock
         next_mark = None
@@ -74,7 +74,7 @@ class AsyncDeviceMonitor:
             "model": config["model"],
             "type": config["type"],
             "slave_id": config["slave_id"],
-            "sampling_ts": datetime.now(),
+            "sampling_ts": datetime.now(TIMEZONE_INFO),
             "values": snapshot,
             "device": self.async_device_manager.get_device_by_model_and_slave_id(config["model"], config["slave_id"]),
         }

@@ -12,10 +12,11 @@ import aiofiles
 import httpx
 
 from device_manager import AsyncDeviceManager
-from model.sender_model import SenderModel
+from schema.sender_schema import SenderModel
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 from sender.outbox_store import OutboxStore
 from sender.transport import ResendTransport
+from util.time_util import TIMEZONE_INFO
 
 logger = logging.getLogger("LegacySender")
 
@@ -50,8 +51,7 @@ class LegacySenderAdapter:
         # window → { device_id → snapshot }; in-memory cache only
         self._latest_per_window: dict[datetime, dict[str, dict]] = defaultdict(dict)
         self._lock = asyncio.Lock()
-        self._tz = ZoneInfo("Asia/Taipei")
-        self._epoch = datetime(1970, 1, 1, tzinfo=self._tz)
+        self._epoch = datetime(1970, 1, 1, tzinfo=TIMEZONE_INFO)
 
         # ---- Warm-up state ----
         self._first_snapshot_event = asyncio.Event()
@@ -78,7 +78,7 @@ class LegacySenderAdapter:
         # ---- Outbox store ----
         self._store = OutboxStore(
             dirpath=self.resend_dir,
-            tz=self._tz,
+            tz=TIMEZONE_INFO,
             gateway_id=self.gateway_id,
             resend_quota_mb=self.resend_quota_mb,
             fs_free_min_mb=self.fs_free_min_mb,
@@ -105,11 +105,11 @@ class LegacySenderAdapter:
 
         # Ensure tz-aware (normalize to Asia/Taipei)
         if sampling_ts.tzinfo is None:
-            sampling_ts = sampling_ts.replace(tzinfo=self._tz)
+            sampling_ts = sampling_ts.replace(tzinfo=TIMEZONE_INFO)
         else:
-            sampling_ts = sampling_ts.astimezone(self._tz)
+            sampling_ts = sampling_ts.astimezone(TIMEZONE_INFO)
 
-        wstart = LegacySenderAdapter._window_start(sampling_ts, int(self.send_interval_sec), tz="Asia/Taipei")
+        wstart = LegacySenderAdapter._window_start(sampling_ts, int(self.send_interval_sec), tz=TIMEZONE_INFO)
         async with self._lock:
             self._latest_per_window[wstart][device_id] = {**snapshot_map, "sampling_ts": sampling_ts}
 
@@ -181,7 +181,7 @@ class LegacySenderAdapter:
 
         all_data: list[dict] = []
         sent_candidates_sampling_ts: dict[str, datetime] = {}
-        label_now = datetime.now(self._tz)
+        label_now = datetime.now(TIMEZONE_INFO)
 
         # --- List of files persisted in this round (only deleted after success) ---
         outbox_files: list[str] = []
@@ -293,7 +293,7 @@ class LegacySenderAdapter:
                     if ok:
                         logger.info(f"[POST] ok: {status}")
                         # update last success time & wake worker to clear backlog
-                        self.last_post_ok_at = datetime.now(self._tz)
+                        self.last_post_ok_at = datetime.now(TIMEZONE_INFO)
                         self._resend_wakeup.set()
                         return True
                     else:
@@ -314,12 +314,12 @@ class LegacySenderAdapter:
         return False
 
     @staticmethod
-    def _window_start(ts: datetime, interval_sec: int, tz: str = "Asia/Taipei") -> datetime:
+    def _window_start(ts: datetime, interval_sec: int, tz: ZoneInfo = TIMEZONE_INFO) -> datetime:
         """Align `sampling_ts` to the start of its tumbling window (for internal cache indexing only; does not affect sending)."""
-        ts_tz = ts.astimezone(ZoneInfo(tz)).replace(microsecond=0)
-        ival = int(interval_sec)
-        sec = (ts_tz.second // ival) * ival
-        return ts_tz.replace(second=sec)
+        timestamp_tz = ts.astimezone(tz).replace(microsecond=0)
+        interval = int(interval_sec)
+        second: int = (timestamp_tz.second // interval) * interval
+        return timestamp_tz.replace(second=second)
 
     @staticmethod
     def _resolve_gateway_id(config_gateway_id: str) -> str:
@@ -374,10 +374,10 @@ class LegacySenderAdapter:
             f"fail_resend_enabled={self.fail_resend_enabled}, fail_resend_interval_sec={self.fail_resend_interval_sec}, "
             f"fail_resend_batch={self.fail_resend_batch}, last_post_ok_within_sec={self.last_post_ok_within_sec}"
         )
-        next_label = self._compute_next_label_time(datetime.now(self._tz))
+        next_label = self._compute_next_label_time(datetime.now(TIMEZONE_INFO))
 
         while True:
-            now = datetime.now(self._tz)
+            now = datetime.now(TIMEZONE_INFO)
             wait_sec = (next_label - now).total_seconds()
             if wait_sec > 0:
                 await asyncio.sleep(wait_sec)
@@ -492,7 +492,7 @@ class LegacySenderAdapter:
                     break
 
                 # Health threshold: only clear the outbox if there was a recent successful upload
-                now = datetime.now(self._tz)
+                now = datetime.now(TIMEZONE_INFO)
                 if (
                     self.last_post_ok_at is None
                     or (
@@ -520,27 +520,27 @@ class LegacySenderAdapter:
         except Exception as e:
             logger.error(f"[ResendWorker] crashed: {e}")
 
-    def _parse_iso_ts(self, s: str | None) -> datetime | None:
-        if not s:
+    def _parse_iso_timestamp(self, timestamp_str: str | None) -> datetime | None:
+        if not timestamp_str:
             return None
         try:
-            dt = datetime.fromisoformat(s)
+            dt: datetime = datetime.fromisoformat(timestamp_str)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=self._tz)
+                dt = dt.replace(tzinfo=TIMEZONE_INFO)
             else:
-                dt = dt.astimezone(self._tz)
+                dt = dt.astimezone(TIMEZONE_INFO)
             return dt
         except Exception:
             return None
 
-    def _ts_from_filename(self, fn: str) -> datetime | None:
+    def _ts_from_filename(self, filename: str) -> datetime | None:
         # Support resend_YYYYmmddHHMMSS_ms_xxxx(.retryN)?.json
-        m = re.match(r"resend_(\d{14})_", fn)
-        if not m:
+        match = re.match(r"resend_(\d{14})_", filename)
+        if not match:
             return None
         try:
-            base = datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
-            return base.replace(tzinfo=self._tz)
+            base_datetime = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
+            return base_datetime.replace(tzinfo=TIMEZONE_INFO)
         except Exception:
             return None
 
@@ -600,8 +600,12 @@ class LegacySenderAdapter:
                 full_packets.append((file_path, json_obj))
             elif isinstance(json_obj, dict) and "DeviceID" in json_obj:
                 # Single item: grouped by report_ts
-                report_ts = (json_obj.get("Data") or {}).get("report_ts")
-                ts_dt = self._parse_iso_ts(report_ts) or self._ts_from_filename(file_name) or datetime.now(self._tz)
+                report_timestamp: str = (json_obj.get("Data") or {}).get("report_ts")
+                ts_dt = (
+                    self._parse_iso_timestamp(report_timestamp)
+                    or self._ts_from_filename(file_name)
+                    or datetime.now(TIMEZONE_INFO)
+                )
                 ts_key = ts_dt.strftime(
                     "%Y%m%d%H%M%S"
                 )  # Use second-level time as the key to make the outer timestamp consistent
@@ -610,7 +614,7 @@ class LegacySenderAdapter:
                 g["paths"].append(file_path)
             else:
                 # Unable to determine the structure, treat it as a separate raw packet and use the file name time/now as the Timestamp
-                ts_dt = self._ts_from_filename(file_name) or datetime.now(self._tz)
+                ts_dt = self._ts_from_filename(file_name) or datetime.now(TIMEZONE_INFO)
                 ts_key = f"RAW-{ts_dt.strftime('%Y%m%d%H%M%S')}#{file_name}"
                 item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
                 # Wrap it into a single item of Data using raw (keep it as is)
@@ -627,7 +631,7 @@ class LegacySenderAdapter:
                 logger.info(f"[ResendWorker] (packet) {file_name}, resp: {status} {text[:120]!r}")
                 if ok:
                     self._store.delete(file_path)
-                    self.last_post_ok_at = datetime.now(self._tz)
+                    self.last_post_ok_at = datetime.now(TIMEZONE_INFO)
                     deleted_total += 1
                     logger.info(f"[ResendWorker] success, deleted: {file_name}")
                 else:
@@ -666,7 +670,7 @@ class LegacySenderAdapter:
                     for p in file_paths:
                         self._store.delete(p)
                         deleted_total += 1
-                    self.last_post_ok_at = datetime.now(self._tz)
+                    self.last_post_ok_at = datetime.now(TIMEZONE_INFO)
                     logger.info(f"[ResendWorker] success, deleted group of {len(file_paths)} file(s) for ts={ts_key}")
                 else:
                     # When a failure occurs, each file in the group must advance once retry/fail

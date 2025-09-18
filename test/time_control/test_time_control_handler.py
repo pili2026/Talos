@@ -1,79 +1,53 @@
 import pytest
+from time_control.conftest import _build_datetime
 
 from model.control_model import ControlActionType
-from util.pubsub.pubsub_topic import PubSubTopic
 
 
-@pytest.mark.asyncio
-async def test_when_device_allowed_then_send_turn_on_and_publish_snapshot(
-    time_control_handler, mock_evaluator, mock_executor, mock_pubsub
-):
-    # Arrange
-    snapshot = {"device_id": "DEVICE_1", "slave_id": 1}
-
-    # Mock
-    mock_evaluator.evaluate_action.return_value = ControlActionType.TURN_ON
-    mock_evaluator.allow.return_value = True
-
-    # Act
-    await time_control_handler.handle_snapshot(snapshot)
-
-    # Assert
-    mock_executor.send_control.assert_awaited_once_with(
-        "DEVICE_1", "DEVICE", 1, ControlActionType.TURN_ON, "On timezone auto startup"
-    )
-
-    mock_pubsub.publish.assert_awaited_with(PubSubTopic.SNAPSHOT_ALLOWED, snapshot)
+@pytest.mark.parametrize(
+    "target_id, hour, minute, weekday, expected",
+    [
+        ("DEVICE_1", 8, 0, 1, True),  # Mon 08:00 → in
+        ("DEVICE_1", 18, 0, 1, True),  # Mon 18:00 → endpoint inclusive
+        ("DEVICE_1", 7, 59, 1, False),  # Mon before start
+        ("DEVICE_1", 18, 1, 1, False),  # Mon after end
+        ("DEVICE_1", 12, 0, 7, False),  # Sun not in weekdays
+        ("UNKNOWN_DEVICE", 10, 0, 2, True),  # Tue 10:00 → use default(09:00–17:00)
+        ("UNKNOWN_DEVICE", 8, 0, 2, False),  # Tue 08:00 → before default start
+    ],
+)
+def test_allow_matches_expected(evaluator, target_id, hour, minute, weekday, expected):
+    now = _build_datetime(hour, minute, weekday)
+    assert evaluator.allow(target_id, now) is expected
 
 
-@pytest.mark.asyncio
-async def test_when_device_disallowed_then_send_turn_off_and_skip_snapshot(
-    time_control_handler, mock_evaluator, mock_executor, mock_pubsub
-):
-    # Arrange
-    snapshot = {"device_id": "DEVICE_1", "slave_id": 1}
-
-    # Mock
-    mock_evaluator.evaluate_action.return_value = ControlActionType.TURN_OFF
-    mock_evaluator.allow.return_value = False
-
-    # Act
-    await time_control_handler.handle_snapshot(snapshot)
-
-    # Assert
-    mock_executor.send_control.assert_awaited_once_with(
-        "DEVICE_1", "DEVICE", 1, ControlActionType.TURN_OFF, "Off timezone auto shutdown"
-    )
-    mock_pubsub.publish.assert_not_awaited()
+def test_first_time_allowed_returns_turn_on(evaluator):
+    now = _build_datetime(9, 0, 1)
+    assert evaluator.evaluate_action("DEVICE_1", now) == ControlActionType.TURN_ON
 
 
-@pytest.mark.asyncio
-async def test_when_device_status_unchanged_then_do_nothing_but_publish_snapshot(
-    time_control_handler, mock_evaluator, mock_executor, mock_pubsub
-):
-    # Arrange
-    snapshot = {"device_id": "DEVICE_1", "slave_id": 1}
-
-    # Mock
-    mock_evaluator.evaluate_action.return_value = None
-    mock_evaluator.allow.return_value = True
-
-    # Act
-    await time_control_handler.handle_snapshot(snapshot)
-
-    # Assert
-    mock_executor.send_control.assert_not_awaited()
-    mock_pubsub.publish.assert_awaited_with(PubSubTopic.SNAPSHOT_ALLOWED, snapshot)
+def test_first_time_disallowed_returns_turn_off(evaluator):
+    now = _build_datetime(7, 0, 1)
+    assert evaluator.evaluate_action("DEVICE_1", now) == ControlActionType.TURN_OFF
 
 
-@pytest.mark.asyncio
-async def test_when_snapshot_missing_device_id_then_ignore_snapshot(time_control_handler, mock_executor, mock_pubsub):
-    # Arrange
-    snapshot = {"slave_id": 1}  # device_id is missing
+def test_no_action_when_status_unchanged(evaluator):
+    t1 = _build_datetime(10, 0, 1)
+    t2 = _build_datetime(11, 0, 1)
+    evaluator.evaluate_action("DEVICE_1", t1)
+    assert evaluator.evaluate_action("DEVICE_1", t2) is None
 
-    # Act
-    await time_control_handler.handle_snapshot(snapshot)
 
-    # Mock
-    mock_executor.send_control.assert_not_called()
-    mock_pubsub.publish.assert_not_called()
+def test_turn_off_when_allowed_to_disallowed(evaluator):
+    t1 = _build_datetime(10, 0, 1)  # in
+    t2 = _build_datetime(19, 0, 1)  # out
+    evaluator.evaluate_action("DEVICE_1", t1)
+    assert evaluator.evaluate_action("DEVICE_1", t2) == ControlActionType.TURN_OFF
+
+
+def test_turn_on_when_disallowed_to_allowed(evaluator):
+    t1 = _build_datetime(7, 0, 1)  # out
+    t2 = _build_datetime(9, 0, 1)  # in
+    evaluator.evaluate_action("DEVICE_1", t1)
+    assert evaluator.evaluate_action("DEVICE_1", t2) == ControlActionType.TURN_ON
+    assert evaluator.evaluate_action("DEVICE_1", t2) is None

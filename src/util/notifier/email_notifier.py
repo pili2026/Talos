@@ -10,6 +10,7 @@ from email.utils import make_msgid
 from model.alert_model import AlertMessageModel
 from util.config_manager import ConfigManager
 from util.notifier.base import BaseNotifier
+from util.time_util import TIMEZONE_INFO
 
 
 class EmailNotifier(BaseNotifier):
@@ -31,7 +32,7 @@ class EmailNotifier(BaseNotifier):
 
     async def send(self, alert: AlertMessageModel):
         key = (alert.model, alert.message)
-        datetime_now: float = datetime.now().timestamp()
+        datetime_now: float = datetime.now(TIMEZONE_INFO).timestamp()
 
         if datetime_now - self.last_sent[key] < self.threshold_sec:
             self.logger.info(f"[EMAIL] Skip Duplicate Alert Notification: [{alert.model}] {alert.message}")
@@ -49,7 +50,7 @@ class EmailNotifier(BaseNotifier):
 
         logo_cid: str = make_msgid(domain="ima-ems.com")[1:-1]
         rendered_html = template.format(
-            time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            time=datetime.now(TIMEZONE_INFO).strftime("%Y-%m-%d %H:%M:%S"),
             device_model=alert.model,
             slave_id=alert.slave_id,
             level=alert.level,

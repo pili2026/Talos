@@ -1,6 +1,14 @@
 model: IMA_C
 register_type: holding
 
+capabilities:
+  supports_on_off: false
+  on_off_binding:
+    targets: ["DOut01", "DOut02"]
+    on: 1
+    off: 0
+    write_mode: "bit"
+
 register_map:
   DIn01:       { offset: 2, bit: 0, readable: true }
   DIn02:       { offset: 2, bit: 1, readable: true }

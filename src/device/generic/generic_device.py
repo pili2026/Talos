@@ -1,18 +1,12 @@
 import logging
 from typing import Any
 
-from device.generic.capability import supports_on_off
 from device.generic.constraints_policy import ConstraintPolicy
 from device.generic.hooks import HookManager
 from device.generic.modbus_bus import ModbusBus
 from device.generic.scales import ScaleService
 from device.generic.value_codecs import ValueDecoder
-from model.device_constant import (
-    DEFAULT_MISSING_VALUE,
-    HI_SHIFT,
-    MD_SHIFT,
-    REG_RW_ON_OFF,
-)
+from model.device_constant import DEFAULT_MISSING_VALUE, HI_SHIFT, MD_SHIFT, REG_RW_ON_OFF
 from util.decode_util import NumericFormat
 
 
@@ -66,8 +60,10 @@ class AsyncGenericModbusDevice:
         }
 
     def supports_on_off(self) -> bool:
-        # TODO: Refactor this funcion
-        return supports_on_off(self.device_type, self.register_map)
+        config = self.register_map.get(REG_RW_ON_OFF)
+        if config and config.get("writable"):
+            return True
+        return str(self.device_type).lower() in {"inverter", "vfd", "inverter_vfd"}
 
     async def read_all(self) -> dict[str, Any]:
         # 1) First check connectivity: if not connected → return an offline snapshot immediately
@@ -117,13 +113,22 @@ class AsyncGenericModbusDevice:
         return value
 
     async def write_value(self, name: str, value: int | float):
-        cfg = self._require_writable(name)
+        """Write a value to a pin. Supports bit-level RMW and whole-word writes."""
+        pin_cfg = self._require_writable(name)
+        if not pin_cfg:
+            return
         if not self.constraints.allow(name, float(value)):
             return
-        raw = int(round(float(value) / float(cfg.get("scale", 1.0))))
-        await self.bus.write_u16(cfg["offset"], raw)
-        self.hooks.on_write(name, cfg)
-        self.logger.info(f"[{self.model}] Write {value} ({raw}) to {name} (offset={cfg['offset']})")
+
+        # Bit path (read-modify-write on a single bit)
+        bit_index = pin_cfg.get("bit")
+        if bit_index is not None:
+            await self._write_bit(name, pin_cfg, int(bit_index), int(value))
+            return
+
+        # Whole-word / analog path
+        raw = self._scaled_raw_value(pin_cfg, value)
+        await self._write_word(name, pin_cfg, raw)
 
     async def write_on_off(self, value: int) -> None:
         cfg = self.register_map.get(REG_RW_ON_OFF)
@@ -217,3 +222,47 @@ class AsyncGenericModbusDevice:
             name: DEFAULT_MISSING_VALUE for name, cfg in self.register_map.items() if cfg.get("readable")
         }
         return snap
+
+    def _scaled_raw_value(self, pin_cfg: dict, value: int | float) -> int:
+        """Apply static scale and cast to int word."""
+        scale = float(pin_cfg.get("scale", 1.0))
+        return int(round(float(value) / scale))
+
+    async def _write_word(self, name: str, pin_cfg: dict, raw_value: int) -> None:
+        """Write a full 16-bit word."""
+        await self.bus.write_u16(pin_cfg["offset"], int(raw_value))
+        self.hooks.on_write(name, pin_cfg)
+        self.logger.info(f"[{self.model}] Write {raw_value} to {name} (offset={pin_cfg['offset']})")
+
+    async def _write_bit(self, name: str, pin_cfg: dict, bit_index: int, bit_value: int) -> None:
+        """Read-modify-write a single bit within a 16-bit register."""
+        try:
+            current = await self.bus.read_u16(pin_cfg["offset"])
+        except Exception as e:
+            self.logger.warning(f"[{self.model}] Read before bit-write failed for {name}: {e}")
+            return
+
+        new_word = int(current)
+        if bit_value:
+            new_word |= 1 << bit_index
+        else:
+            new_word &= ~(1 << bit_index)
+
+        try:
+            await self.bus.write_u16(pin_cfg["offset"], new_word)
+            self.hooks.on_write(name, pin_cfg)
+            self.logger.info(
+                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"[{self.model}] Bit-write failed for {name}: {e}",
+                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
+            )
+            self.logger.warning(
+                f"[{self.model}] Bit-write failed for {name}: {e}",
+                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
+            )

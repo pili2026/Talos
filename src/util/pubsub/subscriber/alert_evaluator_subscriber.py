@@ -5,6 +5,7 @@ from evaluator.alert_evaluator import AlertEvaluator
 from model.alert_model import AlertMessageModel, AlertSeverity
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
+from util.time_util import TIMEZONE_INFO
 
 
 class AlertEvaluatorSubscriber:
@@ -30,7 +31,7 @@ class AlertEvaluatorSubscriber:
                         level=AlertSeverity.WARNING,
                         message=alert_msg,
                         alert_code=alert_code,
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(TIMEZONE_INFO),
                     )
                     self.logger.warning(f"[ALERT] [{device_id}] {alert_msg}")
                     await self.pubsub.publish(PubSubTopic.ALERT_WARNING, alert)

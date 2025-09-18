@@ -1,52 +1,103 @@
 import logging
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 from model.control_model import ControlActionType
+from schema.time_control_schema import DeviceSchedule, TimeControlConfig
+from util.time_util import TIMEZONE_INFO
 
 logger = logging.getLogger("TimeControlEvaluator")
 
 
 class TimeControlEvaluator:
-    def __init__(self, work_hours: dict[str, dict]):
-        self.work_hours = work_hours
-        self._last_status = {}  # device_id -> bool (True=allowed, False=forbidden)
+    """
+    Use Pydantic schema (TimeControlConfig) as the single source of truth
+    to determine whether a device is within allowed hours, and return
+    TURN_ON / TURN_OFF actions when the state changes.
 
-    def allow(self, target_id: str, time_now: datetime | None = None) -> bool:
-        """Check if the current time is within allowed work hours for the target."""
-        time_now = time_now or datetime.now()
-        time_config = self.work_hours.get(target_id) or self.work_hours.get("default")
+    Behavior:
+      - allow(device_id): only checks "is it currently allowed?"
+      - evaluate_action(device_id): on the first call returns the current state's
+        action; afterward only returns an action when the state changes
+    """
 
-        if not time_config:
-            logger.warning(f"[TimeControl] No config for {target_id}, allow by default.")
+    def __init__(self, config: TimeControlConfig):
+        self._config: TimeControlConfig = config
+        self._default_tz: ZoneInfo = ZoneInfo(config.timezone) if config.timezone else TIMEZONE_INFO
+        self._last_allowed_by_device: dict[str, bool] = {}
+
+    # ---------- Public API ----------
+
+    def allow(self, device_id: str, now: datetime | None = None) -> bool:
+        """Return whether the current time (with timezone) is within allowed intervals."""
+        schedule, tz = self._resolve_schedule_and_tz(device_id)
+        if schedule is None:
+            logger.warning(f"[TimeControl] No config for {device_id}, allow by default.")
             return True
 
-        if time_now.isoweekday() not in time_config["weekdays"]:
+        local_now = (now or datetime.now(self._default_tz)).astimezone(tz)
+        if schedule.weekdays and local_now.isoweekday() not in schedule.weekdays:
+            self._debug(device_id, local_now, schedule, allowed=False)
             return False
 
-        start_time = time.fromisoformat(time_config["start"])
-        end_time = time.fromisoformat(time_config["end"])
-        return start_time <= time_now.time() <= end_time
+        now_t = local_now.time()
+        allowed = any(self._in_interval(now_t, itv.start, itv.end) for itv in schedule.intervals)
+        self._debug(device_id, local_now, schedule, allowed=allowed)
+        return allowed
 
-    def evaluate_action(self, target_id: str, time_now: datetime | None = None) -> ControlActionType | None:
+    def evaluate_action(self, device_id: str, now: datetime | None = None) -> ControlActionType | None:
         """
-        Evaluate and return the required action for a device based on time rules:
-        - First call: return TURN_ON / TURN_OFF directly based on current allowed status
-        - Subsequent calls: only return action if status changes
+        - First call: return the action corresponding to the current state (TURN_ON or TURN_OFF)
+        - Subsequent calls: only return an action when the state changes (allowed ↔ not allowed),
+          otherwise return None
         """
-        allowed: bool = self.allow(target_id, time_now)
-        last_allowed: bool | None = self._last_status.get(target_id, None)
+        allowed_now = self.allow(device_id, now)
+        last_allowed = self._last_allowed_by_device.get(device_id)
 
-        # First time check → always send action
         if last_allowed is None:
-            self._last_status[target_id] = allowed
-            return ControlActionType.TURN_ON if allowed else ControlActionType.TURN_OFF
+            self._last_allowed_by_device[device_id] = allowed_now
+            return ControlActionType.TURN_ON if allowed_now else ControlActionType.TURN_OFF
 
-        # Subsequent checks → only send when status changes
-        action = None
-        if not allowed and last_allowed:
-            action = ControlActionType.TURN_OFF
-        elif allowed and not last_allowed:
+        action: ControlActionType | None = None
+        if allowed_now and not last_allowed:
             action = ControlActionType.TURN_ON
+        elif not allowed_now and last_allowed:
+            action = ControlActionType.TURN_OFF
 
-        self._last_status[target_id] = allowed
+        self._last_allowed_by_device[device_id] = allowed_now
         return action
+
+    # ---------- Private helpers ----------
+
+    def _resolve_schedule_and_tz(self, device_id: str) -> tuple[DeviceSchedule | None, ZoneInfo]:
+        """Return (DeviceSchedule, timezone); if not found, return (None, default_tz)."""
+        wh = self._config.work_hours
+        schedule: DeviceSchedule | None = wh.get(device_id) or wh.get("default")
+        if schedule is None:
+            return None, self._default_tz
+
+        tz = ZoneInfo(schedule.timezone) if schedule.timezone else self._default_tz
+        return schedule, tz
+
+    @staticmethod
+    def _in_interval(current: time, start_t: time, end_t: time) -> bool:
+        """Check if current is within [start_t, end_t] (inclusive); supports overnight (start > end)."""
+        if start_t <= end_t:
+            return start_t <= current <= end_t
+        # Overnight interval: e.g. 22:00–06:00
+        return current >= start_t or current <= end_t
+
+    @staticmethod
+    def _fmt_intervals(schedule: DeviceSchedule) -> str:
+        return str([(i.start.isoformat(), i.end.isoformat()) for i in schedule.intervals])
+
+    def _debug(self, device_id: str, local_now: datetime, schedule: DeviceSchedule, allowed: bool) -> None:
+        try:
+            tz_key = local_now.tzinfo.key  # type: ignore[attr-defined]
+        except Exception:
+            tz_key = str(local_now.tzinfo)
+        logger.debug(
+            f"[TimeControl] {device_id} now={local_now.strftime('%Y-%m-%d %H:%M:%S')} "
+            f"tz={tz_key} wd={local_now.isoweekday()} "
+            f"intervals={self._fmt_intervals(schedule)} → allowed={allowed}"
+        )
