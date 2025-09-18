@@ -1,4 +1,3 @@
-# handler/time_control_handler.py
 import logging
 
 from evaluator.time_evalutor import TimeControlEvaluator

@@ -1,6 +1,6 @@
 import logging
 
-from time_control_handler import TimeControlHandler
+from handler.time_control_handler import TimeControlHandler
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 

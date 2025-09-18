@@ -2,6 +2,8 @@ from typing import Any, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from model.device_constant import REG_RW_ON_OFF
+
 
 class OnOffBinding(BaseModel):
     """
@@ -59,7 +61,7 @@ class CapabilityResolver:
 
         # (3a) RW_ON_OFF exists and writable → treat as supporting on/off
         reg_map = self._driver_register_map(model)
-        rw = reg_map.get("RW_ON_OFF")
+        rw = reg_map.get(REG_RW_ON_OFF)
         if isinstance(rw, dict) and rw.get("writable"):
             return True
 

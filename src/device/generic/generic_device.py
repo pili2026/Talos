@@ -120,6 +120,8 @@ class AsyncGenericModbusDevice:
         if not self.constraints.allow(name, float(value)):
             return
 
+        # TODO: Need to support more complex types on future
+
         # Bit path (read-modify-write on a single bit)
         bit_index = pin_cfg.get("bit")
         if bit_index is not None:
@@ -256,6 +258,16 @@ class AsyncGenericModbusDevice:
                 f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
             )
         except Exception as e:
+            self.logger.warning(
+                f"[{self.model}] Bit-write failed for {name}: {e}",
+                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
+            )
+            self.logger.warning(
+                f"[{self.model}] Bit-write failed for {name}: {e}",
+                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
+            )
             self.logger.warning(
                 f"[{self.model}] Bit-write failed for {name}: {e}",
                 f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
