@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from model.control_composite import CompositeNode
 from model.enum.condition_enum import ControlActionType
+from model.policy_model import PolicyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -99,3 +100,4 @@ class ControlConditionModel(BaseModel):
     action: ControlActionModel
     priority: int = 0
     composite: CompositeNode | None = Field(default=None)
+    policy: PolicyConfig | None = Field(default=None)

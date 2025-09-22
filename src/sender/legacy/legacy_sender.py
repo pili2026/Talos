@@ -229,6 +229,7 @@ class LegacySenderAdapter:
         outbox_files.append(fp_gw)
 
         payload = self._store.wrap_items_as_payload(all_data, label_now)
+        logger.info(f"Warm-up: {payload}")
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_sampling_ts:
@@ -451,6 +452,7 @@ class LegacySenderAdapter:
         outbox_files.append(fp_gw)
 
         payload = self._store.wrap_items_as_payload(all_items, label_time)
+        logger.info(f"Scheduled send:  {payload}")
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_ts:
@@ -661,6 +663,7 @@ class LegacySenderAdapter:
                 continue
 
             payload = self._store.wrap_items_as_payload(items, ts_dt)
+            logger.info(f"[ResendWorker] {payload}")
             file_paths = group["paths"]
 
             try:

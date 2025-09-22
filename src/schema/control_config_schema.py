@@ -53,23 +53,21 @@ class ControlConfig(BaseModel):
         # 2) Filter invalid (log + skip)
         filtered_control_list: list[ControlConditionModel] = []
         for rule in merged_control_list:
-            rid = getattr(rule, "code", getattr(rule, "name", "<unknown>"))
-            comp = getattr(rule, "composite", None)
+            rid = rule.code or rule.name or "<unknown>"
 
-            # composite missing or null
-            if comp is None:
+            if rule.composite is None:
                 logger.warning(f"[{model}_{instance_id}] skip rule '{rid}': missing or null composite")
                 continue
-
-            # composite structure invalid (flagged by CompositeNode's after validator)
-            if getattr(comp, "invalid", False):
+            if rule.composite.invalid:
                 logger.warning(f"[{model}_{instance_id}] skip rule '{rid}': invalid composite")
                 continue
 
-            # action/type missing
-            act = getattr(rule, "action", None)
-            if act is None or getattr(act, "type", None) is None:
+            if rule.action is None or rule.action.type is None:
                 logger.error(f"[{model}_{instance_id}] skip rule '{rid}': missing action.type")
+                continue
+
+            if rule.policy and rule.policy.invalid:
+                logger.warning(f"[{model}_{instance_id}] skip rule '{rid}': invalid policy")
                 continue
 
             filtered_control_list.append(rule)

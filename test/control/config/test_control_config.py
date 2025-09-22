@@ -1,7 +1,7 @@
 import logging
 
-from control_config import ControlConfig
 from model.control_model import ControlConditionModel
+from schema.control_config_schema import ControlConfig
 
 
 def _build_config(d):

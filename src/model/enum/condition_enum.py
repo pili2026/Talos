@@ -12,6 +12,7 @@ class ControlActionType(StrEnum):
 class ConditionType(StrEnum):
     THRESHOLD = "threshold"
     DIFFERENCE = "difference"
+    SINGLE = "single"
 
 
 class ConditionOperator(StrEnum):
@@ -25,3 +26,9 @@ class ControlCompositeType(StrEnum):
     ALL = "all"
     ANY = "any"
     NOT = "not_"
+
+
+class ControlPolicyType(StrEnum):
+    DISCRETE_SETPOINT = "discrete_setpoint"
+    ABSOLUTE_LINEAR = "absolute_linear"
+    INCREMENTAL_LINEAR = "incremental_linear"

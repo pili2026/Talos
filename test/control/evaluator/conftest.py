@@ -1,7 +1,7 @@
 import pytest
 
-from control_config import ControlConfig
 from evaluator.control_evaluator import ControlEvaluator
+from schema.control_config_schema import ControlConfig
 
 # ----------------------
 # Fixtures

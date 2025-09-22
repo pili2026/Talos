@@ -1,6 +1,6 @@
-from control_config import ControlConfig
 from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
+from schema.control_config_schema import ControlConfig
 from util.config_manager import ConfigManager
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
 
