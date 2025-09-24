@@ -13,13 +13,15 @@ logger = logging.getLogger(__name__)
 
 class ControlActionModel(BaseModel):
     """
+    Control Action Configuration Model
+
     Notes:
     - `slave_id` is always represented as `str` (normalized across producers/consumers).
-    - Minimal required type checks for `value` by action type:
-    * SET_FREQUENCY requires a numeric (float).
-    * WRITE_DO / RESET require an integer (int).
-    * TURN_ON / TURN_OFF do not require `value`.
-    - Input normalization: strip whitespace for model/slave_id/target; convert int `slave_id` to str.
+    - Type-specific value validation:
+      * SET_FREQUENCY/ADJUST_FREQUENCY require numeric values (converted to float)
+      * WRITE_DO/RESET require integer values
+      * TURN_ON/TURN_OFF do not require values
+    - Input normalization: strip whitespace for string fields; convert int `slave_id` to str.
     """
 
     model_config = ConfigDict(
@@ -30,7 +32,7 @@ class ControlActionModel(BaseModel):
 
     model: str | None = None
     slave_id: str | None = None
-    type: ControlActionType | None = None
+    type: ControlActionType | None = None  # Optional for soft validation
     target: str | None = None
     value: float | int | None = None
     source: str | None = None
@@ -40,54 +42,76 @@ class ControlActionModel(BaseModel):
     @field_validator("model", "slave_id", "target", mode="before")
     @classmethod
     def coerce_to_str(cls, v):
-        return None if v is None else str(v).strip()  # Allow non-string inputs (e.g., int/bool) and normalize to str
+        """Convert various input types to string and normalize"""
+        if v is None:
+            return None
+        try:
+            return str(v).strip()
+        except (TypeError, AttributeError) as e:
+            logger.warning(f"[ACTION] Failed to convert field to string: {v} - {e}")
+            return str(v) if v is not None else None
 
     # ---- Validation rules (by action type) ----
     @model_validator(mode="after")
     def validate_by_action_type(self) -> ControlActionModel:
+        """Validate action configuration based on action type"""
         # Skip validation if type is None (will be filtered out at runtime)
         if self.type is None:
             return self
 
-        # SET_FREQUENCY and ADJUST_FREQUENCY require numeric; coerce to float
-        if self.type in {ControlActionType.SET_FREQUENCY, ControlActionType.ADJUST_FREQUENCY}:
-            try:
-                new_value = float(self.value)
-            except Exception:
-                logger.warning(f"[CONFIG] {self.type} requires numeric value, got {self.value!r}. Fallback to 0.0")
-                new_value = 0.0
-            object.__setattr__(self, "value", new_value)
-            return self
+        try:
+            # SET_FREQUENCY and ADJUST_FREQUENCY require numeric; coerce to float
+            if self.type in {ControlActionType.SET_FREQUENCY, ControlActionType.ADJUST_FREQUENCY}:
+                try:
+                    new_value = float(self.value) if self.value is not None else 0.0
+                except (ValueError, TypeError) as e:
+                    logger.warning(
+                        f"[ACTION] {self.type.value} requires numeric value, "
+                        f"got {self.value!r} ({type(self.value).__name__}). Fallback to 0.0. Error: {e}"
+                    )
+                    new_value = 0.0
+                object.__setattr__(self, "value", new_value)
+                return self
 
-        # WRITE_DO / RESET require an integer
-        if self.type in {ControlActionType.WRITE_DO, ControlActionType.RESET}:
-            try:
-                new_value = int(self.value)
-            except Exception:
-                logger.warning(f"[CONFIG] {self.type} requires int value, got {self.value!r}. Fallback to 0")
-                new_value = 0
-            object.__setattr__(self, "value", new_value)
-            return self
+            # WRITE_DO / RESET require an integer
+            elif self.type in {ControlActionType.WRITE_DO, ControlActionType.RESET}:
+                try:
+                    new_value = int(self.value) if self.value is not None else 0
+                except (ValueError, TypeError) as e:
+                    logger.warning(
+                        f"[ACTION] {self.type.value} requires integer value, "
+                        f"got {self.value!r} ({type(self.value).__name__}). Fallback to 0. Error: {e}"
+                    )
+                    new_value = 0
+                object.__setattr__(self, "value", new_value)
+                return self
 
-        # TURN_ON / TURN_OFF do not require value (ignore if provided)
-        if self.type in {ControlActionType.TURN_ON, ControlActionType.TURN_OFF}:
-            if self.value is not None:
-                logger.info(f"[CONFIG] {self.type} ignores value={self.value!r}; set to None")
-                object.__setattr__(self, "value", None)
-            return self
+            # TURN_ON / TURN_OFF do not require value (ignore if provided)
+            elif self.type in {ControlActionType.TURN_ON, ControlActionType.TURN_OFF}:
+                if self.value is not None:
+                    logger.info(f"[ACTION] {self.type.value} ignores value={self.value!r}; set to None")
+                    object.__setattr__(self, "value", None)
+                return self
+
+        except Exception as e:
+            logger.error(f"[ACTION] Unexpected error during action validation: {e}")
 
         return self
 
 
-# --- Conditions ---
+# --- Control Condition Model ---
 class ControlConditionModel(BaseModel):
     """
-    Specification highlights:
-    - type == THRESHOLD: `source` must be a single field (str)
-    - type == DIFFERENCE: `source` must be two fields (list[str] with len == 2)
-    - operator supports GREATER_THAN / LESS_THAN / EQUAL (EQUAL is strict equality for now)
-    - `threshold` is float
-    - `priority` is int (larger = higher; for same priority, earlier definition wins)
+    Control Condition Configuration Model
+
+    Represents a complete control rule including:
+    - Identification (name, code, priority)
+    - Trigger conditions (composite)
+    - Control policy (policy)
+    - Action to execute (action)
+
+    Validation approach: Allow parsing with missing/invalid components,
+    filter out invalid rules at runtime in get_control_list().
     """
 
     model_config = ConfigDict(
@@ -99,7 +123,7 @@ class ControlConditionModel(BaseModel):
 
     name: str
     code: str
-    action: ControlActionModel | None = None
+    action: ControlActionModel | None = None  # Optional for soft validation
     priority: int = 0
     composite: CompositeNode | None = Field(default=None)
     policy: PolicyConfig | None = Field(default=None)

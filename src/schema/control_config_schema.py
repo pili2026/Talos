@@ -1,6 +1,9 @@
 import logging
+
 from pydantic import BaseModel, Field, field_validator, model_validator
+
 from model.control_model import ControlConditionModel
+from model.enum.condition_enum import ControlPolicyType
 
 logger = logging.getLogger("ControlConfig")
 
@@ -64,43 +67,33 @@ class ControlConfig(BaseModel):
         if not control.composite:
             return errors
 
-        try:
-            # The composite validation happens automatically in CompositeNode's model_validator
-            # But we can add additional checks here if needed
+        # Check if composite was marked as invalid during its own validation
+        if control.composite.invalid:
+            errors.append(f"{context}: composite structure failed validation")
 
-            # Check if composite was marked as invalid during its own validation
-            if control.composite.invalid:
-                errors.append(f"{context}: composite structure failed validation")
-
-            # Additional business logic validations could go here
-            # For example: certain policy types might have restrictions on composite complexity
-            if control.policy and control.policy.type:
-                policy_errors = self._validate_policy_composite_compatibility(
-                    control.policy.type, control.composite, context
-                )
-                errors.extend(policy_errors)
-
-        except Exception as e:
-            errors.append(f"{context}: error validating composite structure - {str(e)}")
+        # Additional business logic validations
+        if control.policy and control.policy.type:
+            policy_errors = self._validate_policy_composite_compatibility(
+                control.policy.type, control.composite, context
+            )
+            errors.extend(policy_errors)
 
         return errors
 
     def _validate_policy_composite_compatibility(self, policy_type, composite, context: str) -> list[str]:
         """Check if policy type is compatible with composite complexity"""
-        from model.enum.condition_enum import ControlPolicyType
 
         errors = []
 
         # Example business rule: discrete_setpoint with overly complex conditions might be suspicious
         if policy_type == ControlPolicyType.DISCRETE_SETPOINT:
-            try:
-                depth = composite._calculate_max_depth()
-                if depth > 5:  # More restrictive for discrete policies
-                    errors.append(
-                        f"{context}: discrete_setpoint policy with deep nesting ({depth} levels) may indicate design issues"
-                    )
-            except:
-                pass  # Depth calculation errors are handled elsewhere
+            depth = composite.calculate_max_depth()
+            if depth == -1:
+                errors.append(f"{context}: circular reference in discrete_setpoint composite")
+            elif depth > 5:  # More restrictive for discrete policies
+                errors.append(
+                    f"{context}: discrete_setpoint policy with deep nesting ({depth} levels) may indicate design issues"
+                )
 
         return errors
 
@@ -154,12 +147,18 @@ class ControlConfig(BaseModel):
             # Additional runtime validation
             try:
                 # Ensure composite depth is within runtime limits (might be different from config limits)
-                depth = rule.composite._calculate_max_depth()
+                depth = rule.composite.calculate_max_depth()
                 if depth > 15:  # More generous runtime limit
                     logger.error(f"{context} skip rule '{rid}': composite depth ({depth}) exceeds runtime limit")
                     continue
             except Exception as e:
-                logger.error(f"{context} skip rule '{rid}': composite structure error - {str(e)}")
+                # Handle specific exceptions with more descriptive messages
+                if "Circular reference detected" in str(e):
+                    logger.error(f"{context} skip rule '{rid}': circular reference in composite structure")
+                elif "depth" in str(e).lower() and "exceed" in str(e).lower():
+                    logger.error(f"{context} skip rule '{rid}': composite depth exceeded limit")
+                else:
+                    logger.error(f"{context} skip rule '{rid}': composite structure error - {str(e)}")
                 continue
 
             filtered_control_list.append(rule)

@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 import logging
-from typing import Set, ClassVar
+from typing import ClassVar
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 from model.enum.condition_enum import ConditionOperator, ConditionType
 
 logger = logging.getLogger(__name__)
@@ -43,7 +46,7 @@ class CompositeNode(BaseModel):
     # validation state
     invalid: bool = False
 
-    def _calculate_max_depth(self, visited: Set[id] = None) -> int:
+    def calculate_max_depth(self, visited: set[id] = None) -> int:
         """
         Calculate maximum nesting depth of the composite tree.
         Also detects circular references.
@@ -52,18 +55,16 @@ class CompositeNode(BaseModel):
             visited: Set of object IDs to track visited nodes for cycle detection
 
         Returns:
-            Maximum depth of nested structure
-
-        Raises:
-            ValueError: If circular reference is detected
+            Maximum depth of nested structure, or -1 if circular reference detected
         """
         if visited is None:
             visited = set()
 
-        # Circular reference detection
+        # Circular reference detection - return -1 instead of raising exception
         node_id = id(self)
         if node_id in visited:
-            raise ValueError("Circular reference detected in composite structure")
+            logger.error("[COMPOSITE] Circular reference detected in composite structure")
+            return -1
 
         visited.add(node_id)
         max_child_depth = 0
@@ -80,7 +81,9 @@ class CompositeNode(BaseModel):
 
             # Calculate depth of each child
             for child in child_nodes:
-                child_depth = child._calculate_max_depth(visited.copy())
+                child_depth = child.calculate_max_depth(visited.copy())
+                if child_depth == -1:  # Circular reference in child
+                    return -1
                 max_child_depth = max(max_child_depth, child_depth)
 
         finally:
@@ -140,11 +143,28 @@ class CompositeNode(BaseModel):
                 elif len(self.all) > self.MAX_CHILDREN_PER_NODE:
                     problems.append(f"'all' cannot have more than {self.MAX_CHILDREN_PER_NODE} children")
 
+                # Always check child validity regardless of count issues
+                if self.all:
+                    invalid_children = [i for i, child in enumerate(self.all) if child.invalid]
+                    if invalid_children:
+                        problems.append(f"'all' contains invalid child nodes at indices: {invalid_children}")
+
             if self.any is not None:
                 if not self.any:
                     problems.append("'any' must contain at least one child")
                 elif len(self.any) > self.MAX_CHILDREN_PER_NODE:
                     problems.append(f"'any' cannot have more than {self.MAX_CHILDREN_PER_NODE} children")
+
+                # Always check child validity regardless of count issues
+                if self.any:
+                    invalid_children = [i for i, child in enumerate(self.any) if child.invalid]
+                    if invalid_children:
+                        problems.append(f"'any' contains invalid child nodes at indices: {invalid_children}")
+
+            if self.not_ is not None:
+                # Check if the 'not' child node is invalid
+                if self.not_.invalid:
+                    problems.append("'not' contains invalid child node")
 
         elif group_count == 0 and is_leaf:
             # Leaf node validation
@@ -162,12 +182,13 @@ class CompositeNode(BaseModel):
                 if self.operator is None:
                     problems.append("difference condition requires 'operator'")
 
-                if not self.sources or len(self.sources) != 2:
+                # Validate sources list with clear error messages
+                if not self.sources:
+                    problems.append("difference condition requires 'sources' list")
+                elif len(self.sources) != 2:
                     problems.append("difference condition requires exactly 2 sources")
-                else:
-                    # Check for duplicate sources
-                    if self.sources[0] == self.sources[1]:
-                        problems.append("difference condition sources must be different")
+                elif self.sources[0] == self.sources[1]:
+                    problems.append("difference condition sources must be different")
 
                 # Validate operator compatibility with difference type
                 if self.operator == ConditionOperator.BETWEEN:
@@ -187,19 +208,17 @@ class CompositeNode(BaseModel):
 
         # Advanced validations (only if basic structure is valid)
         if not problems:
-            try:
-                # Check nesting depth and circular references
-                depth = self._calculate_max_depth()
-                if depth > self.MAX_NESTING_DEPTH:
-                    problems.append(f"composite structure exceeds maximum nesting depth ({self.MAX_NESTING_DEPTH})")
-
-            except ValueError as e:
-                problems.append(str(e))  # Circular reference error
+            # Check nesting depth and circular references - no exceptions, just validation
+            depth = self.calculate_max_depth()
+            if depth == -1:
+                problems.append("circular reference detected in composite structure")
+            elif depth > self.MAX_NESTING_DEPTH:
+                problems.append(f"composite structure exceeds maximum nesting depth ({self.MAX_NESTING_DEPTH})")
 
         # Log problems and mark as invalid if any found
         if problems:
             for msg in problems:
-                logger.warning(f"[CONFIG] Composite validation error: {msg}")
+                logger.warning(f"[COMPOSITE] Validation error: {msg}")
             object.__setattr__(self, "invalid", True)
 
         return self
@@ -213,14 +232,23 @@ class CompositeNode(BaseModel):
         try:
             normalized = [s for s in (str(x).strip() for x in v) if s]
             return normalized if normalized else None
-        except Exception:
+        except (TypeError, AttributeError) as e:
+            logger.warning(f"[COMPOSITE] Failed to normalize sources {v}: {e}")
             return None
 
     @field_validator("hysteresis", "debounce_sec", "threshold", "min", "max")
     @classmethod
-    def validate_numeric_fields(cls, v):
+    def validate_numeric_fields(cls, v, info):
         """Ensure numeric fields are non-negative where applicable"""
         if v is not None:
-            if v < 0:
-                logger.warning(f"Numeric field should be non-negative, got: {v}")
+            try:
+                float_v = float(v)
+                if float_v < 0:
+                    field_name = info.field_name if hasattr(info, "field_name") else "numeric_field"
+                    logger.warning(f"[COMPOSITE] {field_name} should be non-negative, got: {float_v}")
+                return float_v
+            except (ValueError, TypeError) as e:
+                field_name = info.field_name if hasattr(info, "field_name") else "numeric_field"
+                logger.error(f"[COMPOSITE] Invalid numeric value for {field_name}: {v}")
+                return None
         return v

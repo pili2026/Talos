@@ -1,5 +1,7 @@
 import logging
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 from model.enum.condition_enum import ConditionType, ControlPolicyType
 
 logger = logging.getLogger(__name__)
@@ -59,8 +61,12 @@ class PolicyConfig(BaseModel):
         """Normalize sources list by trimming strings and removing empty values"""
         if v is None:
             return None
-        normalized = [str(s).strip() for s in v if str(s).strip()]
-        return normalized or None
+        try:
+            normalized = [str(s).strip() for s in v if str(s).strip()]
+            return normalized or None
+        except (TypeError, AttributeError) as e:
+            logger.warning(f"[POLICY] Failed to normalize sources {v}: {e}")
+            return None
 
     @model_validator(mode="after")
     def validate_semantic_requirements(self):
@@ -72,30 +78,44 @@ class PolicyConfig(BaseModel):
 
         # Input source validation (discrete_setpoint doesn't need sources)
         if self.type != ControlPolicyType.DISCRETE_SETPOINT:
-            if self.condition_type == ConditionType.SINGLE:
-                if not self.source:
-                    problems.append("policy.source required when condition_type='single'")
-            else:  # ConditionType.DIFFERENCE
-                if not self.sources or len(self.sources) < 2:
-                    problems.append("policy.sources (>=2 items) required when condition_type='difference'")
+            try:
+                if self.condition_type == ConditionType.SINGLE:
+                    if not self.source:
+                        problems.append("policy.source required when condition_type='single'")
+                else:  # ConditionType.DIFFERENCE
+                    if not self.sources or len(self.sources) < 2:
+                        problems.append("policy.sources (>=2 items) required when condition_type='difference'")
+            except AttributeError as e:
+                problems.append(f"error validating input sources: {e}")
 
         # Policy-specific requirement validation
-        if self.type == ControlPolicyType.ABSOLUTE_LINEAR:
-            if self.base_freq is None:
-                problems.append("absolute_linear policy requires base_freq")
-            if self.gain_hz_per_unit is None:
-                problems.append("absolute_linear policy requires gain_hz_per_unit")
+        try:
+            if self.type == ControlPolicyType.ABSOLUTE_LINEAR:
+                missing_fields = []
+                if self.base_freq is None:
+                    missing_fields.append("base_freq")
+                if self.gain_hz_per_unit is None:
+                    missing_fields.append("gain_hz_per_unit")
 
-        if self.type == ControlPolicyType.INCREMENTAL_LINEAR:
-            if self.gain_hz_per_unit is None:
-                problems.append("incremental_linear policy requires gain_hz_per_unit")
-            if self.max_step_hz is not None and self.max_step_hz <= 0:
-                problems.append("max_step_hz must be positive when specified")
+                if missing_fields:
+                    problems.append(f"absolute_linear policy requires: {', '.join(missing_fields)}")
+
+            elif self.type == ControlPolicyType.INCREMENTAL_LINEAR:
+                if self.gain_hz_per_unit is None:
+                    problems.append("incremental_linear policy requires gain_hz_per_unit")
+                if self.max_step_hz is not None and self.max_step_hz <= 0:
+                    problems.append("max_step_hz must be positive when specified")
+
+        except AttributeError as e:
+            problems.append(f"error validating policy-specific requirements: {e}")
 
         # Frequency limit validation
-        if self.min_freq is not None and self.max_freq is not None:
-            if self.min_freq > self.max_freq:
-                problems.append("min_freq must be <= max_freq")
+        try:
+            if self.min_freq is not None and self.max_freq is not None:
+                if self.min_freq > self.max_freq:
+                    problems.append("min_freq must be <= max_freq")
+        except (TypeError, AttributeError) as e:
+            problems.append(f"error validating frequency limits: {e}")
 
         # Handle validation problems with soft validation approach
         if problems:
