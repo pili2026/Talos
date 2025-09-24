@@ -1,285 +1,339 @@
+import pytest
 import logging
+from pydantic import ValidationError
 
-from model.control_model import ControlConditionModel
+
+from model.enum.condition_enum import ControlActionType, ControlPolicyType
 from schema.control_config_schema import ControlConfig
 
 
-def _build_config(d):
-    return ControlConfig.model_validate({"root": d})
+def create_control_config(config_data: dict) -> ControlConfig:
+    """Helper function to create ControlConfig from test data"""
+    version = config_data.get("version", "1.0.0")
+    root_data = {k: v for k, v in config_data.items() if k != "version"}
+    return ControlConfig(version=version, root=root_data)
 
 
-def test_when_all_empty_then_skip_rule(caplog):
-    caplog.set_level(logging.WARNING)
-    config: ControlConfig = _build_config(
-        {
-            "SD400": {
-                "default_controls": [],
-                "instances": {
-                    "7": {
-                        "controls": [
-                            {
-                                "name": "BadAll",
-                                "code": "BAD_ALL",
-                                "priority": 10,
-                                "composite": {"all": []},
-                                "action": {"type": "turn_off"},
-                            }
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    excepted_result = config.get_control_list("SD400", "7")
-    assert excepted_result == []
-    assert any("'all' must contain at least one child" in r.message for r in caplog.records)
-    assert any("skip rule 'BAD_ALL': invalid composite" in r.message for r in caplog.records)
+class TestControlConfigSchemaLoading:
+    """Tests for basic config loading and schema validation"""
+
+    def test_when_loading_sd400_config_then_model_and_instance_are_parsed(
+        self, valid_sd400_config_data, expected_version, expected_control_count_for_valid_config
+    ):
+        """Test that SD400 config with version loads correctly and parses all controls"""
+        # Act
+        config = create_control_config(valid_sd400_config_data)
+
+        # Assert
+        assert config.version == expected_version
+        assert "SD400" in config.root
+        assert "3" in config.root["SD400"].instances
+
+        controls = config.get_control_list("SD400", "3")
+        assert len(controls) == expected_control_count_for_valid_config
+
+        control_codes = [ctrl.code for ctrl in controls]
+        assert "HIGH_TEMP" in control_codes
+        assert "LIN_ABS01" in control_codes
+        assert "LIN_INC01" in control_codes
+
+    def test_when_loading_minimal_config_then_default_version_is_applied(self, minimal_sd400_config_data):
+        """Test that minimal config gets default version when version field is missing"""
+        # Act
+        config = create_control_config(minimal_sd400_config_data)
+
+        # Assert
+        assert config.version == "1.0.0"  # Default version
+        assert "SD400" in config.root
+
+    def test_when_config_has_no_instances_then_empty_control_list_returned(self, minimal_sd400_config_data):
+        """Test that requesting controls for non-existent instance returns empty list"""
+        # Arrange
+        config = create_control_config(minimal_sd400_config_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "999")  # Non-existent instance
+
+        # Assert
+        assert controls == []
+
+    def test_when_config_has_no_model_then_empty_control_list_returned(self, minimal_sd400_config_data):
+        """Test that requesting controls for non-existent model returns empty list"""
+        # Arrange
+        version = minimal_sd400_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in minimal_sd400_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("UNKNOWN_MODEL", "1")
+
+        # Assert
+        assert controls == []
 
 
-def test_when_not_has_list_then_skip_rule(caplog):
-    caplog.set_level(logging.WARNING)
-    config: ControlConfig = _build_config(
-        {
-            "SD400": {
-                "default_controls": [],
-                "instances": {
-                    "7": {
-                        "controls": [
-                            {
-                                "name": "BadNot",
-                                "code": "BAD_NOT",
-                                "priority": 10,
-                                "composite": {
-                                    "not": [{"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 30}]
-                                },
-                                "action": {"type": "turn_off"},
-                            }
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    excepted_result = config.get_control_list("SD400", "7")
-    assert excepted_result == []
-    assert any("'not' must be a single CompositeNode" in r.message for r in caplog.records)
+class TestVersionValidation:
+    """Tests for configuration version validation"""
+
+    def test_when_version_follows_semver_then_validation_passes(self):
+        """Test that semantic versioning format passes validation"""
+        # Arrange
+        test_cases = ["1.0.0", "2.15.3", "0.1.0", "10.20.30"]
+
+        for version in test_cases:
+            # Act
+            config = ControlConfig(version=version, root={"SD400": {"default_controls": [], "instances": {}}})
+
+            # Assert
+            assert config.version == version
+
+    def test_when_version_format_is_invalid_then_warning_logged_but_accepted(self, caplog, invalid_version_config_data):
+        """Test that invalid version format logs warning but doesn't fail validation"""
+        # Arrange
+        caplog.set_level(logging.WARNING)
+
+        # Act
+        version = invalid_version_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in invalid_version_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Assert
+        assert config.version == "v1.0.0"  # Still accepted
+        assert "does not follow semantic versioning" in caplog.text
 
 
-def test_when_difference_sources_len_not_2_then_skip_rule(caplog):
-    caplog.set_level(logging.WARNING)
-    config: ControlConfig = _build_config(
-        {
-            "SD400": {
-                "default_controls": [],
-                "instances": {
-                    "7": {
-                        "controls": [
-                            {
-                                "name": "BadDiff",
-                                "code": "BAD_DIFF",
-                                "priority": 10,
-                                "composite": {
-                                    "type": "difference",
-                                    "sources": ["AIn01"],
-                                    "operator": "gt",
-                                    "threshold": 5,
-                                },
-                                "action": {"type": "turn_off"},
-                            }
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    excepted_result = config.get_control_list("SD400", "7")
-    assert excepted_result == []
-    assert any("requires 'sources' of length 2" in r.message for r in caplog.records)
+class TestConditionTypeFieldMigration:
+    """Tests for condition_type vs source_kind field migration"""
+
+    def test_when_config_uses_condition_type_then_policy_validation_passes(self, valid_sd400_config_data):
+        """Test that new 'condition_type' field works correctly"""
+        # Arrange
+        version = valid_sd400_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in valid_sd400_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "3")
+
+        # Assert
+        linear_controls = [
+            c
+            for c in controls
+            if c.policy and c.policy.type in [ControlPolicyType.ABSOLUTE_LINEAR, ControlPolicyType.INCREMENTAL_LINEAR]
+        ]
+        assert len(linear_controls) == 2
+
+        for control in linear_controls:
+            assert control.policy.condition_type.value == "difference"
+            assert not control.policy.invalid
+
+    def test_when_config_uses_legacy_source_kind_then_validation_fails(self, config_with_source_kind_legacy):
+        """Test that legacy 'source_kind' field causes validation error"""
+        # Act / Assert
+        with pytest.raises(ValidationError) as exc_info:
+            version = config_with_source_kind_legacy.get("version", "1.0.0")
+            root_data = {k: v for k, v in config_with_source_kind_legacy.items() if k != "version"}
+            ControlConfig(version=version, root=root_data)
+
+        # Should fail because 'source_kind' is not a recognized field
+        assert "source_kind" in str(exc_info.value) or "Extra inputs are not permitted" in str(exc_info.value)
 
 
-def test_when_threshold_between_missing_bounds_then_skip_rule(caplog):
-    caplog.set_level(logging.WARNING)
-    config: ControlConfig = _build_config(
-        {
-            "SD400": {
-                "default_controls": [],
-                "instances": {
-                    "7": {
-                        "controls": [
-                            {
-                                "name": "BadBetween",
-                                "code": "BAD_BETWEEN",
-                                "priority": 10,
-                                "composite": {"type": "threshold", "source": "AIn03", "operator": "between"},
-                                "action": {"type": "turn_off"},
-                            }
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    excepted_result = config.get_control_list("SD400", "7")
-    assert excepted_result == []
-    assert any("requires 'min' and 'max'" in r.message for r in caplog.records)
+class TestActionTypeEnumSupport:
+    """Tests for action type enum support, especially ADJUST_FREQUENCY"""
+
+    def test_when_action_type_is_set_frequency_then_validation_passes(self, valid_sd400_config_data):
+        """Test that SET_FREQUENCY action type works correctly"""
+        # Arrange
+        version = valid_sd400_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in valid_sd400_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "3")
+
+        # Assert
+        set_freq_controls = [c for c in controls if c.action.type == ControlActionType.SET_FREQUENCY]
+        assert len(set_freq_controls) >= 1
+
+        for control in set_freq_controls:
+            if control.action.value is not None:
+                assert isinstance(control.action.value, (int, float))
+
+    def test_when_action_type_is_adjust_frequency_then_validation_passes(self, valid_sd400_config_data):
+        """Test that new ADJUST_FREQUENCY action type works correctly"""
+        # Arrange
+        version = valid_sd400_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in valid_sd400_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "3")
+
+        # Assert
+        adjust_freq_controls = [c for c in controls if c.action.type == ControlActionType.ADJUST_FREQUENCY]
+        assert len(adjust_freq_controls) == 1
+
+        control = adjust_freq_controls[0]
+        assert control.code == "LIN_INC01"
+        assert control.action.model == "TECO_VFD"
+        assert control.action.target == "RW_HZ"
+
+    def test_when_action_type_is_unknown_then_validation_fails(self, config_with_invalid_action_type):
+        """Test that unknown action type causes validation error"""
+        # Act / Assert
+        with pytest.raises(ValidationError) as exc_info:
+            version = config_with_invalid_action_type.get("version", "1.0.0")
+            root_data = {k: v for k, v in config_with_invalid_action_type.items() if k != "version"}
+            ControlConfig(version=version, root=root_data)
+
+        assert "unknown_action_type" in str(exc_info.value) or "Input should be" in str(exc_info.value)
 
 
-def test_when_threshold_missing_source_then_skip_rule(caplog):
-    caplog.set_level(logging.WARNING)
-    config: ControlConfig = _build_config(
-        {
-            "SD400": {
-                "default_controls": [],
-                "instances": {
-                    "7": {
-                        "controls": [
-                            {
-                                "name": "BadThreshold",
-                                "code": "BAD_THR",
-                                "priority": 10,
-                                "composite": {"type": "threshold", "operator": "gt", "threshold": 30},
-                                "action": {"type": "turn_off"},
-                            }
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    excepted_result = config.get_control_list("SD400", "7")
-    assert excepted_result == []
-    assert any("requires non-empty 'source'" in r.message for r in caplog.records)
+class TestControlListExtraction:
+    """Tests for control list extraction and processing"""
+
+    def test_when_extracting_controls_then_priority_order_is_preserved(self, valid_sd400_config_data):
+        """Test that controls maintain their definition order after processing"""
+        # Arrange
+        version = valid_sd400_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in valid_sd400_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "3")
+
+        # Assert
+        priorities = [c.priority for c in controls]
+        assert priorities == [80, 90, 95]  # Should maintain original order
+
+        codes = [c.code for c in controls]
+        assert codes == ["HIGH_TEMP", "LIN_ABS01", "LIN_INC01"]
+
+    def test_when_duplicate_priorities_exist_then_later_rule_is_kept(self, config_with_duplicate_priorities, caplog):
+        """Test that duplicate priorities are resolved by keeping the later (instance) rule"""
+        # Arrange
+        caplog.set_level(logging.WARNING)
+        version = config_with_duplicate_priorities.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_duplicate_priorities.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "2")
+
+        # Assert
+        assert len(controls) == 1
+        assert controls[0].code == "OVERRIDE_RULE"  # Instance rule should override default
+        assert controls[0].action.value == 50.0
+
+        # Should log duplicate resolution
+        assert "duplicate priorities resolved" in caplog.text
+
+    def test_when_instance_uses_default_controls_then_both_are_merged(self, config_with_duplicate_priorities):
+        """Test that default controls are included when use_default_controls=True"""
+        # Arrange
+        version = config_with_duplicate_priorities.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_duplicate_priorities.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act - before deduplication, both default and instance controls should be considered
+        model_config = config.root.get("SD400")
+        instance_config = model_config.instances.get("2")
+
+        # Assert
+        assert instance_config.use_default_controls is True
+        assert len(model_config.default_controls) == 1
+        assert len(instance_config.controls) == 1
+
+    def test_when_no_controls_exist_then_empty_list_returned(self, minimal_sd400_config_data):
+        """Test that instance with no controls returns empty list"""
+        # Arrange
+        version = minimal_sd400_config_data.get("version", "1.0.0")
+        root_data = {k: v for k, v in minimal_sd400_config_data.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "1")
+
+        # Assert
+        assert controls == []
 
 
-def test_when_valid_rule_then_included(caplog):
-    caplog.set_level(logging.WARNING)
-    config: ControlConfig = _build_config(
-        {
-            "SD400": {
-                "default_controls": [],
-                "instances": {
-                    "7": {
-                        "controls": [
-                            {
-                                "name": "HighTemp",
-                                "code": "HIGH_TEMP",
-                                "priority": 80,
-                                "composite": {
-                                    "any": [
-                                        {"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 40.0}
-                                    ]
-                                },
-                                "action": {
-                                    "type": "turn_off",
-                                    "model": "TECO_VFD",
-                                    "slave_id": "2",
-                                    "target": "RW_ON_OFF",
-                                },
-                            }
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    excepted_result = config.get_control_list("SD400", "7")
-    assert len(excepted_result) == 1
-    assert excepted_result[0].code == "HIGH_TEMP"
-    assert not any("Composite invalid" in r.message for r in caplog.records)
+class TestErrorHandlingAndValidation:
+    """Tests for error handling and validation edge cases"""
+
+    def test_when_composite_is_invalid_then_rule_is_filtered_out(self, config_with_invalid_composite, caplog):
+        """Test that rules with invalid composite nodes are filtered out"""
+        # Arrange
+        caplog.set_level(logging.WARNING)
+        version = config_with_invalid_composite.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_invalid_composite.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "1")
+
+        # Assert
+        assert len(controls) == 0  # Invalid rule should be filtered out
+        assert "invalid composite" in caplog.text
+
+    def test_when_action_is_missing_then_rule_is_filtered_out(self, config_with_missing_action, caplog):
+        """Test that rules without action are filtered out"""
+        # Arrange
+        caplog.set_level(logging.ERROR)
+        version = config_with_missing_action.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_missing_action.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "1")
+
+        # Assert
+        assert len(controls) == 0
+        assert "missing action.type" in caplog.text
+
+    def test_when_policy_is_invalid_then_rule_is_filtered_out(self, config_with_invalid_policy, caplog):
+        """Test that rules with invalid policy are filtered out"""
+        # Arrange
+        caplog.set_level(logging.WARNING)
+        version = config_with_invalid_policy.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_invalid_policy.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "1")
+
+        # Assert
+        assert len(controls) == 0  # Invalid policy rule should be filtered out
+        assert "invalid policy" in caplog.text
 
 
-def test_when_valid_all_composite_rule_then_included():
-    cfg = {
-        "SD400": {
-            "default_controls": [
-                {
-                    "name": "All Condition Example",
-                    "code": "ALL_EX",
-                    "priority": 30,
-                    "composite": {
-                        "all": [
-                            {"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 40.0},
-                            {"type": "difference", "sources": ["AIn01", "AIn02"], "operator": "gt", "threshold": 5.0},
-                        ]
-                    },
-                    "action": {
-                        "type": "turn_off",
-                        "model": "TECO_VFD",
-                        "slave_id": "2",
-                        "target": "RW_ON_OFF",
-                    },
-                }
-            ],
-            "instances": {"3": {"use_default_controls": True}},
-        }
-    }
-    config = _build_config(cfg)
-    expected_result = config.get_control_list("SD400", "3")
-    assert len(expected_result) == 1
+class TestActionValueValidation:
+    """Tests for action value validation and type coercion"""
 
+    def test_when_set_frequency_has_numeric_value_then_coerced_to_float(self, config_with_string_frequency_value):
+        """Test that SET_FREQUENCY action values are coerced to float"""
+        # Act
+        version = config_with_string_frequency_value.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_string_frequency_value.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+        controls = config.get_control_list("SD400", "1")
 
-def test_when_valid_any_composite_rule_then_included():
-    cfg = {
-        "SD400": {
-            "default_controls": [
-                {
-                    "name": "Any Condition Example",
-                    "code": "ANY_EX",
-                    "priority": 20,
-                    "composite": {
-                        "any": [
-                            {"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 40.0},
-                            {"type": "threshold", "source": "AIn02", "operator": "lt", "threshold": 10.0},
-                        ]
-                    },
-                    "action": {
-                        "type": "turn_off",
-                        "model": "TECO_VFD",
-                        "slave_id": "2",
-                        "target": "RW_ON_OFF",
-                    },
-                }
-            ],
-            "instances": {"3": {"use_default_controls": True}},
-        }
-    }
-    config = _build_config(cfg)
-    expected_result = config.get_control_list("SD400", "3")
-    assert len(expected_result) == 1
+        # Assert
+        assert len(controls) == 1
+        assert isinstance(controls[0].action.value, float)
+        assert controls[0].action.value == 45.5
 
+    def test_when_adjust_frequency_has_numeric_value_then_coerced_to_float(
+        self, config_with_string_adjust_frequency_value
+    ):
+        """Test that ADJUST_FREQUENCY action values are coerced to float"""
+        # Act
+        version = config_with_string_adjust_frequency_value.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_string_adjust_frequency_value.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+        controls = config.get_control_list("SD400", "1")
 
-def test_when_valid_not_composite_rule_then_included():
-    cfg = {
-        "SD400": {
-            "default_controls": [],
-            "instances": {
-                "3": {
-                    "controls": [
-                        {
-                            "name": "Not Condition Example",
-                            "code": "NOT_EX",
-                            "priority": 10,
-                            "composite": {
-                                "not": {
-                                    "type": "threshold",
-                                    "source": "AIn01",
-                                    "operator": "gt",
-                                    "threshold": 40.0,
-                                }
-                            },
-                            "action": {
-                                "type": "turn_off",
-                                "model": "TECO_VFD",
-                                "slave_id": "2",
-                                "target": "RW_ON_OFF",
-                            },
-                        }
-                    ]
-                }
-            },
-        }
-    }
-
-    cfg_obj = _build_config(cfg)
-    cond_list = cfg_obj.get_control_list("SD400", "3")
-    assert len(cond_list) == 1
+        # Assert
+        assert len(controls) == 1
+        assert isinstance(controls[0].action.value, float)
+        assert controls[0].action.value == -2.5

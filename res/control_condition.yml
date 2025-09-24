@@ -1,101 +1,92 @@
+version: "1.0.0"
+
 SD400:
-  default_controls:
-    # ───────────────────────────────────────────────────────────
-    # (A) Discrete fixed value: discrete_setpoint (the original mode you already have)
-    # When condition is met → directly set a fixed frequency, e.g., 45Hz
-    # "policy" can be omitted; if omitted, it is treated as discrete_setpoint
-    # ───────────────────────────────────────────────────────────
-    - name: "High Temperature Shutdown"
-      code: "HIGH_TEMP"
-      priority: 80
-      composite:
-        any:
-          - type: threshold
-            source: AIn01
-            operator: gt
-            threshold: 40.0
-            hysteresis: 1.0
-            debounce_sec: 0.5
-          - type: threshold
-            source: AIn03
-            operator: between
-            min: 3.0
-            max: 5.0
-            hysteresis: 0.2
-      policy:
-        type: discrete_setpoint
-      action:
-        model: TECO_VFD
-        slave_id: "2"
-        type: set_frequency
-        target: RW_HZ
-        value: 45.0
+  default_controls: []
 
-    # ───────────────────────────────────────────────────────────
-    # (B) Absolute linear: absolute_linear
-    # Based on input (in this case, ΔT) compute an "absolute frequency" linearly
-    # → directly write to RW_HZ
-    # f_out = clamp(base_freq + gain_hz_per_unit * max(0, Δ - deadband), [min, max])
-    # ───────────────────────────────────────────────────────────
-    - name: "ΔT Linear → Absolute Frequency"
-      code: "LIN_ABS01"
-      priority: 90
-      composite:
-        all:
-          - type: difference
-            sources: [AIn01, AIn02]
-            operator: gt
-            threshold: 4.0    # could also rely only on policy.deadband; here used as trigger condition
-            abs: true
-      policy:
-        type: absolute_linear
-        source_kind: difference
-        sources: [AIn01, AIn02]
-        abs: true
-        deadband: 4.0
-        base_freq: 40.0
-        gain_hz_per_unit: 1.5    # every +1°C above deadband → +1.5 Hz
-        min_freq: 35.0
-        max_freq: 55.0
-      action:
-        model: TECO_VFD
-        slave_id: "2"
-        type: set_frequency
-        target: RW_HZ
-        # value will be dynamically calculated and overwritten by the Evaluator
+instances:
+  "3":
+    use_default_controls: false
+    controls:
+      # (A) Discrete fixed value: discrete_setpoint (when condition is met → set a fixed frequency)
+      - name: "High Temperature Shutdown"
+        code: "HIGH_TEMP"
+        priority: 80
+        composite:
+          any:
+            - type: threshold
+              source: AIn01
+              operator: gt
+              threshold: 40.0
+              hysteresis: 1.0
+              debounce_sec: 0.5
+            - type: threshold
+              source: AIn03
+              operator: between
+              min: 3.0
+              max: 5.0
+              hysteresis: 0.2
+        policy:
+          type: discrete_setpoint
+        action:
+          model: TECO_VFD
+          slave_id: "2"
+          type: set_frequency
+          target: RW_HZ
+          value: 45.0
 
-    # ───────────────────────────────────────────────────────────
-    # (C) Incremental linear: incremental_linear
-    # Based on input (ΔT), compute a "delta Hz" increment each time,
-    # added on top of current Hz → smoother adjustment
-    # f_new = clamp(f_current + min(Δf, max_step_hz), [min, max])
-    # ───────────────────────────────────────────────────────────
-    - name: "ΔT Threshold Exceeded → Proportional Increment (Incremental)"
-      code: "LIN_INC01"
-      priority: 95
-      composite:
-        all:
-          - type: difference
-            sources: [AIn01, AIn02]
-            operator: gt
-            threshold: 4.0
-            abs: true
-      policy:
-        type: incremental_linear
-        source_kind: difference
-        sources: [AIn01, AIn02]
-        abs: true
-        deadband: 4.0
-        gain_hz_per_unit: 1.0     # for each +1°C above deadband → +1 Hz
-        max_step_hz: 2.0          # at most +2 Hz per step (limit single adjustment step size)
-        min_freq: 35.0
-        max_freq: 55.0
-      action:
-        model: TECO_VFD
-        slave_id: "2"
-        type: adjust_frequency     # requires adding this to Enum and Executor
-        target: RW_HZ
+      # (B) Absolute linear: absolute_linear (compute "absolute frequency" based on ΔT magnitude)
+      - name: "ΔT Linear → Absolute Frequency"
+        code: "LIN_ABS01"
+        priority: 90
+        composite:
+          any:
+            - type: difference
+              sources: [AIn01, AIn02]
+              operator: gt
+              threshold: 4.0
+            - type: difference
+              sources: [AIn01, AIn02]
+              operator: lt
+              threshold: -4.0
+        policy:
+          type: absolute_linear
+          condition_type: difference  # ✅ 修正：source_kind → condition_type
+          sources: [AIn01, AIn02]
+          abs: true  # take absolute value: only consider error magnitude
+          deadband: 4.0
+          base_freq: 40.0
+          gain_hz_per_unit: 1.5
+        action:
+          model: TECO_VFD
+          slave_id: "2"
+          type: set_frequency
+          target: RW_HZ
+          # value will be dynamically calculated by the Evaluator
 
-  instances:
-    "3":
-      use_default_controls: true
+      # (C) Incremental linear: incremental_linear (ΔT beyond threshold → proportionally adjust Hz, smoother changes)
+      - name: "ΔT Threshold Exceeded → Proportional Increment (Incremental)"
+        code: "LIN_INC01"
+        priority: 95
+        composite:
+          any:
+            - type: difference
+              sources: [AIn01, AIn02]
+              operator: gt
+              threshold: 4.0
+            - type: difference
+              sources: [AIn01, AIn02]
+              operator: lt
+              threshold: -4.0
+        policy:
+          type: incremental_linear
+          condition_type: difference  # ✅ 修正：source_kind → condition_type
+          sources: [AIn01, AIn02]
+          abs: false  # keep sign: positive → increase, negative → decrease
+          deadband: 4.0
+          gain_hz_per_unit: 1.0
+          max_step_hz: 2.0  # maximum adjustment per step
+        action:
+          model: TECO_VFD
+          slave_id: "2"
+          type: adjust_frequency  # must be implemented in Enum/Executor
+          target: RW_HZ

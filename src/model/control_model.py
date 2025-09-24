@@ -16,9 +16,9 @@ class ControlActionModel(BaseModel):
     Notes:
     - `slave_id` is always represented as `str` (normalized across producers/consumers).
     - Minimal required type checks for `value` by action type:
-        * SET_FREQUENCY requires a numeric (float).
-        * WRITE_DO / RESET require an integer (int).
-        * TURN_ON / TURN_OFF do not require `value`.
+    * SET_FREQUENCY requires a numeric (float).
+    * WRITE_DO / RESET require an integer (int).
+    * TURN_ON / TURN_OFF do not require `value`.
     - Input normalization: strip whitespace for model/slave_id/target; convert int `slave_id` to str.
     """
 
@@ -30,25 +30,27 @@ class ControlActionModel(BaseModel):
 
     model: str | None = None
     slave_id: str | None = None
-    type: ControlActionType
+    type: ControlActionType | None = None
     target: str | None = None
     value: float | int | None = None
     source: str | None = None
     reason: str | None = None
 
     # ---- Normalization (strings & types) ----
-
     @field_validator("model", "slave_id", "target", mode="before")
     @classmethod
-    def _coerce_to_str(cls, v):
+    def coerce_to_str(cls, v):
         return None if v is None else str(v).strip()  # Allow non-string inputs (e.g., int/bool) and normalize to str
 
     # ---- Validation rules (by action type) ----
-
     @model_validator(mode="after")
-    def _validate_by_action_type(self) -> ControlActionModel:
-        # SET_FREQUENCY requires numeric; coerce to float
-        if self.type == ControlActionType.SET_FREQUENCY:
+    def validate_by_action_type(self) -> ControlActionModel:
+        # Skip validation if type is None (will be filtered out at runtime)
+        if self.type is None:
+            return self
+
+        # SET_FREQUENCY and ADJUST_FREQUENCY require numeric; coerce to float
+        if self.type in {ControlActionType.SET_FREQUENCY, ControlActionType.ADJUST_FREQUENCY}:
             try:
                 new_value = float(self.value)
             except Exception:
@@ -71,7 +73,7 @@ class ControlActionModel(BaseModel):
         if self.type in {ControlActionType.TURN_ON, ControlActionType.TURN_OFF}:
             if self.value is not None:
                 logger.info(f"[CONFIG] {self.type} ignores value={self.value!r}; set to None")
-            object.__setattr__(self, "value", None)
+                object.__setattr__(self, "value", None)
             return self
 
         return self
@@ -97,7 +99,7 @@ class ControlConditionModel(BaseModel):
 
     name: str
     code: str
-    action: ControlActionModel
+    action: ControlActionModel | None = None
     priority: int = 0
     composite: CompositeNode | None = Field(default=None)
     policy: PolicyConfig | None = Field(default=None)

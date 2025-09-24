@@ -2,10 +2,10 @@ import logging
 from functools import partial
 from typing import Optional
 
-from control_config import ControlConfig
 from evaluator.composite_evaluator import CompositeEvaluator
 from model.control_composite import CompositeNode
 from model.control_model import ControlActionModel, ControlConditionModel
+from schema.control_config_schema import ControlConfig
 
 logger = logging.getLogger(__name__)
 

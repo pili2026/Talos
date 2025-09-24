@@ -3,6 +3,7 @@ from enum import StrEnum
 
 class ControlActionType(StrEnum):
     SET_FREQUENCY = "set_frequency"
+    ADJUST_FREQUENCY = "adjust_frequency"
     WRITE_DO = "write_do"
     RESET = "reset"
     TURN_OFF = "turn_off"
