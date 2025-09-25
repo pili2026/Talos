@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # Default target mapping (aligned with your config)
 DEFAULT_TARGET_BY_ACTION: dict[ControlActionType, str] = {
     ControlActionType.SET_FREQUENCY: "RW_HZ",
+    ControlActionType.ADJUST_FREQUENCY: "RW_HZ",
     ControlActionType.WRITE_DO: "RW_DO",
     ControlActionType.RESET: "RW_RESET",
 }
@@ -76,7 +77,65 @@ class ControlExecutor:
                     )
                     continue
 
-                # --- Other actions ---
+                # --- ADJUST_FREQUENCY (新增的處理邏輯) ---
+                if action.type == ControlActionType.ADJUST_FREQUENCY:
+                    target = action.target or DEFAULT_TARGET_BY_ACTION.get(action.type)
+                    if not target:
+                        self.logger.warning(
+                            f"[EXEC] [SKIP] {device.model} missing target for ADJUST_FREQUENCY.{self._get_reason_suffix(action)}"
+                        )
+                        continue
+
+                    if not self._has_register(device, target):
+                        self.logger.info(
+                            f"[EXEC] [SKIP] {device.model} no such register: {target}.{self._get_reason_suffix(action)}"
+                        )
+                        continue
+
+                    if not self._is_register_writable(device, target):
+                        self.logger.info(
+                            f"[EXEC] [SKIP] {device.model} {target} is not writable.{self._get_reason_suffix(action)}"
+                        )
+                        continue
+
+                    if action.value is None:
+                        self.logger.warning(
+                            f"[EXEC] [SKIP] {device.model} missing adjustment value for ADJUST_FREQUENCY.{self._get_reason_suffix(action)}"
+                        )
+                        continue
+
+                    # 檢查調整量是否太小（避免無意義的微調）
+                    if abs(float(action.value)) < VALUE_TOLERANCE:
+                        self.logger.info(
+                            f"[EXEC] [SKIP] {device.model} adjustment too small: {action.value}.{self._get_reason_suffix(action)}"
+                        )
+                        continue
+
+                    # 讀取當前頻率
+                    try:
+                        current_freq = await device.read_value(target)
+                        if current_freq is None:
+                            self.logger.warning(
+                                f"[EXEC] [SKIP] {device.model} cannot read current {target} for adjustment.{self._get_reason_suffix(action)}"
+                            )
+                            continue
+
+                        # 計算新頻率：當前頻率 + 調整量
+                        new_freq = float(current_freq) + float(action.value)
+
+                        # 寫入新頻率（device 會處理範圍檢查和縮放）
+                        await device.write_value(target, new_freq)
+                        self.logger.info(
+                            f"[EXEC] [ADJUST] {device.model} {target}: {current_freq} + {action.value} = {new_freq}.{self._get_reason_suffix(action)}"
+                        )
+
+                    except Exception as e:
+                        self.logger.warning(
+                            f"[EXEC] [FAIL] {device.model} ADJUST_FREQUENCY on {target}: {e}.{self._get_reason_suffix(action)}"
+                        )
+                    continue
+
+                # --- Other actions (SET_FREQUENCY, WRITE_DO, RESET, etc.) ---
                 target = action.target or DEFAULT_TARGET_BY_ACTION.get(action.type)
                 if not target:
                     self.logger.warning(
@@ -130,7 +189,6 @@ class ControlExecutor:
                     f"[EXEC] [FAIL] {action.model}_{action.slave_id} {target}: {e}.{self._get_reason_suffix(action)}"
                 )
 
-    # ---- helpers ----
     @staticmethod
     def _has_register(device: AsyncGenericModbusDevice, name: str) -> bool:
         return bool(name and name in getattr(device, "register_map", {}))
