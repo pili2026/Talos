@@ -20,7 +20,6 @@ class TestControlEvaluatorPolicyProcessing:
 
     @pytest.fixture
     def control_evaluator(self, mock_control_config):
-        """Create ControlEvaluator with mocked config"""
         return ControlEvaluator(mock_control_config)
 
     def test_when_discrete_setpoint_policy_then_returns_original_fixed_value(self, control_evaluator):
