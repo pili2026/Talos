@@ -6,7 +6,6 @@ from device_manager import AsyncDeviceManager
 from model.control_model import ControlActionModel, ControlActionType
 from model.device_constant import REG_RW_ON_OFF
 
-logger = logging.getLogger(__name__)
 
 # Default target mapping (aligned with your config)
 DEFAULT_TARGET_BY_ACTION: dict[ControlActionType, str] = {
@@ -77,24 +76,26 @@ class ControlExecutor:
                     )
                     continue
 
-                # --- ADJUST_FREQUENCY (新增的處理邏輯) ---
+                # --- ADJUST_FREQUENCY (new logic) ---
                 if action.type == ControlActionType.ADJUST_FREQUENCY:
-                    target = action.target or DEFAULT_TARGET_BY_ACTION.get(action.type)
-                    if not target:
+
+                    if not action.target:
                         self.logger.warning(
-                            f"[EXEC] [SKIP] {device.model} missing target for ADJUST_FREQUENCY.{self._get_reason_suffix(action)}"
+                            f"[EXEC] [SKIP] {device.model} missing target for ADJUST_FREQUENCY (explicit target required).{self._get_reason_suffix(action)}"
                         )
                         continue
 
-                    if not self._has_register(device, target):
+                    target = action.target
+
+                    if not self._has_register(device, action.target):
                         self.logger.info(
-                            f"[EXEC] [SKIP] {device.model} no such register: {target}.{self._get_reason_suffix(action)}"
+                            f"[EXEC] [SKIP] {device.model} no such register: {action.target}.{self._get_reason_suffix(action)}"
                         )
                         continue
 
-                    if not self._is_register_writable(device, target):
+                    if not self._is_register_writable(device, action.target):
                         self.logger.info(
-                            f"[EXEC] [SKIP] {device.model} {target} is not writable.{self._get_reason_suffix(action)}"
+                            f"[EXEC] [SKIP] {device.model} {action.target} is not writable.{self._get_reason_suffix(action)}"
                         )
                         continue
 
@@ -104,27 +105,27 @@ class ControlExecutor:
                         )
                         continue
 
-                    # 檢查調整量是否太小（避免無意義的微調）
-                    if abs(float(action.value)) < VALUE_TOLERANCE:
+                    # Check if adjustment is too small (avoid meaningless micro-adjustments)
+                    if abs(float(action.value)) <= VALUE_TOLERANCE:
                         self.logger.info(
                             f"[EXEC] [SKIP] {device.model} adjustment too small: {action.value}.{self._get_reason_suffix(action)}"
                         )
                         continue
 
-                    # 讀取當前頻率
+                    # Read current frequency
                     try:
-                        current_freq = await device.read_value(target)
+                        current_freq = await device.read_value(action.target)
                         if current_freq is None:
                             self.logger.warning(
-                                f"[EXEC] [SKIP] {device.model} cannot read current {target} for adjustment.{self._get_reason_suffix(action)}"
+                                f"[EXEC] [SKIP] {device.model} cannot read current {action.target} for adjustment.{self._get_reason_suffix(action)}"
                             )
                             continue
 
-                        # 計算新頻率：當前頻率 + 調整量
+                        # Compute new frequency = current + adjustment
                         new_freq = float(current_freq) + float(action.value)
 
-                        # 寫入新頻率（device 會處理範圍檢查和縮放）
-                        await device.write_value(target, new_freq)
+                        # Write new frequency (device will handle range checking and scaling)
+                        await device.write_value(action.target, new_freq)
                         self.logger.info(
                             f"[EXEC] [ADJUST] {device.model} {target}: {current_freq} + {action.value} = {new_freq}.{self._get_reason_suffix(action)}"
                         )
