@@ -23,7 +23,7 @@ def create_mock_composite_node(**kwargs):
         "any": None,
         "all": None,
         "not_": None,
-        "abs": True,
+        "abs": False,
     }
 
     # Update defaults with provided kwargs

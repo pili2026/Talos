@@ -13,7 +13,6 @@ class ControlActionType(StrEnum):
 class ConditionType(StrEnum):
     THRESHOLD = "threshold"
     DIFFERENCE = "difference"
-    SINGLE = "single"
 
 
 class ConditionOperator(StrEnum):

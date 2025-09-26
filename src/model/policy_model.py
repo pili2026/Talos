@@ -35,22 +35,15 @@ class PolicyConfig(BaseModel):
     type: ControlPolicyType
 
     # Input source configuration
-    condition_type: ConditionType = ConditionType.SINGLE
+    condition_type: ConditionType = ConditionType.THRESHOLD
     source: str | None = None  # Used for "single" condition type
     sources: list[str] | None = None  # Used for "difference" condition type (>=2 required)
     abs: bool = False  # Whether to take absolute value in difference mode
 
-    # Deadband and frequency limits (applicable to both linear types)
-    deadband: float = 0.0
-    min_freq: float | None = None
-    max_freq: float | None = None
-
     # Absolute linear policy specific fields
     base_freq: float | None = None
+    base_temp: float | None = None
     gain_hz_per_unit: float | None = None
-
-    # Incremental linear policy specific fields
-    max_step_hz: float | None = None
 
     # Soft validation state flag
     invalid: bool = Field(default=False)
@@ -78,44 +71,29 @@ class PolicyConfig(BaseModel):
 
         # Input source validation (discrete_setpoint doesn't need sources)
         if self.type != ControlPolicyType.DISCRETE_SETPOINT:
-            try:
-                if self.condition_type == ConditionType.SINGLE:
-                    if not self.source:
-                        problems.append("policy.source required when condition_type='single'")
-                else:  # ConditionType.DIFFERENCE
-                    if not self.sources or len(self.sources) < 2:
-                        problems.append("policy.sources (>=2 items) required when condition_type='difference'")
-            except AttributeError as e:
-                problems.append(f"error validating input sources: {e}")
+            if self.condition_type == ConditionType.THRESHOLD:
+                if not self.source:
+                    problems.append("policy.source required when condition_type='single'")
+            else:  # ConditionType.DIFFERENCE
+                if not self.sources or len(self.sources) < 2:
+                    problems.append("policy.sources (>=2 items) required when condition_type='difference'")
 
         # Policy-specific requirement validation
-        try:
-            if self.type == ControlPolicyType.ABSOLUTE_LINEAR:
-                missing_fields = []
-                if self.base_freq is None:
-                    missing_fields.append("base_freq")
-                if self.gain_hz_per_unit is None:
-                    missing_fields.append("gain_hz_per_unit")
+        if self.type == ControlPolicyType.ABSOLUTE_LINEAR:
+            missing_fields = []
+            if self.base_freq is None:
+                missing_fields.append("base_freq")
+            if self.base_temp is None:
+                missing_fields.append("base_temp")
+            if self.gain_hz_per_unit is None:
+                missing_fields.append("gain_hz_per_unit")
 
-                if missing_fields:
-                    problems.append(f"absolute_linear policy requires: {', '.join(missing_fields)}")
+            if missing_fields:
+                problems.append(f"absolute_linear policy requires: {', '.join(missing_fields)}")
 
-            elif self.type == ControlPolicyType.INCREMENTAL_LINEAR:
-                if self.gain_hz_per_unit is None:
-                    problems.append("incremental_linear policy requires gain_hz_per_unit")
-                if self.max_step_hz is not None and self.max_step_hz <= 0:
-                    problems.append("max_step_hz must be positive when specified")
-
-        except AttributeError as e:
-            problems.append(f"error validating policy-specific requirements: {e}")
-
-        # Frequency limit validation
-        try:
-            if self.min_freq is not None and self.max_freq is not None:
-                if self.min_freq > self.max_freq:
-                    problems.append("min_freq must be <= max_freq")
-        except (TypeError, AttributeError) as e:
-            problems.append(f"error validating frequency limits: {e}")
+        elif self.type == ControlPolicyType.INCREMENTAL_LINEAR:
+            if self.gain_hz_per_unit is None:
+                problems.append("incremental_linear policy requires gain_hz_per_unit")
 
         # Handle validation problems with soft validation approach
         if problems:

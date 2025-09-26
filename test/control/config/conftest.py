@@ -13,6 +13,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                 "3": {
                     "use_default_controls": False,
                     "controls": [
+                        # DISCRETE_SETPOINT - No changes needed
                         {
                             "name": "High Temperature Shutdown",
                             "code": "HIGH_TEMP",
@@ -38,39 +39,41 @@ def valid_sd400_config_data() -> dict[str, Any]:
                                 "value": 45.0,
                             },
                         },
+                        # ABSOLUTE_LINEAR - Fixed to use single sensor
                         {
-                            "name": "ΔT Linear → Absolute Frequency",
-                            "code": "LIN_ABS01",
+                            "name": "Environment Temperature Linear Control",
+                            "code": "ABS_TEMP01",
                             "priority": 90,
                             "composite": {
                                 "any": [
                                     {
-                                        "type": "difference",
-                                        "sources": ["AIn01", "AIn02"],
+                                        "type": "threshold",
+                                        "source": "AIn01",  # Single sensor
                                         "operator": "gt",
-                                        "threshold": 4.0,
+                                        "threshold": 25.0,  # Trigger when temp > 25°C
                                     }
                                 ]
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                "condition_type": "difference",
-                                "sources": ["AIn01", "AIn02"],
-                                "abs": True,
-                                "deadband": 4.0,
-                                "base_freq": 40.0,
-                                "gain_hz_per_unit": 1.5,
+                                "condition_type": "threshold",
+                                "source": "AIn01",  # ← Fixed: source not sources
+                                "base_freq": 40.0,  # Frequency at base_temp
+                                "base_temp": 25.0,  # ← Added: required field
+                                "gain_hz_per_unit": 1.2,  # 1°C → 1.2Hz
                             },
                             "action": {
                                 "model": "TECO_VFD",
                                 "slave_id": "2",
                                 "type": "set_frequency",
                                 "target": "RW_HZ",
+                                # value calculated by evaluator
                             },
                         },
+                        # INCREMENTAL_LINEAR - Removed max_step_hz
                         {
-                            "name": "ΔT Threshold Exceeded → Proportional Increment",
-                            "code": "LIN_INC01",
+                            "name": "Supply-Return Temperature Difference Control",
+                            "code": "INC_DIFF01",
                             "priority": 95,
                             "composite": {
                                 "any": [
@@ -86,16 +89,15 @@ def valid_sd400_config_data() -> dict[str, Any]:
                                 "type": "incremental_linear",
                                 "condition_type": "difference",
                                 "sources": ["AIn01", "AIn02"],
-                                "abs": False,
-                                "deadband": 4.0,
-                                "gain_hz_per_unit": 1.0,
-                                "max_step_hz": 2.0,
+                                "gain_hz_per_unit": 1.5,  # ← Changed from 1.0 to 1.5
+                                # ← Removed: max_step_hz, abs
                             },
                             "action": {
                                 "model": "TECO_VFD",
                                 "slave_id": "2",
                                 "type": "adjust_frequency",
                                 "target": "RW_HZ",
+                                # value calculated by evaluator
                             },
                         },
                     ],
@@ -328,45 +330,6 @@ def config_with_missing_action() -> dict[str, Any]:
 
 
 @pytest.fixture
-def config_with_invalid_policy() -> dict[str, Any]:
-    """Configuration with invalid policy (missing required fields)"""
-    return {
-        "version": "1.0.0",
-        "SD400": {
-            "default_controls": [],
-            "instances": {
-                "1": {
-                    "use_default_controls": False,
-                    "controls": [
-                        {
-                            "name": "Invalid Policy",
-                            "code": "INVALID_POLICY",
-                            "priority": 10,
-                            "composite": {
-                                "any": [{"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 10.0}]
-                            },
-                            "policy": {
-                                "type": "absolute_linear",
-                                "condition_type": "difference",
-                                "sources": ["AIn01", "AIn02"],
-                                # Missing required base_freq and gain_hz_per_unit
-                            },
-                            "action": {
-                                "model": "TECO_VFD",
-                                "slave_id": "1",
-                                "type": "set_frequency",
-                                "target": "RW_HZ",
-                                "value": 10.0,
-                            },
-                        }
-                    ],
-                }
-            },
-        },
-    }
-
-
-@pytest.fixture
 def config_with_string_frequency_value() -> dict[str, Any]:
     """Configuration with SET_FREQUENCY action having string value"""
     return {
@@ -401,37 +364,103 @@ def config_with_string_frequency_value() -> dict[str, Any]:
 
 
 @pytest.fixture
-def config_with_string_adjust_frequency_value() -> dict[str, Any]:
-    """Configuration with ADJUST_FREQUENCY action having string value"""
+def valid_sd400_config_data() -> dict[str, Any]:
+    """Valid SD400 configuration data for testing"""
     return {
         "version": "1.0.0",
         "SD400": {
             "default_controls": [],
             "instances": {
-                "1": {
+                "3": {
                     "use_default_controls": False,
                     "controls": [
+                        # DISCRETE_SETPOINT - No changes needed
                         {
-                            "name": "Adjust Frequency Test",
-                            "code": "ADJUST_FREQ_TEST",
-                            "priority": 10,
+                            "name": "High Temperature Shutdown",
+                            "code": "HIGH_TEMP",
+                            "priority": 80,
                             "composite": {
-                                "any": [{"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 10.0}]
+                                "any": [
+                                    {
+                                        "type": "threshold",
+                                        "source": "AIn01",
+                                        "operator": "gt",
+                                        "threshold": 40.0,
+                                        "hysteresis": 1.0,
+                                        "debounce_sec": 0.5,
+                                    }
+                                ]
+                            },
+                            "policy": {"type": "discrete_setpoint"},
+                            "action": {
+                                "model": "TECO_VFD",
+                                "slave_id": "2",
+                                "type": "set_frequency",
+                                "target": "RW_HZ",
+                                "value": 45.0,
+                            },
+                        },
+                        # ABSOLUTE_LINEAR - Fixed to use single sensor
+                        {
+                            "name": "Environment Temperature Linear Control",
+                            "code": "LIN_ABS01",
+                            "priority": 90,
+                            "composite": {
+                                "any": [
+                                    {
+                                        "type": "threshold",
+                                        "source": "AIn01",  # Single sensor
+                                        "operator": "gt",
+                                        "threshold": 25.0,  # Trigger when temp > 25°C
+                                    }
+                                ]
                             },
                             "policy": {
-                                "type": "incremental_linear",
-                                "condition_type": "single",
-                                "source": "AIn01",
-                                "gain_hz_per_unit": 1.0,
+                                "type": "absolute_linear",
+                                "condition_type": "threshold",
+                                "source": "AIn01",  # ← Fixed: source not sources
+                                "base_freq": 40.0,  # Frequency at base_temp
+                                "base_temp": 25.0,  # ← Added: required field
+                                "gain_hz_per_unit": 1.2,  # 1°C → 1.2Hz
                             },
                             "action": {
                                 "model": "TECO_VFD",
-                                "slave_id": "1",
+                                "slave_id": "2",
+                                "type": "set_frequency",
+                                "target": "RW_HZ",
+                                # value calculated by evaluator
+                            },
+                        },
+                        # INCREMENTAL_LINEAR - Removed max_step_hz
+                        {
+                            "name": "Supply-Return Temperature Difference Control",
+                            "code": "LIN_INC01",  # ← 恢復原來的 code
+                            "priority": 95,  # ← 恢復原來的 95
+                            "composite": {
+                                "any": [
+                                    {
+                                        "type": "difference",
+                                        "sources": ["AIn01", "AIn02"],
+                                        "operator": "gt",
+                                        "threshold": 4.0,
+                                    }
+                                ]
+                            },
+                            "policy": {
+                                "type": "incremental_linear",
+                                "condition_type": "difference",
+                                "sources": ["AIn01", "AIn02"],
+                                "gain_hz_per_unit": 1.5,  # ← Changed from 1.0 to 1.5
+                                # ← Removed: max_step_hz, abs
+                            },
+                            "action": {
+                                "model": "TECO_VFD",
+                                "slave_id": "2",
                                 "type": "adjust_frequency",
                                 "target": "RW_HZ",
-                                "value": "-2.5",  # String value (negative adjustment)
+                                # value calculated by evaluator
                             },
-                        }
+                        },
                     ],
                 }
             },
@@ -565,16 +594,16 @@ def config_with_duplicate_difference_sources() -> dict[str, Any]:
                                 ]
                             },
                             "policy": {
-                                "type": "absolute_linear",
+                                "type": "incremental_linear",  # ← Changed to incremental_linear
                                 "condition_type": "difference",
                                 "sources": ["AIn01", "AIn01"],
-                                "base_freq": 30.0,
                                 "gain_hz_per_unit": 1.5,
+                                # ← Removed: base_freq
                             },
                             "action": {
                                 "model": "TECO_VFD",
                                 "slave_id": "1",
-                                "type": "set_frequency",
+                                "type": "adjust_frequency",  # ← Changed to adjust_frequency
                                 "target": "RW_HZ",
                             },
                         }
@@ -665,9 +694,9 @@ def config_with_invalid_policy() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                "condition_type": "difference",
-                                "sources": ["AIn01", "AIn02"],
-                                # Missing required base_freq and gain_hz_per_unit
+                                "condition_type": "threshold",
+                                "source": "AIn01",
+                                # Missing required base_freq, base_temp and gain_hz_per_unit
                             },
                             "action": {
                                 "model": "TECO_VFD",
@@ -738,9 +767,10 @@ def config_with_string_adjust_frequency_value() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "incremental_linear",
-                                "condition_type": "single",
+                                "condition_type": "threshold",
                                 "source": "AIn01",
                                 "gain_hz_per_unit": 1.0,
+                                # ← Removed: max_step_hz
                             },
                             "action": {
                                 "model": "TECO_VFD",

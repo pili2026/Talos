@@ -2,6 +2,7 @@ import pytest
 import logging
 from unittest.mock import Mock
 from model.control_model import ControlActionModel, ControlConditionModel
+from model.enum.condition_enum import ControlActionType
 from schema.control_config_schema import ControlConfig
 from evaluator.control_evaluator import ControlEvaluator
 
@@ -54,23 +55,22 @@ class TestControlEvaluatorPolicyProcessing:
         assert result_action.type == "set_frequency"
         assert result_action.value == 45.0  # Should keep original fixed value
 
-    def test_when_absolute_linear_above_deadband_then_calculates_absolute_frequency(self, control_evaluator):
-        """Test that absolute_linear policy calculates absolute frequency when condition exceeds deadband"""
+    def test_when_absolute_linear_then_calculates_absolute_frequency(self, control_evaluator):
+        """Test that absolute_linear policy calculates absolute frequency based on single temperature"""
         # Arrange
         mock_condition = Mock(spec=ControlConditionModel)
-        mock_condition.code = "LIN_ABS01"
+        mock_condition.code = "ABS_TEMP01"
 
-        # absolute_linear policy with proper getattr support
+        # absolute_linear policy with correct configuration
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
                 "type": "absolute_linear",
-                "condition_type": "difference",
-                "sources": ["AIn01", "AIn02"],
-                "abs": True,
-                "deadband": 4.0,
+                "condition_type": "threshold",
+                "source": "AIn01",
                 "base_freq": 40.0,
-                "gain_hz_per_unit": 1.5,
+                "base_temp": 25.0,
+                "gain_hz_per_unit": 1.2,
             }
         )
         mock_condition.policy = mock_policy
@@ -86,29 +86,60 @@ class TestControlEvaluatorPolicyProcessing:
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
-        # Temperature difference: 25 - 20 = 5°C (above deadband 4°C)
-        snapshot = {"AIn01": 25.0, "AIn02": 20.0}
+        # Single temperature: 29°C
+        snapshot = {"AIn01": 29.0}
 
         # Act
         result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
 
-        # Assert: base_freq + (|5| - deadband) * gain = 40 + (5 - 4) * 1.5 = 41.5
+        # Assert: base_freq + (temp - base_temp) * gain = 40 + (29 - 25) * 1.2 = 44.8
         assert result_action is new_action
-        assert new_action.value == 41.5
+        assert new_action.value == 44.8
+        assert new_action.type == ControlActionType.SET_FREQUENCY
 
-    def test_when_absolute_linear_within_deadband_then_uses_base_frequency(self, control_evaluator):
-        """Test that absolute_linear policy uses base frequency when condition is within deadband"""
+    def test_when_absolute_linear_at_base_temp_then_uses_base_frequency(self, control_evaluator):
+        """Test that absolute_linear policy uses base frequency when temperature equals base_temp"""
         # Arrange
         mock_condition = Mock(spec=ControlConditionModel)
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
                 "type": "absolute_linear",
+                "condition_type": "threshold",
+                "source": "AIn01",
+                "base_freq": 40.0,
+                "base_temp": 25.0,
+                "gain_hz_per_unit": 1.2,
+            }
+        )
+        mock_condition.policy = mock_policy
+
+        mock_action = Mock(spec=ControlActionModel)
+        new_action = Mock(spec=ControlActionModel)
+        mock_action.model_copy.return_value = new_action
+        mock_condition.action = mock_action
+
+        # Temperature equals base_temp: 25°C
+        snapshot = {"AIn01": 25.0}
+
+        # Act
+        result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
+
+        # Assert: base_freq + (25 - 25) * 1.2 = 40.0
+        assert result_action is new_action
+        assert new_action.value == 40.0
+        assert new_action.type == ControlActionType.SET_FREQUENCY
+
+    def test_when_incremental_linear_then_calculates_adjustment(self, control_evaluator):
+        """Test that incremental_linear policy calculates frequency adjustment (no max_step limitation)"""
+        # Arrange
+        mock_condition = Mock(spec=ControlConditionModel)
+        mock_policy = Mock()
+        mock_policy.configure_mock(
+            **{
+                "type": "incremental_linear",
                 "condition_type": "difference",
                 "sources": ["AIn01", "AIn02"],
-                "abs": True,
-                "deadband": 4.0,
-                "base_freq": 40.0,
                 "gain_hz_per_unit": 1.5,
             }
         )
@@ -119,52 +150,19 @@ class TestControlEvaluatorPolicyProcessing:
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
-        # Small temperature difference: 22 - 20 = 2°C (within deadband 4°C)
-        snapshot = {"AIn01": 22.0, "AIn02": 20.0}
-
-        # Act
-        result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
-
-        # Assert: Should use base_freq = 40.0
-        assert result_action is new_action
-        assert new_action.value == 40.0
-
-    def test_when_incremental_linear_above_deadband_then_calculates_positive_adjustment(self, control_evaluator):
-        """Test that incremental_linear policy calculates positive adjustment when condition exceeds positive deadband"""
-        # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
-        mock_policy = Mock()
-        mock_policy.configure_mock(
-            **{
-                "type": "incremental_linear",
-                "condition_type": "difference",
-                "sources": ["AIn01", "AIn02"],
-                "abs": False,
-                "deadband": 4.0,
-                "gain_hz_per_unit": 1.0,
-                "max_step_hz": 2.0,
-            }
-        )
-        mock_condition.policy = mock_policy
-
-        mock_action = Mock(spec=ControlActionModel)
-        new_action = Mock(spec=ControlActionModel)
-        mock_action.model_copy.return_value = new_action
-        mock_condition.action = mock_action
-
-        # Temperature difference: 27 - 20 = 7°C (above deadband 4°C)
+        # Temperature difference: 27 - 20 = 7°C
         snapshot = {"AIn01": 27.0, "AIn02": 20.0}
 
         # Act
         result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
 
-        # Assert: excess = 7 - 4 = 3°C, adjustment = 3 * 1.0 = 3Hz, but limited to 2Hz
+        # Assert: diff * gain = 7 * 1.5 = 10.5Hz adjustment (no limitation)
         assert result_action is new_action
-        assert new_action.type == "adjust_frequency"
-        assert new_action.value == 2.0  # Limited by max_step_hz
+        assert new_action.type == ControlActionType.ADJUST_FREQUENCY
+        assert new_action.value == 10.5
 
-    def test_when_incremental_linear_below_deadband_then_calculates_negative_adjustment(self, control_evaluator):
-        """Test that incremental_linear policy calculates negative adjustment when condition is below negative deadband"""
+    def test_when_incremental_linear_negative_diff_then_calculates_negative_adjustment(self, control_evaluator):
+        """Test that incremental_linear policy calculates negative adjustment for negative temperature difference"""
         # Arrange
         mock_condition = Mock(spec=ControlConditionModel)
         mock_policy = Mock()
@@ -173,10 +171,7 @@ class TestControlEvaluatorPolicyProcessing:
                 "type": "incremental_linear",
                 "condition_type": "difference",
                 "sources": ["AIn01", "AIn02"],
-                "abs": False,
-                "deadband": 4.0,
-                "gain_hz_per_unit": 1.0,
-                "max_step_hz": 2.0,
+                "gain_hz_per_unit": 1.5,
             }
         )
         mock_condition.policy = mock_policy
@@ -186,44 +181,58 @@ class TestControlEvaluatorPolicyProcessing:
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
-        # Temperature difference: 15 - 20 = -5°C (below -deadband)
-        snapshot = {"AIn01": 15.0, "AIn02": 20.0}
+        # Negative temperature difference: 18 - 25 = -7°C
+        snapshot = {"AIn01": 18.0, "AIn02": 25.0}
 
         # Act
         result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
 
-        # Assert: excess = -5 - (-4) = -1°C, adjustment = -1 * 1.0 = -1Hz
+        # Assert: diff * gain = -7 * 1.5 = -10.5Hz adjustment
         assert result_action is new_action
-        assert new_action.type == "adjust_frequency"
-        assert new_action.value == -1.0
+        assert new_action.type == ControlActionType.ADJUST_FREQUENCY
+        assert new_action.value == -10.5
 
-    def test_when_incremental_linear_within_deadband_then_returns_none(self, control_evaluator):
-        """Test that incremental_linear policy returns None when condition is within deadband"""
+    def test_when_absolute_linear_then_calculates_absolute_frequency(self, control_evaluator):
+        """Test that absolute_linear policy calculates absolute frequency based on single temperature"""
         # Arrange
         mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition.code = "ABS_TEMP01"
+
+        # absolute_linear policy with correct configuration
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
-                "type": "incremental_linear",
-                "condition_type": "difference",
-                "sources": ["AIn01", "AIn02"],
-                "abs": False,
-                "deadband": 4.0,
+                "type": "absolute_linear",
+                "condition_type": "threshold",
+                "source": "AIn01",
+                "base_freq": 40.0,
+                "base_temp": 25.0,
+                "gain_hz_per_unit": 1.2,
             }
         )
         mock_condition.policy = mock_policy
 
         mock_action = Mock(spec=ControlActionModel)
+        mock_action.model = "TECO_VFD"
+        mock_action.slave_id = "2"
+        mock_action.type = "set_frequency"
+        mock_action.target = "RW_HZ"
+        mock_action.value = None  # Will be calculated
+
+        new_action = Mock(spec=ControlActionModel)
+        mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
-        # Temperature difference: 22 - 20 = 2°C (within deadband)
-        snapshot = {"AIn01": 22.0, "AIn02": 20.0}
+        # Single temperature: 29°C
+        snapshot = {"AIn01": 29.0}
 
         # Act
         result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
 
-        # Assert: Should return None (no adjustment needed)
-        assert result_action is None
+        # Assert: base_freq + (temp - base_temp) * gain = 40 + (29 - 25) * 1.2 = 44.8
+        assert result_action is new_action
+        assert new_action.value == 44.8
+        assert new_action.type == ControlActionType.SET_FREQUENCY
 
     def test_when_condition_type_is_difference_then_calculates_difference_value(self, control_evaluator):
         """Test that _get_condition_value correctly calculates difference between two sources"""
@@ -286,7 +295,7 @@ class TestControlEvaluatorPolicyProcessing:
 
         # Assert
         assert result_action is mock_action
-        assert "Unknown policy type" in caplog.text
+        assert "Unsupported policy type" in caplog.text
 
 
 class TestControlEvaluatorIntegration:
@@ -315,8 +324,8 @@ class TestControlEvaluatorIntegration:
 
         # Arrange
         mock_condition = Mock(spec=ControlConditionModel)
-        mock_condition.code = "LIN_ABS01"
-        mock_condition.name = "ΔT Linear → Absolute Frequency"
+        mock_condition.code = "ABS_TEMP01"
+        mock_condition.name = "Environment Temperature Linear Control"
         mock_condition.priority = 90
 
         # Setup composite
@@ -326,21 +335,17 @@ class TestControlEvaluatorIntegration:
 
         # Mock composite evaluator
         control_evaluator.composite_evaluator.evaluate_composite_node.return_value = True
-        control_evaluator.composite_evaluator.build_composite_reason_summary.return_value = (
-            "difference(AIn01,AIn02 gt 4.0)"
-        )
+        control_evaluator.composite_evaluator.build_composite_reason_summary.return_value = "threshold(AIn01 gt 25.0)"
 
-        # Setup policy
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
                 "type": "absolute_linear",
-                "condition_type": "difference",
-                "sources": ["AIn01", "AIn02"],
-                "abs": True,
-                "deadband": 4.0,
+                "condition_type": "threshold",
+                "source": "AIn01",
                 "base_freq": 40.0,
-                "gain_hz_per_unit": 1.5,
+                "base_temp": 25.0,
+                "gain_hz_per_unit": 1.2,
             }
         )
         mock_condition.policy = mock_policy
@@ -367,21 +372,18 @@ class TestControlEvaluatorIntegration:
         # Mock control_config.get_control_list
         control_evaluator.control_config.get_control_list.return_value = [mock_condition]
 
-        snapshot = {"AIn01": 26.0, "AIn02": 20.0}  # Difference = 6°C
-
-        # policy_result = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
-
+        snapshot = {"AIn01": 29.0}
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
         # Assert
-        assert len(result) == 1, f"Expected 1 result but got {len(result)}. Result: {result}. Check debug output above."
-        result_action = result[0]
-        assert result_action is new_action
-        # Verify that the value was calculated and set correctly
-        # base_freq + (|6| - deadband) * gain = 40 + (6 - 4) * 1.5 = 43.0
-        assert result_action.value == 43.0
-        assert "LIN_ABS01" in result_action.reason
+        assert len(result) == 1, f"Expected 1 result but got {len(result)}. Result: {result}"
+
+        action = result[0]
+        # Expected value：base_freq + (temp - base_temp) * gain = 40.0 + (29-25)*1.2 = 44.8
+        expected_freq = 40.0 + (29.0 - 25.0) * 1.2  # = 44.8
+        assert action.value == expected_freq
+        assert action.type == ControlActionType.SET_FREQUENCY
 
     def test_when_no_conditions_match_then_returns_empty_list(self, control_evaluator):
         """Test that empty list is returned when no conditions match"""

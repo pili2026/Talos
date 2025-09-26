@@ -90,85 +90,78 @@ class ControlEvaluator:
         self, condition: ControlConditionModel, action: ControlActionModel, snapshot: dict[str, float]
     ) -> ControlActionModel | None:
         """Apply policy processing to calculate dynamic action values"""
-
         if condition.policy is None:
             return action
 
-        policy = condition.policy
+        policy: PolicyConfig = condition.policy
 
         if policy.type == ControlPolicyType.DISCRETE_SETPOINT:
             return action
 
         elif policy.type == ControlPolicyType.ABSOLUTE_LINEAR:
-            condition_value = self._get_condition_value(policy, snapshot)
-            if condition_value is None:
-                logger.warning(f"[EVAL] Cannot get condition value for absolute_linear policy")
+            # Single temperature value control
+            if not policy.source:
+                logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing source")
                 return None
 
-            adjusted_value = condition_value
+            temp_value = snapshot.get(policy.source)
+            if temp_value is None:
+                logger.warning(f"[EVAL] Cannot get temperature value for {policy.source}")
+                return None
 
-            if policy.abs:
-                adjusted_value = abs(adjusted_value)
+            # Validate required fields
+            if policy.base_temp is None:
+                logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing base_temp")
+                return None
 
-            if abs(adjusted_value) <= policy.deadband:
-                logger.info(f"[EVAL] Value {adjusted_value} within deadband {policy.deadband}, using base frequency")
-                calculated_freq = policy.base_freq
-            else:
-                excess = abs(adjusted_value) - policy.deadband
-                calculated_freq = policy.base_freq + excess * policy.gain_hz_per_unit
+            # Calculate target frequency: base_freq + (temp - base_temp) * gain
+            target_freq = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
 
             new_action = action.model_copy()
-            new_action.value = calculated_freq
+            new_action.value = target_freq
+            new_action.type = ControlActionType.SET_FREQUENCY  # Absolute setting
             logger.info(
-                f"[EVAL] Absolute linear: base={policy.base_freq}, condition={condition_value}, calculated={calculated_freq}"
+                f"[EVAL] Absolute linear: temp={temp_value}°C, base_temp={policy.base_temp}°C, target_freq={target_freq}Hz"
             )
             return new_action
 
         elif policy.type == ControlPolicyType.INCREMENTAL_LINEAR:
-            condition_value = self._get_condition_value(policy, snapshot)
+            # Temperature difference control
+            condition_value = self._get_condition_value(policy, snapshot)  # Calculate temperature difference
             if condition_value is None:
                 logger.warning(f"[EVAL] Cannot get condition value for incremental_linear policy")
                 return None
 
-            if abs(condition_value) <= policy.deadband:
-                logger.info(f"[EVAL] Value {condition_value} within deadband {policy.deadband}, no adjustment")
-                return None
-
-            if condition_value > policy.deadband:
-                excess = condition_value - policy.deadband
-            elif condition_value < -policy.deadband:
-                excess = condition_value + policy.deadband
-            else:
-                return None
-
-            adjustment: float = excess * policy.gain_hz_per_unit
-
-            if policy.max_step_hz is not None and abs(adjustment) > policy.max_step_hz:
-                adjustment = policy.max_step_hz * (1 if adjustment > 0 else -1)
+            # Calculate adjustment directly (max_step_hz limitation removed)
+            adjustment: float = condition_value * policy.gain_hz_per_unit
 
             new_action = action.model_copy()
-            new_action.type = ControlActionType.ADJUST_FREQUENCY
+            new_action.type = ControlActionType.ADJUST_FREQUENCY  # Incremental adjustment
             new_action.value = adjustment
-            logger.info(f"[EVAL] Incremental linear: condition={condition_value}, adjustment={adjustment}")
+            logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
             return new_action
 
         else:
-            logger.warning(f"[EVAL] Unknown policy type: {policy.type}")
+            logger.warning(f"[EVAL] Unsupported policy type: {policy.type}")
             return action
 
     def _get_condition_value(self, policy: PolicyConfig, snapshot: dict[str, float]) -> float | None:
-        """Calculate condition value based on policy.condition_type"""
+        """Get condition value based on policy type"""
+        if policy.condition_type == ConditionType.THRESHOLD:
+            # Single sensor value
+            if not policy.source:
+                return None
+            return snapshot.get(policy.source)
 
-        if policy.condition_type == ConditionType.DIFFERENCE:
+        elif policy.condition_type == ConditionType.DIFFERENCE:
+            # Difference between two sensors
             if not policy.sources or len(policy.sources) != 2:
-                logger.warning(f"[EVAL] Invalid sources for difference condition: {policy.sources}")
                 return None
-            v1 = snapshot.get(policy.sources[0])
-            v2 = snapshot.get(policy.sources[1])
+            v1, v2 = snapshot.get(policy.sources[0]), snapshot.get(policy.sources[1])
             if v1 is None or v2 is None:
-                logger.warning(f"[EVAL] Missing values for sources {policy.sources}: v1={v1}, v2={v2}")
                 return None
-            return float(v1) - float(v2)
+            return v1 - v2
 
-        logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
-        return None
+        else:
+            logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
+            return None

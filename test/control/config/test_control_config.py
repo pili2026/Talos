@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from model.control_composite import CompositeNode
-from model.enum.condition_enum import ControlActionType, ControlPolicyType
+from model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
 from schema.control_config_schema import ControlConfig
 
 
@@ -106,7 +106,7 @@ class TestConditionTypeFieldMigration:
     """Tests for condition_type vs source_kind field migration"""
 
     def test_when_config_uses_condition_type_then_policy_validation_passes(self, valid_sd400_config_data):
-        """Test that new 'condition_type' field works correctly"""
+        """Test that new 'condition_type' field works correctly for different policy types"""
         # Arrange
         version = valid_sd400_config_data.get("version", "1.0.0")
         root_data = {k: v for k, v in valid_sd400_config_data.items() if k != "version"}
@@ -115,17 +115,30 @@ class TestConditionTypeFieldMigration:
         # Act
         controls = config.get_control_list("SD400", "3")
 
-        # Assert
-        linear_controls = [
-            c
-            for c in controls
-            if c.policy and c.policy.type in [ControlPolicyType.ABSOLUTE_LINEAR, ControlPolicyType.INCREMENTAL_LINEAR]
+        # Assert - Check that we have both policy types
+        absolute_linear_controls = [
+            c for c in controls if c.policy and c.policy.type == ControlPolicyType.ABSOLUTE_LINEAR
         ]
-        assert len(linear_controls) == 2
+        incremental_linear_controls = [
+            c for c in controls if c.policy and c.policy.type == ControlPolicyType.INCREMENTAL_LINEAR
+        ]
 
-        for control in linear_controls:
-            assert control.policy.condition_type.value == "difference"
-            assert not control.policy.invalid
+        # Should have one of each type
+        assert len(absolute_linear_controls) == 1
+        assert len(incremental_linear_controls) == 1
+
+        # ABSOLUTE_LINEAR should use 'threshold' condition_type
+        abs_control = absolute_linear_controls[0]
+        assert abs_control.policy.condition_type == ConditionType.THRESHOLD
+        assert abs_control.policy.source is not None  # Should have single source
+        assert abs_control.policy.sources is None  # Should NOT have sources array
+
+        # INCREMENTAL_LINEAR should use 'difference' condition_type
+        inc_control = incremental_linear_controls[0]
+        assert inc_control.policy.condition_type == ConditionType.DIFFERENCE
+        assert inc_control.policy.sources is not None  # Should have sources array
+        assert len(inc_control.policy.sources) == 2  # Should have exactly 2 sources
+        assert inc_control.policy.source is None  # Should NOT have single source
 
     def test_when_config_uses_legacy_source_kind_then_validation_fails(self, config_with_source_kind_legacy):
         """Test that legacy 'source_kind' field causes validation error"""

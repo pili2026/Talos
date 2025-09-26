@@ -345,7 +345,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         """Test that single matching condition is returned correctly"""
         # Arrange
         condition = Mock(spec=ControlConditionModel)
-        condition.code = "SINGLE"
+        condition.code = "Threshold"
         condition.name = "Single Condition"
         condition.priority = 75
         condition.composite = Mock()
@@ -375,7 +375,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         # Assert
         assert len(result) == 1
         result_action = result[0]
-        assert "SINGLE" in result_action.reason
+        assert "Threshold" in result_action.reason
         assert "priority=75" in result_action.reason
 
     def test_when_priority_is_none_then_handles_gracefully(self, control_evaluator: ControlEvaluator):

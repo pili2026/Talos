@@ -1,103 +1,95 @@
+version: "1.0.0"
+
 SD400:
   default_controls: []
-
   instances:
     "3":
       use_default_controls: false
       controls:
-          # ───────────────────────────────────────────────────────────
-          # (A) Discrete fixed value: discrete_setpoint (the original mode you already have)
-          # When condition is met → directly set a fixed frequency, e.g., 45Hz
-          # "policy" can be omitted; if omitted, it is treated as discrete_setpoint
-          # ───────────────────────────────────────────────────────────
-          - name: "High Temperature Shutdown"
-            code: "HIGH_TEMP"
-            priority: 80
-            composite:
-              any:
-                - type: threshold
-                  source: AIn01
-                  operator: gt
-                  threshold: 40.0
-                  hysteresis: 1.0
-                  debounce_sec: 0.5
-                - type: threshold
-                  source: AIn03
-                  operator: between
-                  min: 3.0
-                  max: 5.0
-                  hysteresis: 0.2
-            policy:
-              type: discrete_setpoint
-            action:
-              model: TECO_VFD
-              slave_id: "2"
-              type: set_frequency
-              target: RW_HZ
-              value: 45.0
+        # ===========================================
+        # DISCRETE_SETPOINT - Fixed value control
+        # ===========================================
+        - name: "High Temperature Shutdown"
+          code: "HIGH_TEMP"
+          priority: 80
+          composite:
+            any:
+              - type: threshold
+                source: AIn01
+                operator: gt
+                threshold: 40.0
+                hysteresis: 1.0
+                debounce_sec: 0.5
+              - type: threshold
+                source: AIn03
+                operator: between
+                min: 3.0
+                max: 5.0
+                hysteresis: 0.2
+          policy:
+            type: discrete_setpoint
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: set_frequency
+            target: RW_HZ
+            value: 45.0
 
-          # ───────────────────────────────────────────────────────────
-          # (B) Absolute linear: absolute_linear
-          # Based on input (in this case, ΔT) compute an "absolute frequency" linearly
-          # → directly write to RW_HZ
-          # f_out = clamp(base_freq + gain_hz_per_unit * max(0, Δ - deadband), [min, max])
-          # ───────────────────────────────────────────────────────────
-          - name: "ΔT Linear → Absolute Frequency"
-            code: "LIN_ABS01"
-            priority: 90
-            composite:
-              all:
-                - type: difference
-                  sources: [AIn01, AIn02]
-                  operator: gt
-                  threshold: 4.0    # could also rely only on policy.deadband; here used as trigger condition
-                  abs: false
-            policy:
-              type: absolute_linear
-              source_kind: difference
-              sources: [AIn01, AIn02]
-              abs: true
-              deadband: 4.0
-              base_freq: 40.0
-              gain_hz_per_unit: 1.5    # every +1°C above deadband → +1.5 Hz
-              min_freq: 35.0
-              max_freq: 55.0
-            action:
-              model: TECO_VFD
-              slave_id: "2"
-              type: set_frequency
-              target: RW_HZ
-              # value will be dynamically calculated and overwritten by the Evaluator
+        # ===========================================
+        # ABSOLUTE_LINEAR - Single temperature mapping
+        # ===========================================
+        - name: "Environment Temperature Linear Control"
+          code: "LIN_ABS01"
+          priority: 85
+          composite:
+            any:
+              - type: threshold
+                source: AIn01           # Single sensor
+                operator: gt
+                threshold: 25.0         # Trigger when temp > 25°C
+                abs: false
+          policy:
+            type: absolute_linear
+            condition_type: threshold      # Single sensor input
+            source: AIn01              # Temperature sensor
+            base_freq: 40.0            # Frequency at base_temp
+            base_temp: 25.0            # Base temperature (25°C ↔ 40Hz)
+            gain_hz_per_unit: 1.2      # 1°C → 1.2Hz
+            # Removed: min_freq, max_freq, deadband
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: set_frequency        # Absolute setting
+            target: RW_HZ
+            # value calculated by evaluator
 
-          # ───────────────────────────────────────────────────────────
-          # (C) Incremental linear: incremental_linear
-          # Based on input (ΔT), compute a "delta Hz" increment each time,
-          # added on top of current Hz → smoother adjustment
-          # f_new = clamp(f_current + min(Δf, max_step_hz), [min, max])
-          # ───────────────────────────────────────────────────────────
-          - name: "ΔT Threshold Exceeded → Proportional Increment (Incremental)"
-            code: "LIN_INC01"
-            priority: 95
-            composite:
-              all:
-                - type: difference
-                  sources: [AIn01, AIn02]
-                  operator: gt
-                  threshold: 4.0
-                  abs: true
-            policy:
-              type: incremental_linear
-              source_kind: difference
-              sources: [AIn01, AIn02]
-              abs: true
-              deadband: 4.0
-              gain_hz_per_unit: 1.0     # for each +1°C above deadband → +1 Hz
-              max_step_hz: 2.0          # at most +2 Hz per step (limit single adjustment step size)
-              min_freq: 35.0
-              max_freq: 55.0
-            action:
-              model: TECO_VFD
-              slave_id: "2"
-              type: adjust_frequency     # requires adding this to Enum and Executor
-              target: RW_HZ
+        # ===========================================
+        # INCREMENTAL_LINEAR - Temperature difference adjustment
+        # ===========================================
+        - name: "Supply-Return Temperature Difference Control"
+          code: "LIN_INC01"
+          priority: 90
+          composite:
+            any:
+              - type: difference
+                sources: [AIn01, AIn02]  # Supply - Return temperature
+                operator: gt
+                threshold: 4.0           # Trigger when diff > 4°C
+                abs: false
+              - type: difference
+                sources: [AIn01, AIn02]
+                operator: lt
+                threshold: -4.0          # Trigger when diff < -4°C  
+                abs: false
+          policy:
+            type: incremental_linear
+            condition_type: difference   # Temperature difference input
+            sources: [AIn01, AIn02]     # Two sensors
+            gain_hz_per_unit: 1.5       # 1°C diff → ±1.5Hz adjustment
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: adjust_frequency      # Incremental adjustment
+            target: RW_HZ
+            # value calculated by evaluator
 
