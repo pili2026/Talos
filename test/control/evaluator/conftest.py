@@ -1,3 +1,4 @@
+from unittest.mock import Mock
 import pytest
 
 from evaluator.control_evaluator import ControlEvaluator
@@ -51,3 +52,17 @@ def make_config():
         return {model: {"instances": {slave_id: {"controls": controls}}}}
 
     return _make
+
+
+@pytest.fixture
+def mock_control_config():
+    """Create mock ControlConfig for testing"""
+    return Mock(spec=ControlConfig)
+
+
+@pytest.fixture
+def control_evaluator(mock_control_config):
+    """Create ControlEvaluator with mocked dependencies"""
+    evaluator = ControlEvaluator(mock_control_config)
+    evaluator.composite_evaluator = Mock()
+    return evaluator

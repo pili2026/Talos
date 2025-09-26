@@ -50,7 +50,7 @@ instances:
               threshold: -4.0
         policy:
           type: absolute_linear
-          condition_type: difference  # ✅ 修正：source_kind → condition_type
+          condition_type: difference
           sources: [AIn01, AIn02]
           abs: true  # take absolute value: only consider error magnitude
           deadband: 4.0
@@ -79,7 +79,7 @@ instances:
               threshold: -4.0
         policy:
           type: incremental_linear
-          condition_type: difference  # ✅ 修正：source_kind → condition_type
+          condition_type: difference
           sources: [AIn01, AIn02]
           abs: false  # keep sign: positive → increase, negative → decrease
           deadband: 4.0
