@@ -1,95 +1,147 @@
-version: "1.0.0"
-
+version: 1.0.0
 SD400:
   default_controls: []
   instances:
-    "3":
+    '3':
       use_default_controls: false
       controls:
-        # ===========================================
-        # DISCRETE_SETPOINT - Fixed value control
-        # ===========================================
-        - name: "High Temperature Shutdown"
-          code: "HIGH_TEMP"
+        - name: High Temperature Set Frequency
+          code: HIGH_TEMP_FREQ
           priority: 80
           composite:
             any:
               - type: threshold
                 source: AIn01
                 operator: gt
-                threshold: 40.0
-                hysteresis: 1.0
+                threshold: 40
+                hysteresis: 1
                 debounce_sec: 0.5
               - type: threshold
                 source: AIn03
                 operator: between
-                min: 3.0
-                max: 5.0
+                min: 3
+                max: 5
                 hysteresis: 0.2
           policy:
             type: discrete_setpoint
           action:
             model: TECO_VFD
-            slave_id: "2"
+            slave_id: '2'
             type: set_frequency
             target: RW_HZ
-            value: 45.0
-
-        # ===========================================
-        # ABSOLUTE_LINEAR - Single temperature mapping
-        # ===========================================
-        - name: "Environment Temperature Linear Control"
-          code: "LIN_ABS01"
+            value: 45
+        - name: High Temperature Turn On DOut01
+          code: HIGH_TEMP_DO01_ON
           priority: 85
           composite:
             any:
               - type: threshold
-                source: AIn01           # Single sensor
+                source: AIn01
                 operator: gt
-                threshold: 25.0         # Trigger when temp > 25°C
+                threshold: 40
+          action:
+            model: IMA_C
+            slave_id: '5'
+            type: write_do
+            target: DOut01
+            value: 1
+        - name: Low Temperature Turn Off DOut02
+          code: LOW_TEMP_DO02_OFF
+          priority: 90
+          composite:
+            any:
+              - type: threshold
+                source: AIn01
+                operator: lt
+                threshold: 25
+          action:
+            model: IMA_C
+            slave_id: '5'
+            type: write_do
+            target: DOut02
+            value: 0
+        - name: Low Temperature Turn Off Inverter
+          code: LOW_TEMP_VFD_OFF
+          priority: 95
+          composite:
+            any:
+              - type: threshold
+                source: AIn01
+                operator: lt
+                threshold: 25
+          action:
+            model: TECO_VFD
+            slave_id: '1'
+            type: turn_off
+            target: RW_ON_OFF
+        - name: HIGH Temperature Turn On Inverter
+          code: HIGH_TEMP_VFD_ON
+          priority: 75
+          composite:
+            any:
+              - type: threshold
+                source: AIn01
+                operator: gt
+                threshold: 40
+                hysteresis: 1
+                debounce_sec: 0.5
+          policy:
+            type: discrete_setpoint
+          action:
+            model: TECO_VFD
+            slave_id: '1'
+            type: turn_on
+            target: RW_ON_OFF
+        - name: Environment Temperature Linear Control
+          code: LIN_ABS01
+          priority: 85
+          composite:
+            any:
+              - type: threshold
+                source: AIn01
+                operator: gt
+                threshold: 25
                 abs: false
           policy:
             type: absolute_linear
-            condition_type: threshold      # Single sensor input
-            source: AIn01              # Temperature sensor
-            base_freq: 40.0            # Frequency at base_temp
-            base_temp: 25.0            # Base temperature (25°C ↔ 40Hz)
-            gain_hz_per_unit: 1.2      # 1°C → 1.2Hz
-            # Removed: min_freq, max_freq, deadband
+            condition_type: threshold
+            source: AIn01
+            base_freq: 40
+            base_temp: 25
+            gain_hz_per_unit: 1.2
           action:
             model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency        # Absolute setting
+            slave_id: '2'
+            type: set_frequency
             target: RW_HZ
-            # value calculated by evaluator
-
-        # ===========================================
-        # INCREMENTAL_LINEAR - Temperature difference adjustment
-        # ===========================================
-        - name: "Supply-Return Temperature Difference Control"
-          code: "LIN_INC01"
+        - name: Supply-Return Temperature Difference Control
+          code: LIN_INC01
           priority: 90
           composite:
             any:
               - type: difference
-                sources: [AIn01, AIn02]  # Supply - Return temperature
+                sources:
+                  - AIn01
+                  - AIn02
                 operator: gt
-                threshold: 4.0           # Trigger when diff > 4°C
+                threshold: 4
                 abs: false
               - type: difference
-                sources: [AIn01, AIn02]
+                sources:
+                  - AIn01
+                  - AIn02
                 operator: lt
-                threshold: -4.0          # Trigger when diff < -4°C  
+                threshold: -4
                 abs: false
           policy:
             type: incremental_linear
-            condition_type: difference   # Temperature difference input
-            sources: [AIn01, AIn02]     # Two sensors
-            gain_hz_per_unit: 1.5       # 1°C diff → ±1.5Hz adjustment
+            condition_type: difference
+            sources:
+              - AIn01
+              - AIn02
+            gain_hz_per_unit: 1.5
           action:
             model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency      # Incremental adjustment
+            slave_id: '2'
+            type: adjust_frequency
             target: RW_HZ
-            # value calculated by evaluator
-
