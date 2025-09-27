@@ -32,7 +32,7 @@ class CompositeEvaluator:
 
     def evaluate_composite_node(self, node: CompositeNode, get_value: ValueGetter) -> bool:
         """Recursively evaluate whether a CompositeNode is satisfied."""
-        if getattr(node, "invalid", False):
+        if node is None:
             return False
 
         # Leaf node

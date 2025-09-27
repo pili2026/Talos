@@ -11,10 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class ControlEvaluator:
-    """
-    Clean version without unnecessary getattr calls.
-    Since we have proper Pydantic schemas, we can access attributes directly.
-    """
+    """Evaluates control conditions against snapshots and determines actions"""
 
     def __init__(self, control_config: ControlConfig):
         self.control_config = control_config
@@ -52,8 +49,8 @@ class ControlEvaluator:
         if best_condition is None:
             return []
 
-        selected = best_condition
-        action = selected.action
+        selected: ControlConditionModel = best_condition
+        action: ControlActionModel = selected.action
 
         if not action.model or not action.slave_id:
             logger.warning(

@@ -46,7 +46,7 @@ class ControlExecutor:
                 # --- TURN ON/OFF ---
                 if action.type in {ControlActionType.TURN_OFF, ControlActionType.TURN_ON}:
                     # Capability check
-                    if not getattr(device, "supports_on_off", None) or not device.supports_on_off():
+                    if not device.supports_on_off():
                         self.logger.info(
                             f"[EXEC] [SKIP] {device.model} does not support ON/OFF.{self._get_reason_suffix(action)}"
                         )

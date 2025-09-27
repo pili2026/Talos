@@ -173,7 +173,7 @@ class ControlConfig(BaseModel):
 
         for rule in reversed(filtered_control_list):
             priority: int = rule.priority
-            rule_identifier = getattr(rule, "code", getattr(rule, "name", "<unknown>"))
+            rule_identifier = rule.code or rule.name or "<unknown>"
             if priority in seen_priorities:
                 dropped_rules.append((priority, rule_identifier))
                 continue
