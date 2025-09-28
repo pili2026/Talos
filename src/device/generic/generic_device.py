@@ -19,7 +19,7 @@ class AsyncGenericModbusDevice:
         register_type: str,
         register_map: dict,
         device_type: str,
-        constraint_dict: dict | None = None,
+        constraint_policy: ConstraintPolicy | None = None,
         table_dict: dict | None = None,
         mode_dict: dict | None = None,
         write_hooks: list | dict | None = None,
@@ -44,7 +44,7 @@ class AsyncGenericModbusDevice:
         mode_dict = mode_dict if mode_dict is not None else register_map.pop("modes", {})
 
         self.scales = ScaleService(table_dict=table_dict, mode_dict=mode_dict, logger=self.logger)
-        self.constraints = ConstraintPolicy(constraint_dict or {}, self.logger)
+        self.constraints = constraint_policy or ConstraintPolicy(constraints=None, logger=self.logger)
         hook_list: list = write_hooks if write_hooks is not None else register_map.pop("write_hooks", [])
         self.hooks = HookManager(hook_list=hook_list, logger=self.logger, scale_service=self.scales)
 

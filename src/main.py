@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
+from schema.constraint_schema import ConstraintConfigSchema
 from util.config_manager import ConfigManager
 from util.device_id_policy import load_device_id_policy
 from util.factory.alert_factory import build_alert_subscriber
@@ -45,8 +46,9 @@ async def main(
     load_device_id_policy(system_config)
 
     pubsub = InMemoryPubSub()
-    instance_config: dict = ConfigManager.load_yaml_file(instance_config_path)
-    async_device_manager = AsyncDeviceManager(modbus_device_path, instance_config)
+    constraint_config: dict = ConfigManager.load_yaml_file(instance_config_path)
+    constraint_config_schema = ConstraintConfigSchema(**constraint_config)
+    async_device_manager = AsyncDeviceManager(modbus_device_path, constraint_config_schema)
     await async_device_manager.init()
 
     monitor = AsyncDeviceMonitor(
@@ -73,7 +75,7 @@ async def main(
         valid_device_ids=valid_device_ids,
         time_config_path=time_config_path,
         driver_config=async_device_manager.driver_config_by_model,
-        instance_config=instance_config,
+        instance_config=constraint_config,
     )
 
     legacy_sender, sender_subscriber = build_sender_subscriber(

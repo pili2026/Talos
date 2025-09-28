@@ -10,12 +10,12 @@ LITEON_EVO6800:
       initialization:
         startup_frequency: 52.0
       constraints:
-        RW_HZ: { min: 55, max: 57 }
+        RW_HZ: { min: 50, max: 57 }
 
 TECO_VFD:
   initialization:
     startup_frequency: 45.0
   default_constraints:
-    RW_HZ: { min: 35, max: 60 }
+    RW_HZ: { min: 55, max: 59 }
   instances:
-    "2": {}
+    "5": {}

@@ -3,6 +3,8 @@ import re
 
 import yaml
 
+from schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
+
 
 class ConfigManager:
 
@@ -24,6 +26,72 @@ class ConfigManager:
         if resolved_value is not None:
             return ConfigManager._parse_value_by_type(resolved_value)
         return None
+
+    @staticmethod
+    def load_constraint_config(config_path: str) -> ConstraintConfigSchema:
+        """Load and validate constraint configuration"""
+        raw_config = ConfigManager.load_yaml_file(config_path)
+        return ConstraintConfigSchema(**raw_config)
+
+    @staticmethod
+    def _get_device_startup_frequency(config: ConstraintConfigSchema, model: str, slave_id: int) -> float | None:
+        """Retrieve the startup frequency configuration for a device"""
+        # 1. Check instance settings
+        device_config = config.devices.get(model)
+        if device_config and device_config.instances:
+            instance_config = device_config.instances.get(str(slave_id))
+            if (
+                instance_config
+                and instance_config.initialization
+                and instance_config.initialization.startup_frequency is not None
+            ):
+                return instance_config.initialization.startup_frequency
+
+        # 2. Check model-level settings
+        if (
+            device_config
+            and device_config.initialization
+            and device_config.initialization.startup_frequency is not None
+        ):
+            return device_config.initialization.startup_frequency
+
+        # 3. Check global defaults
+        if (
+            config.global_defaults
+            and config.global_defaults.initialization
+            and config.global_defaults.initialization.startup_frequency is not None
+        ):
+            return config.global_defaults.initialization.startup_frequency
+
+        return None
+
+    @staticmethod
+    def get_instance_constraints_from_schema(
+        config: ConstraintConfigSchema, model: str, slave_id: int
+    ) -> dict[str, ConstraintConfig]:
+        """Retrieve instance-level constraint configuration from Schema"""
+        device_config = config.devices.get(model)
+        if not device_config:
+            return {}
+
+        result: dict[str, ConstraintConfig] = {}
+
+        # Retrieve default constraints (already ConstraintConfig objects)
+        if device_config.default_constraints:
+            result.update(device_config.default_constraints)
+
+        # Check instance-specific settings
+        if device_config.instances:
+            instance_config = device_config.instances.get(str(slave_id))
+            if instance_config:
+                if instance_config.use_default_constraints:
+                    # Use default constraints (result already contains default_constraints)
+                    pass
+                elif instance_config.constraints:
+                    # Override with specific constraints (already ConstraintConfig objects)
+                    result.update(instance_config.constraints)
+
+        return result
 
     @staticmethod
     def _parse_value_by_type(value: str) -> bool | int | float | str:
