@@ -177,7 +177,7 @@ SD400:
 
         action = actions[0]
         assert action.type == ControlActionType.ADJUST_FREQUENCY
-        expected_value = 13.0 * 1.5  # 19.5
+        expected_value = 1.5
         assert action.value == expected_value
 
         # Step 5: Execute action
@@ -190,8 +190,7 @@ SD400:
         mock_device_manager.get_device_by_model_and_slave_id.assert_called_once_with("TECO_VFD", "2")
         mock_device.read_value.assert_called_once_with("RW_HZ")
 
-        # Verify final written value: 50.0 + 19.5 = 69.5 Hz
-        expected_new_freq = 50.0 + 19.5
+        expected_new_freq = 50.0 + expected_value
         mock_device.write_value.assert_called_once_with("RW_HZ", expected_new_freq)
 
     def test_when_no_conditions_triggered_then_returns_empty_actions(self, control_evaluator):

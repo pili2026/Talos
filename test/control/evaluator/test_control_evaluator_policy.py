@@ -156,10 +156,10 @@ class TestControlEvaluatorPolicyProcessing:
         # Act
         result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
 
-        # Assert: diff * gain = 7 * 1.5 = 10.5Hz adjustment (no limitation)
+        # Assert
         assert result_action is new_action
         assert new_action.type == ControlActionType.ADJUST_FREQUENCY
-        assert new_action.value == 10.5
+        assert new_action.value == 1.5
 
     def test_when_incremental_linear_negative_diff_then_calculates_negative_adjustment(self, control_evaluator):
         """Test that incremental_linear policy calculates negative adjustment for negative temperature difference"""
@@ -187,10 +187,10 @@ class TestControlEvaluatorPolicyProcessing:
         # Act
         result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
 
-        # Assert: diff * gain = -7 * 1.5 = -10.5Hz adjustment
+        # Assert
         assert result_action is new_action
         assert new_action.type == ControlActionType.ADJUST_FREQUENCY
-        assert new_action.value == -10.5
+        assert new_action.value == -1.5
 
     def test_when_absolute_linear_then_calculates_absolute_frequency(self, control_evaluator):
         """Test that absolute_linear policy calculates absolute frequency based on single temperature"""

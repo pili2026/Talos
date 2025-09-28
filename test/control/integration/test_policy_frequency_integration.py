@@ -247,15 +247,14 @@ SD400:
         snapshot = {"AIn01": 35.0, "AIn02": 25.0}  # Difference 10°C > 4°C
         model, slave_id = "SD400", "3"
 
-        # Act: Evaluator 產生 action
+        # Act
         actions = control_evaluator.evaluate(model, slave_id, snapshot)
 
-        # Assert: 驗證計算結果
+        # Assert:
         assert len(actions) == 1
         action = actions[0]
 
-        # Expected value calculation: difference * gain = 10.0 * 1.5 = 15.0
-        expected_adjustment = 15.0
+        expected_adjustment = 1.5
 
         self._verify_action_properties(
             action,
@@ -276,7 +275,7 @@ SD400:
 
         # Assert: Verify calculation result
         mock_device.read_value.assert_called_once_with("RW_HZ")  # Read current value
-        expected_new_freq = 50.0 + 15.0  # 65.0 Hz
+        expected_new_freq = 50.0 + 1.5
         mock_device.write_value.assert_called_once_with("RW_HZ", expected_new_freq)
 
     def _verify_action_properties(self, action: ControlActionModel, expected_props: dict):

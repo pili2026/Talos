@@ -332,8 +332,7 @@ class TestMixedActionsPriority:
         assert action.slave_id == "2"
         assert action.type == ControlActionType.ADJUST_FREQUENCY
         assert action.target == "RW_HZ"
-        # Verify calculation: 10°C * 1.5 = 15.0 Hz adjustment
-        assert action.value == 15.0
+        assert action.value == 1.5
 
     def test_when_absolute_frequency_triggered_then_overrides_fixed_frequency(self, control_evaluator):
         """4b: Absolute frequency (85) should override fixed frequency (80)"""

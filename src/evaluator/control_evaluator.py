@@ -59,7 +59,7 @@ class ControlEvaluator:
             return []
 
         # Apply policy processing
-        processed_action = self._apply_policy_to_action(selected, action, snapshot)
+        processed_action: ControlActionModel | None = self._apply_policy_to_action(selected, action, snapshot)
         if processed_action is None:
             logger.warning(
                 f"[EVAL] Skip rule '{selected.code}' (p={selected.priority}) " f"due to policy processing failure"
@@ -96,47 +96,10 @@ class ControlEvaluator:
             return action
 
         elif policy.type == ControlPolicyType.ABSOLUTE_LINEAR:
-            # Single temperature value control
-            if not policy.source:
-                logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing source")
-                return None
-
-            temp_value = snapshot.get(policy.source)
-            if temp_value is None:
-                logger.warning(f"[EVAL] Cannot get temperature value for {policy.source}")
-                return None
-
-            # Validate required fields
-            if policy.base_temp is None:
-                logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing base_temp")
-                return None
-
-            # Calculate target frequency: base_freq + (temp - base_temp) * gain
-            target_freq = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
-
-            new_action = action.model_copy()
-            new_action.value = target_freq
-            new_action.type = ControlActionType.SET_FREQUENCY  # Absolute setting
-            logger.info(
-                f"[EVAL] Absolute linear: temp={temp_value}°C, base_temp={policy.base_temp}°C, target_freq={target_freq}Hz"
-            )
-            return new_action
+            return self._apply_absolute_linear_policy(action=action, policy=policy, snapshot=snapshot)
 
         elif policy.type == ControlPolicyType.INCREMENTAL_LINEAR:
-            # Temperature difference control
-            condition_value = self._get_condition_value(policy, snapshot)  # Calculate temperature difference
-            if condition_value is None:
-                logger.warning(f"[EVAL] Cannot get condition value for incremental_linear policy")
-                return None
-
-            # Calculate adjustment directly (max_step_hz limitation removed)
-            adjustment: float = condition_value * policy.gain_hz_per_unit
-
-            new_action = action.model_copy()
-            new_action.type = ControlActionType.ADJUST_FREQUENCY  # Incremental adjustment
-            new_action.value = adjustment
-            logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
-            return new_action
+            return self._apply_incremental_linear_policy(action=action, policy=policy, snapshot=snapshot)
 
         else:
             logger.warning(f"[EVAL] Unsupported policy type: {policy.type}")
@@ -162,3 +125,52 @@ class ControlEvaluator:
         else:
             logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
             return None
+
+    def _apply_absolute_linear_policy(
+        self, action: ControlActionModel, policy: PolicyConfig, snapshot: dict[str, float]
+    ) -> ControlActionModel | None:
+        # Single temperature value control
+        if not policy.source:
+            logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing source")
+            return None
+
+        temp_value = snapshot.get(policy.source)
+        if temp_value is None:
+            logger.warning(f"[EVAL] Cannot get temperature value for {policy.source}")
+            return None
+
+        # Validate required fields
+        if policy.base_temp is None:
+            logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing base_temp")
+            return None
+
+        # Calculate target frequency: base_freq + (temp - base_temp) * gain
+        target_freq = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
+
+        new_action = action.model_copy()
+        new_action.value = target_freq
+        new_action.type = ControlActionType.SET_FREQUENCY  # Absolute setting
+        logger.info(
+            f"[EVAL] Absolute linear: temp={temp_value}°C, base_temp={policy.base_temp}°C, target_freq={target_freq}Hz"
+        )
+        return new_action
+
+    def _apply_incremental_linear_policy(
+        self, action: ControlActionModel, policy: PolicyConfig, snapshot: dict[str, float]
+    ) -> ControlActionModel | None:
+        # Temperature difference control
+        condition_value = self._get_condition_value(policy, snapshot)  # Calculate temperature difference
+        if condition_value is None:
+            logger.warning(f"[EVAL] Cannot get condition value for incremental_linear policy")
+            return None
+
+        if condition_value > 0:
+            adjustment = policy.gain_hz_per_unit  # +1.5Hz
+        else:
+            adjustment = -policy.gain_hz_per_unit
+
+        new_action = action.model_copy()
+        new_action.type = ControlActionType.ADJUST_FREQUENCY  # Incremental adjustment
+        new_action.value = adjustment
+        logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
+        return new_action

@@ -170,15 +170,15 @@ SD400:
 
         # INCREMENTAL should win (priority=90 > 85)
         assert action.type == ControlActionType.ADJUST_FREQUENCY
-        assert action.value == 15.0  # 10 * 1.5
+        assert action.value == 1.5
 
     def test_when_absolute_and_discrete_conditions_triggered_then_absolute_wins_by_priority(self, control_evaluator):
         """T2.2: ABSOLUTE (85) vs DISCRETE (80) - ABSOLUTE should win"""
         # Arrange: Trigger ABSOLUTE and DISCRETE, but not INCREMENTAL
         snapshot = {
-            "AIn01": 42.0,  # 觸發 DISCRETE (>40) 和 ABSOLUTE (>25)
-            "AIn02": 40.0,  # 差值 2°C < 4°C，不觸發 INCREMENTAL
-            "AIn03": 4.0,  # 觸發 DISCRETE between 條件
+            "AIn01": 42.0,  # Trigger DISCRETE (>40) and ABSOLUTE (>25)
+            "AIn02": 40.0,  # Difference 2°C < 4°C，should not trigger INCREMENTAL
+            "AIn03": 4.0,  # Trigger DISCRETE between condition
         }
         model, slave_id = "SD400", "3"
 
@@ -198,9 +198,9 @@ SD400:
         """T2.3: Triple Conflict - INCREMENTAL (90) should win"""
         # Arrange: Trigger ABSOLUTE and DISCRETE, but not INCREMENTAL
         snapshot = {
-            "AIn01": 45.0,  # 觸發 DISCRETE (>40) 和 ABSOLUTE (>25)
-            "AIn02": 35.0,  # 差值 10°C，觸發 INCREMENTAL
-            "AIn03": 4.0,  # 在 3.0~5.0 範圍，觸發 DISCRETE between
+            "AIn01": 45.0,  # Trigger DISCRETE (>40)and ABSOLUTE (>25)
+            "AIn02": 35.0,  # Difference 10°C，trigger INCREMENTAL
+            "AIn03": 4.0,  # In Range 3.0~5.0，Trigger DISCRETE between
         }
         model, slave_id = "SD400", "3"
 
@@ -212,4 +212,4 @@ SD400:
         action = actions[0]
 
         assert action.type == ControlActionType.ADJUST_FREQUENCY
-        assert action.value == 15.0  # (45-35) * 1.5 = 15.0
+        assert action.value == 1.5

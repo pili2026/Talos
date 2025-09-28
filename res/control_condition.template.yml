@@ -103,12 +103,13 @@ SD400:
                 threshold: 25
                 abs: false
           policy:
+            # base_freq + (temp_value - base_temp) * gain_hz_per_unit
             type: absolute_linear
             condition_type: threshold
             source: AIn01
-            base_freq: 40
-            base_temp: 25
-            gain_hz_per_unit: 1.2
+            base_freq: 60
+            base_temp: 30
+            gain_hz_per_unit: 3.3
           action:
             model: TECO_VFD
             slave_id: '2'
