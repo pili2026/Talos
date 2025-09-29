@@ -3,6 +3,7 @@ import logging
 from unittest.mock import Mock
 from model.control_model import ControlActionModel, ControlConditionModel
 from model.enum.condition_enum import ControlActionType
+from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
 from evaluator.control_evaluator import ControlEvaluator
 
@@ -14,14 +15,28 @@ class TestControlEvaluatorPolicyProcessing:
     """
 
     @pytest.fixture
+    def constraint_config_schema(self):
+        return ConstraintConfigSchema(
+            **{
+                "LITEON_EVO6800": {
+                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                    "instances": {
+                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
+                        "2": {"use_default_constraints": True},
+                    },
+                }
+            }
+        )
+
+    @pytest.fixture
     def mock_control_config(self):
         """Create mock ControlConfig for testing"""
         config = Mock(spec=ControlConfig)
         return config
 
     @pytest.fixture
-    def control_evaluator(self, mock_control_config):
-        return ControlEvaluator(mock_control_config)
+    def control_evaluator(self, mock_control_config, constraint_config_schema):
+        return ControlEvaluator(mock_control_config, constraint_config_schema)
 
     def test_when_discrete_setpoint_policy_then_returns_original_fixed_value(self, control_evaluator):
         """Test that discrete_setpoint policy returns the original fixed value from YAML"""
@@ -304,15 +319,29 @@ class TestControlEvaluatorIntegration:
     """
 
     @pytest.fixture
+    def constraint_config_schema(self):
+        return ConstraintConfigSchema(
+            **{
+                "LITEON_EVO6800": {
+                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                    "instances": {
+                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
+                        "2": {"use_default_constraints": True},
+                    },
+                }
+            }
+        )
+
+    @pytest.fixture
     def mock_control_config(self):
         """Create mock ControlConfig for testing"""
         config = Mock(spec=ControlConfig)
         return config
 
     @pytest.fixture
-    def control_evaluator(self, mock_control_config):
+    def control_evaluator(self, mock_control_config, constraint_config_schema):
         """Create ControlEvaluator with mocked dependencies"""
-        evaluator = ControlEvaluator(mock_control_config)
+        evaluator = ControlEvaluator(mock_control_config, constraint_config_schema)
         # Mock the composite_evaluator
         evaluator.composite_evaluator = Mock()
         return evaluator
@@ -356,6 +385,7 @@ class TestControlEvaluatorIntegration:
         mock_action.type = "set_frequency"
         mock_action.target = "RW_HZ"
         mock_action.value = None
+        mock_action.emergency_override = False
 
         # Create a new action for model_copy
         new_action = Mock(spec=ControlActionModel)
@@ -365,6 +395,8 @@ class TestControlEvaluatorIntegration:
         new_action.target = "RW_HZ"
         new_action.value = None  # Will be set by the implementation
         new_action.reason = None
+        new_action.emergency_override = False
+
         mock_action.model_copy.return_value = new_action
 
         mock_condition.action = mock_action

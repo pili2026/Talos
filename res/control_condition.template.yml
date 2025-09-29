@@ -1,9 +1,53 @@
 version: 1.0.0
 SD400:
-  default_controls: []
+  default_controls: 
+    # VFD1 Emergency Control - Monitor AIn01 sensor
+    - name: Emergency High Water Temperature Override VFD1
+      code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+      priority: 151
+      composite:
+        any:
+          - type: threshold
+            source: AIn01
+            operator: gt
+            threshold: 32.0
+            hysteresis: 2.0  # Only when the temperature drops to 30°C will it be released
+            debounce_sec: 2.0
+      policy:
+        type: discrete_setpoint
+      action:
+        model: TECO_VFD
+        slave_id: '1'
+        type: set_frequency
+        target: RW_HZ
+        value: 60
+        emergency_override: true
+        
+    # VFD2 Emergency Control - Monitor AIn02 sensor
+    - name: Emergency High Water Temperature Override VFD2
+      code: EMERGENCY_HIGH_WATER_TEMP_VFD2
+      priority: 150
+      composite:
+        any:
+          - type: threshold
+            source: AIn02
+            operator: gt
+            threshold: 34.0
+            hysteresis: 2.0  # Only when the temperature drops to 32°C will it be released
+            debounce_sec: 2.0
+      policy:
+        type: discrete_setpoint
+      action:
+        model: TECO_VFD
+        slave_id: '2'
+        type: set_frequency
+        target: RW_HZ
+        value: 60
+        emergency_override: true
+
   instances:
     '3':
-      use_default_controls: false
+      use_default_controls: true  # 啟用 default_controls
       controls:
         - name: High Temperature Set Frequency
           code: HIGH_TEMP_FREQ
@@ -30,6 +74,7 @@ SD400:
             type: set_frequency
             target: RW_HZ
             value: 45
+            
         - name: High Temperature Turn On DOut01
           code: HIGH_TEMP_DO01_ON
           priority: 85
@@ -45,6 +90,7 @@ SD400:
             type: write_do
             target: DOut01
             value: 1
+            
         - name: Low Temperature Turn Off DOut02
           code: LOW_TEMP_DO02_OFF
           priority: 90
@@ -60,6 +106,7 @@ SD400:
             type: write_do
             target: DOut02
             value: 0
+            
         - name: Low Temperature Turn Off Inverter
           code: LOW_TEMP_VFD_OFF
           priority: 95
@@ -74,6 +121,7 @@ SD400:
             slave_id: '1'
             type: turn_off
             target: RW_ON_OFF
+            
         - name: HIGH Temperature Turn On Inverter
           code: HIGH_TEMP_VFD_ON
           priority: 75
@@ -92,6 +140,7 @@ SD400:
             slave_id: '1'
             type: turn_on
             target: RW_ON_OFF
+            
         - name: Environment Temperature Linear Control
           code: LIN_ABS01
           priority: 85
@@ -115,6 +164,7 @@ SD400:
             slave_id: '2'
             type: set_frequency
             target: RW_HZ
+            
         - name: Supply-Return Temperature Difference Control
           code: LIN_INC01
           priority: 90

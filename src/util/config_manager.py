@@ -76,20 +76,14 @@ class ConfigManager:
 
         result: dict[str, ConstraintConfig] = {}
 
-        # Retrieve default constraints (already ConstraintConfig objects)
-        if device_config.default_constraints:
-            result.update(device_config.default_constraints)
-
         # Check instance-specific settings
         if device_config.instances:
             instance_config = device_config.instances.get(str(slave_id))
             if instance_config:
-                if instance_config.use_default_constraints:
-                    # Use default constraints (result already contains default_constraints)
-                    pass
-                elif instance_config.constraints:
-                    # Override with specific constraints (already ConstraintConfig objects)
+                if instance_config.constraints:
                     result.update(instance_config.constraints)
+                elif instance_config.use_default_constraints and device_config.default_constraints:
+                    result.update(device_config.default_constraints)
 
         return result
 

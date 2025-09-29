@@ -12,6 +12,7 @@ import yaml
 
 from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
+from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
 from model.control_model import ControlActionModel
 
@@ -20,6 +21,20 @@ from model.control_model import ControlActionType
 
 class TestControlIntegration:
     """Integration tests for the complete control flow"""
+
+    @pytest.fixture
+    def constraint_config_schema(self):
+        return ConstraintConfigSchema(
+            **{
+                "LITEON_EVO6800": {
+                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                    "instances": {
+                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
+                        "2": {"use_default_constraints": True},
+                    },
+                }
+            }
+        )
 
     @pytest.fixture
     def sample_config_yaml(self):
@@ -119,9 +134,9 @@ SD400:
         return ControlConfig(version=version, root=config_dict)
 
     @pytest.fixture
-    def control_evaluator(self, control_config):
+    def control_evaluator(self, control_config, constraint_config_schema):
         """Create ControlEvaluator with test configuration"""
-        return ControlEvaluator(control_config)
+        return ControlEvaluator(control_config, constraint_config_schema)
 
     @pytest.fixture
     def mock_device(self):
@@ -155,7 +170,7 @@ SD400:
 
     @pytest.mark.asyncio
     async def test_when_complete_flow_executed_then_evaluator_and_executor_work_together(
-        self, sample_config_yaml, mock_device_manager, mock_device
+        self, sample_config_yaml, constraint_config_schema, mock_device_manager, mock_device
     ):
         """T3: Complete end-to-end flow test"""
         # Step 1: Load configuration
@@ -164,7 +179,7 @@ SD400:
         control_config = ControlConfig(version=version, root=config_dict)
 
         # Step 2: Create components
-        evaluator = ControlEvaluator(control_config)
+        evaluator = ControlEvaluator(control_config, constraint_config_schema)
         executor = ControlExecutor(mock_device_manager)
 
         # Step 3: Test scenario - INCREMENTAL triggered
@@ -197,8 +212,8 @@ SD400:
         """T3: Test scenario - No conditions triggered"""
         # Arrange: All conditions are not met
         snapshot = {
-            "AIn01": 20.0,  # < 25°C (ABSOLUTE) 和 < 40°C (DISCRETE)
-            "AIn02": 18.0,  # 差值 2°C < 4°C (INCREMENTAL)
+            "AIn01": 20.0,  # < 25°C (ABSOLUTE) And < 40°C (DISCRETE)
+            "AIn02": 18.0,  # Difference 2°C < 4°C (INCREMENTAL)
             "AIn03": 2.0,  # < 3.0 (DISCRETE between)
         }
         model, slave_id = "SD400", "3"

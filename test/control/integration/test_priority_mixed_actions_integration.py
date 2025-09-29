@@ -8,12 +8,27 @@ import pytest
 import yaml
 
 from evaluator.control_evaluator import ControlEvaluator
+from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
 from model.control_model import ControlActionType
 
 
 class TestMixedActionsPriority:
     """Integration tests for priority resolution between mixed action types"""
+
+    @pytest.fixture
+    def constraint_config_schema(self):
+        return ConstraintConfigSchema(
+            **{
+                "LITEON_EVO6800": {
+                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                    "instances": {
+                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
+                        "2": {"use_default_constraints": True},
+                    },
+                }
+            }
+        )
 
     @pytest.fixture
     def full_mixed_config_yaml(self):
@@ -181,9 +196,9 @@ class TestMixedActionsPriority:
         return ControlConfig(version=version, root=config_dict)
 
     @pytest.fixture
-    def control_evaluator(self, control_config):
+    def control_evaluator(self, control_config, constraint_config_schema):
         """Create ControlEvaluator for mixed tests"""
-        return ControlEvaluator(control_config)
+        return ControlEvaluator(control_config, constraint_config_schema)
 
     # ================================
     # 1: Safety Priority Tests (95 vs others)

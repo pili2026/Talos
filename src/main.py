@@ -54,7 +54,7 @@ async def main(
     monitor = AsyncDeviceMonitor(
         async_device_manager=async_device_manager,
         pubsub=pubsub,
-        interval=system_config.get("MONITOR_INTERVAL_SECONDS", 1.0),
+        interval=system_config.get("MONITOR_INTERVAL_SECONDS", 60.0),
     )
 
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}

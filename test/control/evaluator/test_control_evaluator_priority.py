@@ -297,6 +297,8 @@ class TestControlEvaluatorPriorityHandling:
         condition.action.type = "set_frequency"
         condition.action.target = "RW_HZ"
         condition.action.value = 50.0
+        condition.action.emergency_override = False
+
         condition.action.model_copy.return_value = condition.action  # Return self for simplicity
 
         return condition
@@ -352,6 +354,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         condition.composite.invalid = False
         condition.policy = Mock()
         condition.policy.type = "discrete_setpoint"
+        condition.emergency_override = False
 
         condition.action = Mock(spec=ControlActionModel)
         condition.action.model = "TECO_VFD"
@@ -359,6 +362,8 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         condition.action.type = "set_frequency"
         condition.action.target = "RW_HZ"
         condition.action.value = 50.0
+        condition.action.emergency_override = False
+
         condition.action.model_copy.return_value = condition.action
 
         conditions = [condition]
@@ -387,6 +392,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         none_priority_condition.priority = None  # None priority
         none_priority_condition.composite = Mock()
         none_priority_condition.composite.invalid = False
+
         none_priority_condition.policy = Mock()
         none_priority_condition.policy.type = "discrete_setpoint"
 
@@ -395,6 +401,8 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         none_priority_condition.action.slave_id = "2"
         none_priority_condition.action.type = "set_frequency"
         none_priority_condition.action.value = 30.0
+        none_priority_condition.action.emergency_override = False
+
         none_priority_condition.action.model_copy.return_value = none_priority_condition.action
 
         normal_condition = Mock(spec=ControlConditionModel)
@@ -411,6 +419,8 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         normal_condition.action.slave_id = "2"
         normal_condition.action.type = "set_frequency"
         normal_condition.action.value = 40.0
+        normal_condition.action.emergency_override = False
+
         normal_condition.action.model_copy.return_value = normal_condition.action
 
         conditions = [none_priority_condition, normal_condition]

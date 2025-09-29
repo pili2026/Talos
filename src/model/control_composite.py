@@ -41,7 +41,7 @@ class CompositeNode(BaseModel):
 
     # difference condition fields
     sources: list[str] | None = None
-    abs: bool | None = True
+    abs: bool | None = Field(default=False)
 
     # validation state
     invalid: bool = False

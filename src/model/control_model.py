@@ -37,6 +37,7 @@ class ControlActionModel(BaseModel):
     value: float | int | None = None
     source: str | None = None
     reason: str | None = None
+    emergency_override: bool = Field(default=False)
 
     # ---- Normalization (strings & types) ----
     @field_validator("model", "slave_id", "target", mode="before")

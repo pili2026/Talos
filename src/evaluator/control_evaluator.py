@@ -5,6 +5,7 @@ from evaluator.composite_evaluator import CompositeEvaluator
 from model.control_model import ControlActionModel, ControlConditionModel
 from model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
 from model.policy_model import PolicyConfig
+from schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
 from schema.control_config_schema import ControlConfig
 
 logger = logging.getLogger(__name__)
@@ -13,8 +14,9 @@ logger = logging.getLogger(__name__)
 class ControlEvaluator:
     """Evaluates control conditions against snapshots and determines actions"""
 
-    def __init__(self, control_config: ControlConfig):
+    def __init__(self, control_config: ControlConfig, constraint_config_schema: ConstraintConfigSchema):
         self.control_config = control_config
+        self.constraint_config_schema = constraint_config_schema
         self.composite_evaluator = CompositeEvaluator()
 
     def get_snapshot_value(self, snapshot: dict[str, float], key: str) -> float | None:
@@ -58,8 +60,13 @@ class ControlEvaluator:
             )
             return []
 
-        # Apply policy processing
-        processed_action: ControlActionModel | None = self._apply_policy_to_action(selected, action, snapshot)
+        if action.emergency_override:
+            processed_action: ControlActionModel | None = self._handle_emergency_override(action)
+        else:
+            processed_action: ControlActionModel | None = self._apply_policy_to_action(
+                condition=selected, action=action, snapshot=snapshot
+            )
+
         if processed_action is None:
             logger.warning(
                 f"[EVAL] Skip rule '{selected.code}' (p={selected.priority}) " f"due to policy processing failure"
@@ -68,15 +75,25 @@ class ControlEvaluator:
 
         # Build reason string
         try:
-            comp_summary = (
+            composite_summary = (
                 self.composite_evaluator.build_composite_reason_summary(selected.composite)
                 if selected.composite
                 else "composite"
             )
         except Exception:
-            comp_summary = "composite"
+            composite_summary = "composite"
 
-        processed_action.reason = f"[{selected.code}] {selected.name} | {comp_summary} | priority={selected.priority}"
+        if action.emergency_override and processed_action.reason:
+            # Emergency information is at the front (most important), with additional control details
+            processed_action.reason = (
+                f"{processed_action.reason} | "
+                f"[{selected.code}] {selected.name} | {composite_summary} | priority={selected.priority}"
+            )
+        else:
+            # Normal Situation
+            processed_action.reason = (
+                f"[{selected.code}] {selected.name} | {composite_summary} | priority={selected.priority}"
+            )
 
         logger.info(
             f"[EVAL] Pick '{selected.code}' (p={selected.priority}) " f"model={model} slave_id={slave_id} via composite"
@@ -174,3 +191,73 @@ class ControlEvaluator:
         new_action.value = adjustment
         logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
         return new_action
+
+    def _handle_emergency_override(self, action: ControlActionModel) -> ControlActionModel | None:
+        """Handle emergency override logic: ensure the target can reach 60 Hz if needed.
+
+        Rules:
+        - If constraint max exists and is below 60 → override to 60.
+        - If constraint max equals 60 → use 60.
+        - If constraint max is unknown (None) → keep original value but note unknown in reason.
+        """
+        constraint_max = self._get_constraint_max(action.model, action.slave_id)
+
+        new_action = action.model_copy()
+
+        if constraint_max is not None and constraint_max < 60:
+            # Bypass constraint and force 60 Hz
+            new_action.value = 60
+            new_action.reason = f"[EMERGENCY] Override constraint {constraint_max} → 60 Hz due to emergency condition"
+            logger.critical(
+                f"[EMERGENCY] {action.model}_{action.slave_id}: Override constraint {constraint_max} → 60 Hz"
+            )
+        elif constraint_max == 60:
+            # Use the constraint ceiling directly
+            new_action.value = constraint_max
+            new_action.reason = f"[EMERGENCY] Use constraint max: {constraint_max} Hz due to emergency condition"
+            logger.warning(f"[EMERGENCY] {action.model}_{action.slave_id}: Use constraint max: {constraint_max} Hz")
+        else:
+            # constraint_max is None or >= 60 → keep original value
+            new_action.reason = f"[EMERGENCY] Use original value: {action.value} (constraint_max={constraint_max})"
+            logger.warning(
+                f"[EMERGENCY] {action.model}_{action.slave_id}: Use original value {action.value} "
+                f"(constraint_max={constraint_max})"
+            )
+
+        return new_action
+
+    def _get_constraint_max(self, model: str, slave_id: str) -> float | None:
+        """Return the max RW_HZ constraint for the given device (instance → model default → None)."""
+        if self.constraint_config_schema is None:
+            logger.warning("[EMERGENCY] No constraint_config available for emergency override check")
+            return None
+
+        try:
+            devices = self.constraint_config_schema.devices
+            device_cfg = devices.get(model)
+            if device_cfg is None:
+                return None
+
+            instances = device_cfg.instances or {}
+            instances_config: InstanceConfig | None = instances.get(str(slave_id))
+
+            if instances_config:
+                inst_constraints = instances_config.constraints or {}
+                rw_hz_cfg = inst_constraints.get("RW_HZ")
+                if rw_hz_cfg and rw_hz_cfg.max is not None:
+                    return float(rw_hz_cfg.max)
+
+                use_defaults = instances_config.use_default_constraints
+                if not use_defaults:
+                    return None
+
+            default_constraints = device_cfg.default_constraints or {}
+            rw_hz_default = default_constraints.get("RW_HZ")
+            if rw_hz_default and rw_hz_default.max is not None:
+                return float(rw_hz_default.max)
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"[EMERGENCY] Failed to get RW_HZ max for {model}_{slave_id}: {e}")
+            return None

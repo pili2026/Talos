@@ -171,7 +171,7 @@ class LegacySenderAdapter:
         try:
             await asyncio.wait_for(self._first_snapshot_event.wait(), timeout=timeout_sec)
         except asyncio.TimeoutError:
-            logger.info("Warm-up: no snapshot within timeout; skip immediate send.")
+            logger.debug("Warm-up: no snapshot within timeout; skip immediate send.")
             return
 
         if debounce_s > 0:

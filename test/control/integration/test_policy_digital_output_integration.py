@@ -10,12 +10,27 @@ import yaml
 
 from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
+from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
 from model.control_model import ControlActionType
 
 
 class TestDigitalOutputControl:
     """Integration tests for Digital Output control functionality"""
+
+    @pytest.fixture
+    def constraint_config_schema(self):
+        return ConstraintConfigSchema(
+            **{
+                "LITEON_EVO6800": {
+                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                    "instances": {
+                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
+                        "2": {"use_default_constraints": True},
+                    },
+                }
+            }
+        )
 
     @pytest.fixture
     def digital_output_config_yaml(self):
@@ -75,9 +90,9 @@ SD400:
         return ControlConfig(version=version, root=config_dict)
 
     @pytest.fixture
-    def control_evaluator(self, control_config):
+    def control_evaluator(self, control_config, constraint_config_schema):
         """Create ControlEvaluator for DO tests"""
-        return ControlEvaluator(control_config)
+        return ControlEvaluator(control_config, constraint_config_schema)
 
     @pytest.fixture
     def mock_ima_c_device(self):

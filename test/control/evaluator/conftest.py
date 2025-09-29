@@ -2,6 +2,7 @@ from unittest.mock import Mock
 import pytest
 
 from evaluator.control_evaluator import ControlEvaluator
+from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
 
 # ----------------------
@@ -61,8 +62,23 @@ def mock_control_config():
 
 
 @pytest.fixture
-def control_evaluator(mock_control_config):
+def constraint_config_schema():
+    return ConstraintConfigSchema(
+        **{
+            "LITEON_EVO6800": {
+                "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                "instances": {
+                    "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
+                    "2": {"use_default_constraints": True},
+                },
+            }
+        }
+    )
+
+
+@pytest.fixture
+def control_evaluator(mock_control_config, constraint_config_schema):
     """Create ControlEvaluator with mocked dependencies"""
-    evaluator = ControlEvaluator(mock_control_config)
+    evaluator = ControlEvaluator(mock_control_config, constraint_config_schema)
     evaluator.composite_evaluator = Mock()
     return evaluator

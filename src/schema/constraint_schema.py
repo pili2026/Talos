@@ -13,7 +13,7 @@ class ConstraintConfig(BaseModel):
 class InstanceConfig(BaseModel):
     initialization: InitializationConfig | None = None
     constraints: dict[str, ConstraintConfig] | None = None
-    use_default_constraints: bool | None = None
+    use_default_constraints: bool | None = Field(default=True)
 
 
 class DeviceConfig(BaseModel):
