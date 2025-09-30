@@ -22,9 +22,10 @@ resend_cleanup_batch: 100
 resend_protect_recent_sec: 300
 
 fail_resend_enabled: true
-fail_resend_interval_sec: 60
-fail_resend_batch: 10
+fail_resend_interval_sec: 120
+fail_resend_batch: 3
 last_post_ok_within_sec: 300
+resend_start_delay_sec: 180  # 3 minute delay start (after 3 normal cycles)
 
 resend_cleanup_enabled: false
 

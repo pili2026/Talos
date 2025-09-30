@@ -58,11 +58,15 @@ class SenderModel(BaseModel):
         300.0, description="Protect newly persisted files from cleanup for N seconds (>=0)"
     )
 
-    # --- NEW (Phase 0 minimum keys) ---
     fail_resend_enabled: bool = Field(True, description="Enable background resend worker (no-op in Phase 0)")
     fail_resend_interval_sec: int = Field(60, description="Background resend scan interval (seconds)")
     fail_resend_batch: int = Field(10, description="Max files to process per resend cycle (>=1)")
     last_post_ok_within_sec: float = Field(300.0, description="Health window to consider cloud recently OK (seconds)")
+    resend_start_delay_sec: int = Field(
+        default=180,
+        description="Delay before starting resend worker (seconds). "
+        "Allows warmup and scheduler to establish current state visibility first.",
+    )
 
     # --- Preserve existing block ---
     sender: SenderFlag = Field(default_factory=SenderFlag)
