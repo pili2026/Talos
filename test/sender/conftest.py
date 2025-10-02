@@ -2,7 +2,7 @@ import pytest
 import yaml
 from unittest.mock import Mock
 from device_manager import AsyncDeviceManager
-from schema.sender_schema import SenderModel
+from schema.sender_schema import SenderSchema
 from sender.legacy.legacy_sender import LegacySenderAdapter
 
 
@@ -33,7 +33,7 @@ last_post_ok_within_sec: 300
 resend_start_delay_sec: 180
 """
     config_dict = yaml.safe_load(config_yaml)
-    return SenderModel.model_validate(config_dict)
+    return SenderSchema.model_validate(config_dict)
 
 
 @pytest.fixture
@@ -49,5 +49,5 @@ def sender_adapter(sender_config_minimal, mock_device_manager, tmp_path):
     """Create sender adapter with test config"""
     # Override resend_dir to use tmp_path
     sender_config_minimal.resend_dir = str(tmp_path / "resend")
-    adapter = LegacySenderAdapter(sender_config_minimal, mock_device_manager)
+    adapter = LegacySenderAdapter(sender_config_minimal, mock_device_manager, 0)
     return adapter

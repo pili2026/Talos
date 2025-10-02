@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 import yaml
 
-from schema.sender_schema import SenderModel
+from schema.sender_schema import SenderSchema
 from sender.legacy.legacy_sender import LegacySenderAdapter
 from util.time_util import TIMEZONE_INFO
 
@@ -204,7 +204,7 @@ fail_resend_batch: 10
 last_post_ok_within_sec: 300
 resend_start_delay_sec: 999
 """
-        config = SenderModel.model_validate(yaml.safe_load(config_yaml))
-        adapter = LegacySenderAdapter(config, mock_device_manager)
+        config = SenderSchema.model_validate(yaml.safe_load(config_yaml))
+        adapter = LegacySenderAdapter(config, mock_device_manager, 0)
 
         assert adapter.resend_start_delay_sec == 999

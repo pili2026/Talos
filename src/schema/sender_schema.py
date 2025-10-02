@@ -22,7 +22,7 @@ class SenderFlag(BaseModel):
 
 
 # ---------- Main config ----------
-class SenderModel(BaseModel):
+class SenderSchema(BaseModel):
     # --- Existing keys ---
     gateway_id: str
     resend_dir: str
@@ -91,7 +91,7 @@ class SenderModel(BaseModel):
 
     # ---------- Default tick_grace_sec ----------
     @model_validator(mode="after")
-    def _default_tick_grace_if_missing(cls, values: "SenderModel"):
+    def _default_tick_grace_if_missing(cls, values: "SenderSchema"):
         if values.tick_grace_sec is None:
             values["tick_grace_sec"] = 0.8  # default 0.8 seconds
         return values
@@ -122,7 +122,7 @@ class SenderModel(BaseModel):
         return float(v)
 
     @model_validator(mode="after")
-    def _check_fresh_vs_grace(cls, values: "SenderModel"):
+    def _check_fresh_vs_grace(cls, values: "SenderSchema"):
         if values.fresh_window_sec < values.tick_grace_sec:
             raise ValueError("fresh_window_sec must be >= tick_grace_sec")
         return values

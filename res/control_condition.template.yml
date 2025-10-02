@@ -59,7 +59,7 @@ SD400:
                 operator: gt
                 threshold: 40
                 hysteresis: 1
-                debounce_sec: 0.5
+                debounce_sec: 15
               - type: threshold
                 source: AIn03
                 operator: between
@@ -156,7 +156,7 @@ SD400:
             type: absolute_linear
             condition_type: threshold
             source: AIn01
-            base_freq: 60
+            base_freq: 40
             base_temp: 30
             gain_hz_per_unit: 3.3
           action:

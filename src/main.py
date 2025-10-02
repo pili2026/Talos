@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from schema.constraint_schema import ConstraintConfigSchema
+from schema.system_config_schema import SystemConfig
 from util.config_manager import ConfigManager
-from util.device_id_policy import load_device_id_policy
+from util.device_id_policy import get_policy, load_device_id_policy
 from util.factory.alert_factory import build_alert_subscriber
 from util.factory.constraint_factory import build_constraint_subscriber
 from util.factory.control_factory import build_control_subscriber
@@ -42,7 +43,9 @@ async def main(
     load_dotenv()
     install_asyncio_noise_suppressor()
 
-    system_config: dict = ConfigManager.load_yaml_file(system_config_path)
+    system_config_raw: dict = ConfigManager.load_yaml_file(system_config_path)
+    system_config = SystemConfig(**system_config_raw)
+
     load_device_id_policy(system_config)
 
     pubsub = InMemoryPubSub()
@@ -54,14 +57,13 @@ async def main(
     monitor = AsyncDeviceMonitor(
         async_device_manager=async_device_manager,
         pubsub=pubsub,
-        interval=system_config.get("MONITOR_INTERVAL_SECONDS", 10.0),
+        interval=system_config.MONITOR_INTERVAL_SECONDS,
     )
 
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
     email_notifier = EmailNotifier(mail_config_path)
 
-    enabled_sub: dict[str, bool] = system_config.get("SUBSCRIBERS", {})
-    subscriber_registry = SubscriberRegistry(enabled_sub)
+    subscriber_registry = SubscriberRegistry(system_config.SUBSCRIBERS)
 
     constraint_subscriber: ConstraintSubscriber = build_constraint_subscriber(pubsub)
     alert_evaluator_subscriber, alert_notifiers_subscriber = build_alert_subscriber(
@@ -79,7 +81,10 @@ async def main(
     )
 
     legacy_sender, sender_subscriber = build_sender_subscriber(
-        pubsub=pubsub, async_device_manager=async_device_manager, sender_config_path=sender_config_path
+        pubsub=pubsub,
+        async_device_manager=async_device_manager,
+        sender_config_path=sender_config_path,
+        series_number=system_config.DEVICE_ID_POLICY.SERIES,
     )
 
     subscriber_registry.register("MONITOR", monitor.run)

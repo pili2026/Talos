@@ -2,7 +2,7 @@ import logging
 import re
 
 from model.enum.equipment_enum import EquipmentType
-from util.device_id_policy import POLICY
+from util.device_id_policy import DeviceIdPolicy, get_policy
 
 logger = logging.getLogger("SnapshotConverter")
 
@@ -19,7 +19,8 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         except Exception:
             continue
 
-        device_id = POLICY.build_device_id(
+        policy: DeviceIdPolicy = get_policy()
+        device_id = policy.build_device_id(
             gateway_id=gateway_id, slave_id=slave_id, idx=i - 1, eq_suffix=EquipmentType.SR
         )  # ← unified generation
         data = {
@@ -48,9 +49,10 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
         "RW_ON_OFF": ("on_off", int),
     }
 
-    device_id = POLICY.build_device_id(
+    policy: DeviceIdPolicy = get_policy()
+    device_id = policy.build_device_id(
         gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.CI
-    )  # ← idx=0
+    )  # ← TODO:idx=0
     data = {}
     for raw_key, (target_key, caster) in field_map.items():
         val = snapshot.get(raw_key)
@@ -88,7 +90,8 @@ def convert_ai_module_snapshot(
             continue
 
         idx = _infer_idx_from_key(key)  # ← ensure stable idx
-        device_id = POLICY.build_device_id(
+        policy: DeviceIdPolicy = get_policy()
+        device_id = policy.build_device_id(
             gateway_id=gateway_id, slave_id=slave_id, idx=idx, eq_suffix=pin_suffix_map.get(sensor_type, "")
         )
         result.append({"DeviceID": device_id, "Data": {sensor_type: value}})
@@ -97,7 +100,8 @@ def convert_ai_module_snapshot(
 
 
 def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dict]:
-    device_id = POLICY.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SF)
+    policy: DeviceIdPolicy = get_policy()
+    device_id = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SF)
     return [
         {
             "DeviceID": device_id,
@@ -191,5 +195,6 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     mapped["AveragePowerFactor"] = round(mapped.get("AveragePowerFactor", 0.0), 3)
 
     # Device ID (reuse your convention)
-    device_id: str = POLICY.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
+    policy: DeviceIdPolicy = get_policy()
+    device_id: str = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
     return [{"DeviceID": device_id, "Data": mapped}]

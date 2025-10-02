@@ -12,10 +12,12 @@ import aiofiles
 import httpx
 
 from device_manager import AsyncDeviceManager
-from schema.sender_schema import SenderModel
+from model.enum.equipment_enum import EquipmentType
+from schema.sender_schema import SenderSchema
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 from sender.outbox_store import OutboxStore
 from sender.transport import ResendTransport
+from util.system_info.system_info_collector import SystemInfoCollector
 from util.time_util import TIMEZONE_INFO
 
 logger = logging.getLogger("LegacySender")
@@ -24,8 +26,8 @@ logger = logging.getLogger("LegacySender")
 # TODO: Need to Refactor
 class LegacySenderAdapter:
 
-    def __init__(self, sender_config_model: SenderModel, device_manager: AsyncDeviceManager):
-        self.sender_config_model = sender_config_model
+    def __init__(self, sender_config_schema: SenderSchema, device_manager: AsyncDeviceManager, series_number: int):
+        self.sender_config_model = sender_config_schema
         self.gateway_id = self._resolve_gateway_id(self.sender_config_model.gateway_id)
         self.resend_dir = self.sender_config_model.resend_dir
         self.ima_url = self.sender_config_model.cloud.ima_url
@@ -86,6 +88,16 @@ class LegacySenderAdapter:
             cleanup_batch=self.sender_config_model.resend_cleanup_batch,
             cleanup_enabled=self.sender_config_model.resend_cleanup_enabled,
         )
+
+        self.series_number = series_number
+        try:
+            self._system_info = SystemInfoCollector()
+            logger.info("[LegacySender] System info collector initialized")
+
+            self._system_info.increment_reboot_count()
+        except Exception as e:
+            logger.error(f"[LegacySender] Failed to initialize SystemInfoCollector: {e}")
+            raise
 
     # -------------------------
     # Public API
@@ -224,7 +236,7 @@ class LegacySenderAdapter:
                 sent_candidates_sampling_ts[dev_id] = snap_ts
 
         # Treat GW heartbeat also as an item to be resent
-        gw_item = self._make_gw_heartbeat(label_now)
+        gw_item = await self._make_gw_heartbeat(label_now)
         all_data.append(gw_item)
         fp_gw = await self._store.persist_item(gw_item)
         outbox_files.append(fp_gw)
@@ -447,7 +459,7 @@ class LegacySenderAdapter:
                 sent_candidates_ts[dev_id] = snap_ts
 
         # Treat GW heartbeat also as an item to be resent
-        gw_item = self._make_gw_heartbeat(label_time)
+        gw_item = await self._make_gw_heartbeat(label_time)
         all_items.append(gw_item)
         fp_gw = await self._store.persist_item(gw_item)
         outbox_files.append(fp_gw)
@@ -467,10 +479,22 @@ class LegacySenderAdapter:
             for fp in outbox_files:
                 self._store.delete(fp)
 
-    def _make_gw_heartbeat(self, at: datetime) -> dict:
+    async def _make_gw_heartbeat(self, at: datetime) -> dict:
+        cpu_temp_task = asyncio.create_task(self._system_info.get_cpu_temperature())
+        ssh_port_task = asyncio.create_task(self._system_info.get_ssh_port())
+
+        cpu_temp = await cpu_temp_task
+        ssh_port = await ssh_port_task
+
         return {
-            "DeviceID": f"{self.gateway_id}_000GW",  # TODO: GW ID need to modify by config on future
-            "Data": {"HB": 1, "report_ts": at.isoformat()},
+            "DeviceID": f"{self.gateway_id}_{self.series_number}00{EquipmentType.GW}",  # TODO: GW ID need to modify by config on future
+            "Data": {
+                "HB": 1,
+                "report_ts": at.isoformat(),
+                "SSHPort": ssh_port,
+                "WebBulbOffset": cpu_temp,
+                "Status": self._system_info.get_reboot_count(),
+            },
         }
 
     # ---------- Background resend worker ----------
