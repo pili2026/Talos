@@ -4,6 +4,7 @@ SD400:
     # VFD1 Emergency Control - Monitor AIn01 sensor
     - name: Emergency High Water Temperature Override VFD1
       code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+      # TODO: lower number is first
       priority: 151
       composite:
         any:
@@ -191,6 +192,7 @@ SD400:
               - AIn01
               - AIn02
             gain_hz_per_unit: 1.5
+            # TODO: diff is huge, step is more
           action:
             model: TECO_VFD
             slave_id: '2'
