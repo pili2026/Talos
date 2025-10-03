@@ -8,28 +8,58 @@ logger = logging.getLogger("SnapshotConverter")
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str]) -> list[dict]:
+    """
+    Convert Digital Input module to legacy format.
+    Each DI pin generates one record with Relay0 = pin value.
+
+    Note: This converter only handles Digital Input (DIn).
+    Digital Output (DOut) states are NOT uploaded directly.
+    In test environments, DO signals may be wired back to DI pins for monitoring.
+    """
     result = []
-    # TODO: Range need to refactor
-    for i in range(1, 17):  # pins 1..16 → idx = i-1 (zero-based)
-        key = f"DIn{i:02d}"
-        if key not in snapshot:
-            continue
+
+    # Dynamically match all DIn pins (DIn01, DIn02, ..., DIn99)
+    di_pattern = re.compile(r"^DIn(\d+)$")
+    di_pins = []
+
+    for key in snapshot.keys():
+        match = di_pattern.match(key)
+        if match:
+            pin_number = int(match.group(1))
+            di_pins.append((pin_number, key))
+
+    # Sort by pin number to ensure consistent order
+    di_pins.sort(key=lambda x: x[0])
+
+    if not di_pins:
+        logger.debug(f"[LegacyFormat] No DIn pins found in snapshot for {slave_id}")
+        return result
+
+    logger.debug(f"[LegacyFormat] Found {len(di_pins)} DI pins for {slave_id}: {[pin[1] for pin in di_pins]}")
+
+    for idx, (pin_num, pin_name) in enumerate(di_pins):
         try:
-            relay = int(float(snapshot[key]))
-        except Exception:
+            pin_value = int(float(snapshot[pin_name]))
+        except Exception as e:
+            logger.warning(f"[LegacyFormat] Invalid value for {pin_name}: {snapshot.get(pin_name)}, error: {e}")
             continue
 
         policy: DeviceIdPolicy = get_policy()
         device_id = policy.build_device_id(
-            gateway_id=gateway_id, slave_id=slave_id, idx=i - 1, eq_suffix=EquipmentType.SR
-        )  # ← unified generation
+            gateway_id=gateway_id,
+            slave_id=slave_id,
+            idx=idx,  # DIn01 → idx=0, DIn02 → idx=1, ...
+            eq_suffix=EquipmentType.SR,
+        )
+
         data = {
-            "Relay0": relay,
+            "Relay0": pin_value,
             "Relay1": 0,
-            "MCStatus0": int(float(snapshot.get("DOut01", "0"))),
-            "MCStatus1": int(float(snapshot.get("DOut02", "0"))),
-            "ByPass": int(float(snapshot.get("ByPass", "0"))),
+            "MCStatus0": 0,
+            "MCStatus1": 0,
+            "ByPass": 0,
         }
+
         result.append({"DeviceID": device_id, "Data": data})
 
     return result
