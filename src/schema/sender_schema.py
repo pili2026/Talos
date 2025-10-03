@@ -22,7 +22,7 @@ class SenderFlag(BaseModel):
 
 
 # ---------- Main config ----------
-class SenderModel(BaseModel):
+class SenderSchema(BaseModel):
     # --- Existing keys ---
     gateway_id: str
     resend_dir: str
@@ -58,11 +58,15 @@ class SenderModel(BaseModel):
         300.0, description="Protect newly persisted files from cleanup for N seconds (>=0)"
     )
 
-    # --- NEW (Phase 0 minimum keys) ---
     fail_resend_enabled: bool = Field(True, description="Enable background resend worker (no-op in Phase 0)")
     fail_resend_interval_sec: int = Field(60, description="Background resend scan interval (seconds)")
     fail_resend_batch: int = Field(10, description="Max files to process per resend cycle (>=1)")
     last_post_ok_within_sec: float = Field(300.0, description="Health window to consider cloud recently OK (seconds)")
+    resend_start_delay_sec: int = Field(
+        default=180,
+        description="Delay before starting resend worker (seconds). "
+        "Allows warmup and scheduler to establish current state visibility first.",
+    )
 
     # --- Preserve existing block ---
     sender: SenderFlag = Field(default_factory=SenderFlag)
@@ -87,7 +91,7 @@ class SenderModel(BaseModel):
 
     # ---------- Default tick_grace_sec ----------
     @model_validator(mode="after")
-    def _default_tick_grace_if_missing(cls, values: "SenderModel"):
+    def _default_tick_grace_if_missing(cls, values: "SenderSchema"):
         if values.tick_grace_sec is None:
             values["tick_grace_sec"] = 0.8  # default 0.8 seconds
         return values
@@ -118,7 +122,7 @@ class SenderModel(BaseModel):
         return float(v)
 
     @model_validator(mode="after")
-    def _check_fresh_vs_grace(cls, values: "SenderModel"):
+    def _check_fresh_vs_grace(cls, values: "SenderSchema"):
         if values.fresh_window_sec < values.tick_grace_sec:
             raise ValueError("fresh_window_sec must be >= tick_grace_sec")
         return values

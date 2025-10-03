@@ -32,7 +32,7 @@ class CompositeEvaluator:
 
     def evaluate_composite_node(self, node: CompositeNode, get_value: ValueGetter) -> bool:
         """Recursively evaluate whether a CompositeNode is satisfied."""
-        if getattr(node, "invalid", False):
+        if node is None:
             return False
 
         # Leaf node
@@ -66,6 +66,43 @@ class CompositeEvaluator:
             if node.operator == ConditionOperator.BETWEEN:
                 return f"difference([{srcs}] between {node.min}..{node.max}{' abs' if node.abs else ''})"
             return f"difference([{srcs}] {node.operator.value.lower()} {node.threshold}{' abs' if node.abs else ''})"
+
+        if node.any is not None:
+            # OR Logic: recursively process sub-nodes
+            sub_reasons = []
+            for sub_node in node.any:
+                sub_reason = self.build_composite_reason_summary(sub_node)
+                if sub_reason:
+                    sub_reasons.append(sub_reason)
+
+            if sub_reasons:
+                return f"({' OR '.join(sub_reasons)})"
+            else:
+                return "any(conditions)"
+
+        if node.all is not None:
+            # AND Logic: recursively process sub-nodes
+            sub_reasons = []
+            for sub_node in node.all:
+                sub_reason = self.build_composite_reason_summary(sub_node)
+                if sub_reason:
+                    sub_reasons.append(sub_reason)
+
+            if sub_reasons:
+                return f"({' AND '.join(sub_reasons)})"
+            else:
+                return "all(conditions)"
+
+        if node.not_ is not None:
+            # NOT Logic: recursively process single sub-node
+            sub_reason = self.build_composite_reason_summary(node.not_)
+            if sub_reason:
+                return f"NOT({sub_reason})"
+            else:
+                return "not(condition)"
+
+        # Unknown node type
+        return f"unknown_condition(type={node.type})"
 
     def _evaluate_threshold_leaf(self, node: CompositeNode, get_value: ValueGetter) -> bool:
         """Evaluate whether a threshold-type leaf node is satisfied."""

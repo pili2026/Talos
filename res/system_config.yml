@@ -1,5 +1,10 @@
 MONITOR_INTERVAL_SECONDS: 10.0
 
+PATHS:
+  STATE_DIR: "./logs/state"
+  LOG_DIR: "./logs"
+
+
 DEVICE_ID_POLICY:
   SERIES: 0
   WIDTH: 3

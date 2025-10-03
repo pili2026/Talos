@@ -12,10 +12,12 @@ import aiofiles
 import httpx
 
 from device_manager import AsyncDeviceManager
-from schema.sender_schema import SenderModel
+from model.enum.equipment_enum import EquipmentType
+from schema.sender_schema import SenderSchema
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 from sender.outbox_store import OutboxStore
 from sender.transport import ResendTransport
+from util.system_info.system_info_collector import SystemInfoCollector
 from util.time_util import TIMEZONE_INFO
 
 logger = logging.getLogger("LegacySender")
@@ -24,8 +26,8 @@ logger = logging.getLogger("LegacySender")
 # TODO: Need to Refactor
 class LegacySenderAdapter:
 
-    def __init__(self, sender_config_model: SenderModel, device_manager: AsyncDeviceManager):
-        self.sender_config_model = sender_config_model
+    def __init__(self, sender_config_schema: SenderSchema, device_manager: AsyncDeviceManager, series_number: int):
+        self.sender_config_model = sender_config_schema
         self.gateway_id = self._resolve_gateway_id(self.sender_config_model.gateway_id)
         self.resend_dir = self.sender_config_model.resend_dir
         self.ima_url = self.sender_config_model.cloud.ima_url
@@ -36,11 +38,11 @@ class LegacySenderAdapter:
         self.fresh_window_sec = float(self.sender_config_model.fresh_window_sec)
         self.last_known_ttl_sec = float(self.sender_config_model.last_known_ttl_sec or 0.0)
 
-        # Phase 0/2 keys
         self.fail_resend_enabled = bool(self.sender_config_model.fail_resend_enabled)
         self.fail_resend_interval_sec = int(self.sender_config_model.fail_resend_interval_sec)
         self.fail_resend_batch = int(self.sender_config_model.fail_resend_batch)
         self.last_post_ok_within_sec = float(self.sender_config_model.last_post_ok_within_sec)
+        self.resend_start_delay_sec = int(self.sender_config_model.resend_start_delay_sec)
 
         self.device_manager = device_manager
         os.makedirs(self.resend_dir, exist_ok=True)
@@ -65,12 +67,12 @@ class LegacySenderAdapter:
         self.resend_quota_mb = self.sender_config_model.resend_quota_mb
         self.fs_free_min_mb = self.sender_config_model.fs_free_min_mb
 
-        # ---- Phase 0: shared HTTP client & last success time ----
+        # ---- Shared HTTP client & last success time ----
         self._client: httpx.AsyncClient | None = None
         self._transport: ResendTransport | None = None
         self.last_post_ok_at: datetime | None = None
 
-        # ---- Phase 2: background worker state ----
+        # ---- Background worker state ----
         self._resend_task: asyncio.Task | None = None
         self._resend_wakeup: asyncio.Event = asyncio.Event()
         self._stopping: bool = False
@@ -86,6 +88,16 @@ class LegacySenderAdapter:
             cleanup_batch=self.sender_config_model.resend_cleanup_batch,
             cleanup_enabled=self.sender_config_model.resend_cleanup_enabled,
         )
+
+        self.series_number = series_number
+        try:
+            self._system_info = SystemInfoCollector()
+            logger.info("[LegacySender] System info collector initialized")
+
+            self._system_info.increment_reboot_count()
+        except Exception as e:
+            logger.error(f"[LegacySender] Failed to initialize SystemInfoCollector: {e}")
+            raise
 
     # -------------------------
     # Public API
@@ -122,7 +134,7 @@ class LegacySenderAdapter:
           - Create shared AsyncClient + Transport
           - _warmup_send_once(): wait first snapshot → send immediately
           - _scheduler_loop(): aligned periodic sending
-          - (Phase 2) _resend_worker_loop(): background resend
+          - _resend_worker_loop(): background resend
         """
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=5.0)
@@ -134,12 +146,13 @@ class LegacySenderAdapter:
         asyncio.create_task(self._warmup_send_once())
         asyncio.create_task(self._scheduler_loop())
 
-        # Phase 2: start background resend worker (optional by config)
+        # Start background resend worker (optional by config)
         if self.fail_resend_enabled:
-            self._resend_task = asyncio.create_task(self._resend_worker_loop())
+            asyncio.create_task(self._delayed_resend_start())
             logger.info(
-                f"[ResendWorker] started: interval={self.fail_resend_interval_sec}s, "
-                f"batch={self.fail_resend_batch}, health_window={self.last_post_ok_within_sec}s"
+                f"[ResendWorker] scheduled to start after {self.resend_start_delay_sec}s "
+                f"(interval={self.fail_resend_interval_sec}s, batch={self.fail_resend_batch}, "
+                f"health_window={self.last_post_ok_within_sec}s)"
             )
 
     async def stop(self):
@@ -171,7 +184,7 @@ class LegacySenderAdapter:
         try:
             await asyncio.wait_for(self._first_snapshot_event.wait(), timeout=timeout_sec)
         except asyncio.TimeoutError:
-            logger.info("Warm-up: no snapshot within timeout; skip immediate send.")
+            logger.debug("Warm-up: no snapshot within timeout; skip immediate send.")
             return
 
         if debounce_s > 0:
@@ -215,7 +228,7 @@ class LegacySenderAdapter:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
 
-                    # Phase 1: persist each item first → OutboxStore
+                    # persist each item first → OutboxStore
                     fp = await self._store.persist_item({"DeviceID": it["DeviceID"], "Data": it["Data"]})
                     outbox_files.append(fp)
 
@@ -223,12 +236,13 @@ class LegacySenderAdapter:
                 sent_candidates_sampling_ts[dev_id] = snap_ts
 
         # Treat GW heartbeat also as an item to be resent
-        gw_item = self._make_gw_heartbeat(label_now)
+        gw_item = await self._make_gw_heartbeat(label_now)
         all_data.append(gw_item)
         fp_gw = await self._store.persist_item(gw_item)
         outbox_files.append(fp_gw)
 
         payload = self._store.wrap_items_as_payload(all_data, label_now)
+        logger.info(f"Warm-up: {payload}")
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_sampling_ts:
@@ -437,7 +451,7 @@ class LegacySenderAdapter:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
 
-                    # Phase 1: persist each item first → OutboxStore
+                    # persist each item first → OutboxStore
                     fp = await self._store.persist_item({"DeviceID": it["DeviceID"], "Data": it["Data"]})
                     outbox_files.append(fp)
 
@@ -445,12 +459,13 @@ class LegacySenderAdapter:
                 sent_candidates_ts[dev_id] = snap_ts
 
         # Treat GW heartbeat also as an item to be resent
-        gw_item = self._make_gw_heartbeat(label_time)
+        gw_item = await self._make_gw_heartbeat(label_time)
         all_items.append(gw_item)
         fp_gw = await self._store.persist_item(gw_item)
         outbox_files.append(fp_gw)
 
         payload = self._store.wrap_items_as_payload(all_items, label_time)
+        logger.debug(f"Scheduled send:  {payload}")
 
         ok = await self._post_with_retry(payload)
         if ok and sent_candidates_ts:
@@ -464,13 +479,25 @@ class LegacySenderAdapter:
             for fp in outbox_files:
                 self._store.delete(fp)
 
-    def _make_gw_heartbeat(self, at: datetime) -> dict:
+    async def _make_gw_heartbeat(self, at: datetime) -> dict:
+        cpu_temp_task = asyncio.create_task(self._system_info.get_cpu_temperature())
+        ssh_port_task = asyncio.create_task(self._system_info.get_ssh_port())
+
+        cpu_temp = await cpu_temp_task
+        ssh_port = await ssh_port_task
+
         return {
-            "DeviceID": f"{self.gateway_id}_000GW",  # TODO: GW ID need to modify by config on future
-            "Data": {"HB": 1, "report_ts": at.isoformat()},
+            "DeviceID": f"{self.gateway_id}_{self.series_number}00{EquipmentType.GW}",  # TODO: GW ID need to modify by config on future
+            "Data": {
+                "HB": 1,
+                "report_ts": at.isoformat(),
+                "SSHPort": ssh_port,
+                "WebBulbOffset": cpu_temp,
+                "Status": self._system_info.get_reboot_count(),
+            },
         }
 
-    # ---------- Phase 2: background resend worker ----------
+    # ---------- Background resend worker ----------
 
     async def _resend_worker_loop(self) -> None:
         """
@@ -493,19 +520,18 @@ class LegacySenderAdapter:
 
                 # Health threshold: only clear the outbox if there was a recent successful upload
                 now = datetime.now(TIMEZONE_INFO)
-                if (
-                    self.last_post_ok_at is None
-                    or (
-                        self.last_post_ok_at
-                        and (now - self.last_post_ok_at).total_seconds() > self.last_post_ok_within_sec
-                    )
-                ) and self.last_post_ok_within_sec > 0:
-                    logger.info(
-                        "[ResendWorker] skip: no recent success within %ss (last_ok=%s)",
-                        self.last_post_ok_within_sec,
-                        self.last_post_ok_at.isoformat() if self.last_post_ok_at else "None",
-                    )
-                    continue
+                if self.last_post_ok_within_sec > 0:  # 1. Check gate enable first
+                    if self.last_post_ok_at is None:  # 2. And check success record
+                        logger.info("[ResendWorker] skip: no successful POST yet")
+                        continue
+
+                    elapsed_time: float = (now - self.last_post_ok_at).total_seconds()  # 3. Check process time
+                    if elapsed_time > self.last_post_ok_within_sec:  # 4. Compare second
+                        logger.info(
+                            f"[ResendWorker] skip: no recent success within {self.last_post_ok_within_sec}s "
+                            f"(last_ok={self.last_post_ok_at.isoformat()}, elapsed={elapsed_time:.1f}s)"
+                        )
+                        continue
 
                 try:
                     processed, success = await self._resend_process_batch(self.fail_resend_batch)
@@ -581,7 +607,7 @@ class LegacySenderAdapter:
                 continue
             except Exception as e:
                 logger.warning(f"[ResendWorker] read failed for {file_name}: {e}")
-                # 無法讀檔也要前進 retry/fail，避免卡住
+                # Even if the file cannot be loaded, you still need to retry/fail to avoid getting stuck.
                 _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
                 if failed:
                     logger.warning(f"[ResendWorker] marked .fail: {file_name}")
@@ -661,6 +687,7 @@ class LegacySenderAdapter:
                 continue
 
             payload = self._store.wrap_items_as_payload(items, ts_dt)
+            logger.info(f"[ResendWorker] {payload}")
             file_paths = group["paths"]
 
             try:
@@ -694,3 +721,16 @@ class LegacySenderAdapter:
 
         self._store.enforce_budget()
         return processed, deleted_total
+
+    async def _delayed_resend_start(self):
+        """
+        Delay resend worker startup to ensure current state is visible first.
+        This prevents "historical playback" effect when operators restart Talos.
+        """
+        logger.info(
+            f"[ResendWorker] delaying start for {self.resend_start_delay_sec}s "
+            f"to prioritize current state visibility..."
+        )
+        await asyncio.sleep(self.resend_start_delay_sec)
+        logger.info("[ResendWorker] delay completed, starting backfill now")
+        self._resend_task = asyncio.create_task(self._resend_worker_loop())

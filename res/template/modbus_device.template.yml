@@ -1,0 +1,51 @@
+shared: &shared_config
+    port: /dev/ttyUSB0
+
+devices:
+  - model: LITEON_EVO6800
+    type: inverter
+    model_file: driver/liteon_evo6800_inverter.yml
+    <<: *shared_config
+    slave_id: 1
+
+  - model: TECO_VFD
+    type: inverter
+    model_file: driver/teco_inverter.yml
+    <<: *shared_config
+    slave_id: 2
+
+  - model: SD400
+    type: ai_module
+    model_file: driver/sd_400.yml
+    <<: *shared_config
+    slave_id: 3
+
+  - model: SD500
+    type: di_module
+    model_file: driver/sd_500.yml
+    <<: *shared_config
+    slave_id: 4
+
+  - model: IMA_C
+    type: di_module
+    model_file: driver/ima_c.yml
+    <<: *shared_config
+    slave_id: 5
+
+  - model: ADAM-4117
+    type: ai_module
+    model_file: driver/adam_4117.yml
+    <<: *shared_config
+    slave_id: 6
+
+  - model: SUTO_FLOW
+    type: flow_meter
+    model_file: driver/suto_flow.yml
+    <<: *shared_config
+    slave_id: 8
+
+  - model: ADTEK_CPM10
+    type: power_meter
+    model_file: driver/adtek_cpm_10.yml
+    <<: *shared_config
+    slave_id: 9

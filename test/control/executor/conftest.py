@@ -1,102 +1,103 @@
-# test/conftest.py
-import logging
-
 import pytest
-
+from unittest.mock import Mock, AsyncMock
 from executor.control_executor import ControlExecutor
-from model.control_model import ControlActionModel
-
-# ----------------------
-# Auto fixtures
-# ----------------------
-
-
-@pytest.fixture(autouse=True)
-def _capture_control_executor_info_logs(caplog):
-    """
-    Auto-use fixture to capture INFO-level logs from ControlExecutor
-    so tests can assert on [SKIP]/[WRITE] messages.
-    """
-    caplog.set_level(logging.INFO, logger="ControlExecutor")
-
-
-# ----------------------
-# Fake classes for Executor testing
-# ----------------------
-
-
-class FakeDevice:
-    def __init__(self, model="SD400", registers=None, initial_values=None, support_onoff=True):
-        self.model = model
-        self.register_map = registers or {}
-        self._values = dict(initial_values or {})
-        self._writes = []  # log of (name, value) writes
-        self._support_onoff = support_onoff
-        self.fail_reads = set()
-        self.fail_writes = set()
-
-    def supports_on_off(self) -> bool:
-        return self._support_onoff
-
-    async def read_value(self, name: str):
-        if name in self.fail_reads:
-            raise RuntimeError("Injected read failure")
-        return self._values.get(name, 0 if name == "RW_ON_OFF" else None)
-
-    async def write_on_off(self, value: int):
-        self._writes.append(("RW_ON_OFF", value))
-        self._values["RW_ON_OFF"] = value
-
-    async def write_value(self, name: str, value):
-        if name in self.fail_writes:
-            raise RuntimeError("Injected write failure")
-        self._writes.append((name, value))
-        self._values[name] = value
-
-
-class FakeDeviceManager:
-    def __init__(self):
-        self._devices = {}
-
-    def add(self, model: str, slave_id: str, device: FakeDevice):
-        self._devices[f"{model}_{slave_id}"] = device
-
-    def get_device_by_model_and_slave_id(self, model: str, slave_id: str):
-        return self._devices.get(f"{model}_{slave_id}")
-
-
-# ----------------------
-# Common fixtures
-# ----------------------
+from model.control_model import ControlActionModel, ControlActionType
 
 
 @pytest.fixture
-def make_executor():
-    def _make():
-        fake_device_manager = FakeDeviceManager()
-        executor = ControlExecutor(fake_device_manager)
-        return executor, fake_device_manager
-
-    return _make
+def mock_device_manager():
+    """Create a mock device manager for testing"""
+    return Mock()
 
 
 @pytest.fixture
-def make_action():
-    def _make(**kwargs):
-        return ControlActionModel(**kwargs)
-
-    return _make
+def mock_device():
+    """Create a mock VFD device with common configuration"""
+    device = Mock()
+    device.model = "TECO_VFD"
+    device.register_map = {
+        "RW_HZ": {"writable": True},
+        "RW_DO": {"writable": True},
+        "RW_RESET": {"writable": True},
+        "RO_STATUS": {"writable": False},  # Read-only register for testing
+    }
+    device.read_value = AsyncMock()
+    device.write_value = AsyncMock()
+    device.write_on_off = AsyncMock()
+    device.supports_on_off = Mock(return_value=True)
+    return device
 
 
 @pytest.fixture
-def make_device():
-    """
-    Factory to create a FakeDevice for executor tests.
-    Usage:
-        dev = make_device(registers={"RW_HZ": {"writable": True}}, initial_values={"RW_HZ": 40.0})
-    """
+def mock_do_device():
+    """Create a mock DO module device with common configuration"""
+    device = Mock()
+    device.model = "DO_MODULE"
+    device.register_map = {
+        "DO_01": {"writable": True},
+        "DO_02": {"writable": True},
+        "DO_03": {"writable": True},
+        "DO_04": {"writable": True},
+        "RW_DO": {"writable": True},  # Default target
+    }
+    device.read_value = AsyncMock()
+    device.write_value = AsyncMock()
+    return device
 
-    def _make(*, model="SD400", registers=None, initial_values=None, support_onoff=True):
-        return FakeDevice(model=model, registers=registers, initial_values=initial_values, support_onoff=support_onoff)
 
-    return _make
+@pytest.fixture
+def control_executor(mock_device_manager):
+    """Create ControlExecutor instance with mocked dependencies"""
+    return ControlExecutor(mock_device_manager)
+
+
+@pytest.fixture
+def mock_control_evaluator():
+    """Create a mock ControlEvaluator for testing"""
+    evaluator = Mock()
+    evaluator.control_config = Mock()
+    evaluator.evaluate = AsyncMock(return_value=[])
+    return evaluator
+
+
+# Common action fixtures
+@pytest.fixture
+def turn_on_action():
+    """Create a TURN_ON action for testing"""
+    return ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
+
+
+@pytest.fixture
+def turn_off_action():
+    """Create a TURN_OFF action for testing"""
+    return ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_OFF)
+
+
+@pytest.fixture
+def set_frequency_action():
+    """Create a SET_FREQUENCY action for testing"""
+    return ControlActionModel(
+        model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
+    )
+
+
+@pytest.fixture
+def adjust_frequency_action():
+    """Create an ADJUST_FREQUENCY action for testing"""
+    return ControlActionModel(
+        model="TECO_VFD", slave_id="2", type=ControlActionType.ADJUST_FREQUENCY, target="RW_HZ", value=2.5
+    )
+
+
+@pytest.fixture
+def write_do_action():
+    """Create a WRITE_DO action for testing"""
+    return ControlActionModel(
+        model="DO_MODULE", slave_id="3", type=ControlActionType.WRITE_DO, target="DO_01", value=1  # Digital output pin
+    )
+
+
+@pytest.fixture
+def reset_action():
+    """Create a RESET action for testing"""
+    return ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.RESET, target="RW_RESET", value=1)

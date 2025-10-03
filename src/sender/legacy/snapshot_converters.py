@@ -2,33 +2,64 @@ import logging
 import re
 
 from model.enum.equipment_enum import EquipmentType
-from util.device_id_policy import POLICY
+from util.device_id_policy import DeviceIdPolicy, get_policy
 
 logger = logging.getLogger("SnapshotConverter")
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str]) -> list[dict]:
+    """
+    Convert Digital Input module to legacy format.
+    Each DI pin generates one record with Relay0 = pin value.
+
+    Note: This converter only handles Digital Input (DIn).
+    Digital Output (DOut) states are NOT uploaded directly.
+    In test environments, DO signals may be wired back to DI pins for monitoring.
+    """
     result = []
-    # TODO: Range need to refactor
-    for i in range(1, 17):  # pins 1..16 → idx = i-1 (zero-based)
-        key = f"DIn{i:02d}"
-        if key not in snapshot:
-            continue
+
+    # Dynamically match all DIn pins (DIn01, DIn02, ..., DIn99)
+    di_pattern = re.compile(r"^DIn(\d+)$")
+    di_pins = []
+
+    for key in snapshot.keys():
+        match = di_pattern.match(key)
+        if match:
+            pin_number = int(match.group(1))
+            di_pins.append((pin_number, key))
+
+    # Sort by pin number to ensure consistent order
+    di_pins.sort(key=lambda x: x[0])
+
+    if not di_pins:
+        logger.debug(f"[LegacyFormat] No DIn pins found in snapshot for {slave_id}")
+        return result
+
+    logger.debug(f"[LegacyFormat] Found {len(di_pins)} DI pins for {slave_id}: {[pin[1] for pin in di_pins]}")
+
+    for idx, (pin_num, pin_name) in enumerate(di_pins):
         try:
-            relay = int(float(snapshot[key]))
-        except Exception:
+            pin_value = int(float(snapshot[pin_name]))
+        except Exception as e:
+            logger.warning(f"[LegacyFormat] Invalid value for {pin_name}: {snapshot.get(pin_name)}, error: {e}")
             continue
 
-        device_id = POLICY.build_device_id(
-            gateway_id=gateway_id, slave_id=slave_id, idx=i - 1, eq_suffix=EquipmentType.SR
-        )  # ← unified generation
+        policy: DeviceIdPolicy = get_policy()
+        device_id = policy.build_device_id(
+            gateway_id=gateway_id,
+            slave_id=slave_id,
+            idx=idx,  # DIn01 → idx=0, DIn02 → idx=1, ...
+            eq_suffix=EquipmentType.SR,
+        )
+
         data = {
-            "Relay0": relay,
+            "Relay0": pin_value,
             "Relay1": 0,
-            "MCStatus0": int(float(snapshot.get("DOut01", "0"))),
-            "MCStatus1": int(float(snapshot.get("DOut02", "0"))),
-            "ByPass": int(float(snapshot.get("ByPass", "0"))),
+            "MCStatus0": 0,
+            "MCStatus1": 0,
+            "ByPass": 0,
         }
+
         result.append({"DeviceID": device_id, "Data": data})
 
     return result
@@ -48,9 +79,10 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
         "RW_ON_OFF": ("on_off", int),
     }
 
-    device_id = POLICY.build_device_id(
+    policy: DeviceIdPolicy = get_policy()
+    device_id = policy.build_device_id(
         gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.CI
-    )  # ← idx=0
+    )  # ← TODO:idx=0
     data = {}
     for raw_key, (target_key, caster) in field_map.items():
         val = snapshot.get(raw_key)
@@ -88,7 +120,8 @@ def convert_ai_module_snapshot(
             continue
 
         idx = _infer_idx_from_key(key)  # ← ensure stable idx
-        device_id = POLICY.build_device_id(
+        policy: DeviceIdPolicy = get_policy()
+        device_id = policy.build_device_id(
             gateway_id=gateway_id, slave_id=slave_id, idx=idx, eq_suffix=pin_suffix_map.get(sensor_type, "")
         )
         result.append({"DeviceID": device_id, "Data": {sensor_type: value}})
@@ -97,7 +130,8 @@ def convert_ai_module_snapshot(
 
 
 def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dict]:
-    device_id = POLICY.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SF)
+    policy: DeviceIdPolicy = get_policy()
+    device_id = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SF)
     return [
         {
             "DeviceID": device_id,
@@ -191,5 +225,6 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     mapped["AveragePowerFactor"] = round(mapped.get("AveragePowerFactor", 0.0), 3)
 
     # Device ID (reuse your convention)
-    device_id: str = POLICY.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
+    policy: DeviceIdPolicy = get_policy()
+    device_id: str = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
     return [{"DeviceID": device_id, "Data": mapped}]

@@ -2,17 +2,19 @@ import asyncio
 import logging
 from typing import Awaitable, Callable
 
+from schema.system_config_schema import SubscribersConfig
+
 logger = logging.getLogger("SubscriberRegistry")
 
 Runner = Callable[[], Awaitable[None]]
 
 
 class SubscriberRegistry:
-    def __init__(self, enabled_sub: dict[str, bool]) -> None:
+    def __init__(self, enabled_sub: SubscribersConfig) -> None:
         """
         :param enabled_sub: Switch setting from YAML/ENV
         """
-        self.enabled_sub = dict(enabled_sub)
+        self._enabled_sub = enabled_sub
         self.subs: dict[str, Runner] = {}
         self.tasks: dict[str, asyncio.Task] = {}
 
@@ -24,11 +26,14 @@ class SubscriberRegistry:
 
     async def start_enabled_sub(self) -> None:
         for name, runner in self.subs.items():
-            if not self.enabled_sub.get(name, True):
-                logger.info(f" {name} disabled")
+            if not self._enabled_sub[name]:
+                logger.info(f"[SUB] {name} is disabled, skipping")
                 continue
+
             if name in self.tasks and not self.tasks[name].done():
+                logger.warning(f"[SUB] {name} is already running, skipping")
                 continue
+
             logger.info(f"[Starting {name}")
             self.tasks[name] = asyncio.create_task(runner(), name=f"sub:{name}")
 
