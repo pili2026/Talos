@@ -60,7 +60,7 @@ def convert_snapshot_to_legacy_payload(
     try:
         device_type: str = snapshot.get("type")
         model: str = snapshot.get("model")
-        slave_id: str = snapshot.get("slave_id")  # TODO: type consistency
+        slave_id: str = snapshot.get("slave_id")
         # Shallow copy to avoid polluting upstream snapshot
         values: dict = dict(snapshot.get("values") or {})
 
@@ -70,18 +70,19 @@ def convert_snapshot_to_legacy_payload(
             return []
 
         # Special handling for inverter:
-        #   infer offline → set invstatus=9;
-        #   ensure status fields are non-negative
+        # infer offline → set invstatus=9;
+        # ensure status fields are non-negative
         if device_type == "inverter":
             looks_offline: bool = values.get("INVSTATUS") == DEFAULT_MISSING_VALUE or infer_inverter_offline_by_probes(
                 values
             )
             if looks_offline:
                 set_inverter_status_code(values, INVERTER_STATUS_OFFLINE_CODE)
-                for key in ("ERROR", "ALERT", "RW_ON_OFF"):
-                    if key in values:
-                        values[key] = coerce_non_negative_int(values[key], default=0)
+            for key in ("ERROR", "ALERT", "RW_ON_OFF"):
+                if key in values:
+                    values[key] = coerce_non_negative_int(values[key], default=0)
 
+        # Special handling for AI module: needs pin_type_map
         if device_type == "ai_module":
             device = device_manager.get_device_by_model_and_slave_id(model, slave_id)
             if not device:
@@ -94,6 +95,16 @@ def convert_snapshot_to_legacy_payload(
                 pin_type_map=device.pin_type_map,
             )
 
+        # Special handling for DI module: needs model for DOut mapping
+        if device_type == "di_module":
+            return converter_fn(
+                gateway_id=gateway_id,
+                slave_id=slave_id,
+                snapshot=values,
+                model=model,
+            )
+
+        # Default: standard 3-argument call
         return converter_fn(gateway_id, slave_id, values)
 
     except Exception as e:
