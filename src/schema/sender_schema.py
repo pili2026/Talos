@@ -29,17 +29,15 @@ class SenderSchema(BaseModel):
     cloud: CloudConfig
 
     # --- Scheduling & freshness (unit: seconds; can be float) ---
-    anchor_offset_sec: float = Field(40.0, description="Start second in each minute (0..59)")
-    send_interval_sec: float = Field(60.0, description="Interval between sends in seconds (>0)")
+    anchor_offset_sec: int = Field(
+        default=0, ge=0, le=59, description="Anchor offset for scheduler (0-59 seconds, aligns to minute boundary)"
+    )
+    send_interval_sec: int = Field(default=60, ge=1, description="Scheduler send interval in seconds")
 
     # Legacy key grace_period_sec for backward compatibility:
     # if tick_grace_sec is not provided, fallback to grace_period_sec
-    tick_grace_sec: float | None = Field(
-        1.0, description="Grace wait after label_time to collect current snapshot (seconds, >=0)"
-    )
-    fresh_window_sec: float = Field(
-        1.0, description="Max age to consider snapshot 'fresh' at label_time (seconds, >= tick_grace_sec)"
-    )
+    tick_grace_sec: float = Field(default=1.0, ge=0, description="Grace period after tick in seconds")
+    fresh_window_sec: float = Field(default=2.0, ge=0, description="Maximum delay considered 'fresh' in seconds")
 
     # --- Transmission / resend ---
     attempt_count: int = Field(2, description="Retries for a single HTTP post (>=1)")
@@ -54,13 +52,19 @@ class SenderSchema(BaseModel):
     resend_quota_mb: int = Field(256, description="Max size for resend_dir in MB (>0)")
     fs_free_min_mb: int = Field(512, description="Minimum free space (filesystem-wide) in MB (>0)")
     resend_cleanup_batch: int = Field(100, description="Max files to delete per cleanup round (>=1)")
-    resend_protect_recent_sec: float = Field(
-        300.0, description="Protect newly persisted files from cleanup for N seconds (>=0)"
-    )
 
     fail_resend_enabled: bool = Field(True, description="Enable background resend worker (no-op in Phase 0)")
     fail_resend_interval_sec: int = Field(60, description="Background resend scan interval (seconds)")
     fail_resend_batch: int = Field(10, description="Max files to process per resend cycle (>=1)")
+
+    resend_protect_recent_sec: float = Field(
+        300.0, description="Protect newly persisted files from cleanup for N seconds (>=0)"
+    )
+    resend_anchor_offset_sec: int = Field(
+        default=5,
+        ge=0,
+        description="Anchor offset for resend worker within each interval (0 to fail_resend_interval_sec-1)",
+    )
     last_post_ok_within_sec: float = Field(300.0, description="Health window to consider cloud recently OK (seconds)")
     resend_start_delay_sec: int = Field(
         default=180,
@@ -96,6 +100,22 @@ class SenderSchema(BaseModel):
             values["tick_grace_sec"] = 0.8  # default 0.8 seconds
         return values
 
+    @model_validator(mode="after")
+    def _check_fresh_vs_grace(cls, values: "SenderSchema"):
+        if values.fresh_window_sec < values.tick_grace_sec:
+            raise ValueError("fresh_window_sec must be >= tick_grace_sec")
+        return values
+
+    @model_validator(mode="after")
+    def validate_resend_anchor(cls, values: "SenderSchema"):
+        """Validate that resend_anchor_offset_sec must be less than fail_resend_interval_sec"""
+        if values.resend_anchor_offset_sec >= values.fail_resend_interval_sec:
+            raise ValueError(
+                f"resend_anchor_offset_sec ({values.resend_anchor_offset_sec}) "
+                f"must be less than fail_resend_interval_sec ({values.fail_resend_interval_sec})"
+            )
+        return values
+
     # ---------- Boundary validations ----------
     @field_validator("anchor_offset_sec")
     def _check_anchor(cls, v):
@@ -120,12 +140,6 @@ class SenderSchema(BaseModel):
         if float(v) < 0.0:
             raise ValueError(f"{field.name} must be >= 0")
         return float(v)
-
-    @model_validator(mode="after")
-    def _check_fresh_vs_grace(cls, values: "SenderSchema"):
-        if values.fresh_window_sec < values.tick_grace_sec:
-            raise ValueError("fresh_window_sec must be >= tick_grace_sec")
-        return values
 
     @field_validator("attempt_count")
     def _check_attempts(cls, v):

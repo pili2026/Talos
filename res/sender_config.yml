@@ -1,33 +1,35 @@
 gateway_id: "talosjeremy"
 resend_dir: "./logs/resend"
-
 cloud:
   ima_url: "http://imabox-server2.ima-ems.com"
 
-# Scheduling
-anchor_offset_sec: 0        # second offset to start each minute (recommended integer 0..59)
-send_interval_sec: 60        # fixed interval (seconds; integer allowed, decimals if needed)
-tick_grace_sec: 1          # grace period after tick (seconds; originally 800ms -> 0.8s)
-fresh_window_sec: 2        # max delay considered “fresh” (seconds; originally 1000ms -> 1.0s)
+# === Scheduler Timing ===
+# Scheduler sends data at the 0th second of every minute
+anchor_offset_sec: 0        
+send_interval_sec: 60        # Send once every 60 seconds
+tick_grace_sec: 1            # Grace period after each tick
+fresh_window_sec: 2          # Max delay considered as "fresh" data
 
-# Transmission / Resend
-attempt_count: 2
-max_retry: -1                # -1 means unlimited retries
-last_known_ttl_sec: 0        # disable fallback using old values (you want authenticity)
-
-# Resend space protection
-resend_quota_mb: 256
-fs_free_min_mb: 512
-resend_cleanup_batch: 100
-resend_protect_recent_sec: 300
-
+# === Resend Worker Timing ===
+# Resend Worker runs at the 5th second of every 2-minute cycle
+resend_anchor_offset_sec: 30  # Align to 30s (avoid Scheduler at 0s)
 fail_resend_enabled: true
-fail_resend_interval_sec: 120
-fail_resend_batch: 3
-last_post_ok_within_sec: 300
-resend_start_delay_sec: 180  # 3 minute delay start (after 3 normal cycles)
+fail_resend_interval_sec: 120  # Run every 120 seconds (2 minutes)
+fail_resend_batch: 3         # Max files to process per batch
+resend_start_delay_sec: 180  # Wait at least 180 seconds (3 minutes) after startup
+last_post_ok_within_sec: 300 # Health gate: only run if a success occurred within the last 5 minutes
 
-resend_cleanup_enabled: false
+# === Transmission ===
+attempt_count: 2             # Retry 2 times per send attempt
+max_retry: -1                # Infinite retries (files are never marked as .fail)
+last_known_ttl_sec: 0        # Do not backfill with stale values
+
+# === Storage Management ===
+resend_quota_mb: 256         # Quota for resend directory
+fs_free_min_mb: 512          # Minimum free filesystem space required
+resend_cleanup_batch: 100    # Max files to delete in one cleanup batch
+resend_protect_recent_sec: 300 # Protect files modified within the last 300 seconds
+resend_cleanup_enabled: false # Disable automatic cleanup
 
 sender:
   use_legacy: true
