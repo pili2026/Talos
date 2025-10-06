@@ -7,14 +7,92 @@ from util.device_id_policy import DeviceIdPolicy, get_policy
 logger = logging.getLogger("SnapshotConverter")
 
 
-def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str]) -> list[dict]:
+
+def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
+    """
+    Get corresponding DOut state for DIn pin (model-specific).
+
+    Model-specific rules:
+    - IMA_C: DInXX.MCStatus0 maps to DOutXX (same pin number)
+          DIn01 → DOut01, DIn02 → DOut02
+    - Other models: No mapping, returns 0
+
+    Args:
+        snapshot: Device snapshot containing DOut values
+        di_pin_num: DI pin number (e.g., 1 for DIn01)
+        model: Device model name
+
+    Returns:
+        DOut value (0 or 1), or 0 if not found/not applicable
+
+    Examples:
+        >>> _get_do_state_for_di({"DOut01": "1"}, 1, "IMA_C")
+        1
+        >>> _get_do_state_for_di({"DOut01": "1"}, 1, "OTHER_MODEL")
+        0
+        >>> _get_do_state_for_di({}, 1, "IMA_C")
+        0
+    """
+    if model != "IMA_C":
+        return 0
+
+    # IMA_C specific: map DInXX to DOutXX
+    do_pin_name = f"DOut{di_pin_num:02d}"
+
+    if do_pin_name not in snapshot:
+        logger.debug(f"[LegacyFormat] {do_pin_name} not found in snapshot for IMA_C")
+        return 0
+
+    try:
+        return int(float(snapshot[do_pin_name]))
+    except Exception as e:
+        logger.warning(
+            f"[LegacyFormat] Invalid DOut value for {do_pin_name}: " f"{snapshot.get(do_pin_name)}, error: {e}"
+        )
+        return 0
+
+
+def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str], model: str) -> list[dict]:
     """
     Convert Digital Input module to legacy format.
-    Each DI pin generates one record with Relay0 = pin value.
 
-    Note: This converter only handles Digital Input (DIn).
-    Digital Output (DOut) states are NOT uploaded directly.
-    In test environments, DO signals may be wired back to DI pins for monitoring.
+    Each DI pin generates one record with:
+    - Relay0: DI pin value (0/1)
+    - MCStatus0: Corresponding DO state (model-specific, see _get_do_state_for_di)
+    - Relay1, MCStatus1, ByPass: Reserved fields (currently 0)
+
+    Model-specific behavior:
+    - IMA_C: MCStatus0 populated from matching DOut pin (DIn01→DOut01, DIn02→DOut02)
+    - Others: MCStatus0 = 0 (no DO state tracking)
+
+    Note: This converter only handles Digital Input (DIn) pins.
+          Digital Output (DOut) states are NOT uploaded as separate records.
+          They are only included as MCStatus0 in DI records for specific models (IMA_C).
+
+          In test environments, DO signals may be wired back to DI pins for monitoring.
+
+    Args:
+        gateway_id: Gateway identifier
+        slave_id: Device slave ID
+        snapshot: Device snapshot containing DIn (and optionally DOut) values
+        model: Device model name for model-specific logic
+
+    Returns:
+        List of legacy format records, one per DI pin
+
+    Examples:
+        >>> snapshot = {"DIn01": "1", "DIn02": "0", "DOut01": "1", "DOut02": "0"}
+        >>> result = convert_di_module_snapshot("GW123", "5", snapshot, "IMA_C")
+        >>> len(result)
+        2
+        >>> result[0]["Data"]["Relay0"]  # DIn01 value
+        1
+        >>> result[0]["Data"]["MCStatus0"]  # DOut01 value
+        1
+        >>> result[1]["Data"]["Relay0"]  # DIn02 value
+        0
+        >>> result[1]["Data"]["MCStatus0"]  # DOut02 value
+        0
     """
     result = []
 
@@ -35,14 +113,19 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         logger.debug(f"[LegacyFormat] No DIn pins found in snapshot for {slave_id}")
         return result
 
-    logger.debug(f"[LegacyFormat] Found {len(di_pins)} DI pins for {slave_id}: {[pin[1] for pin in di_pins]}")
+    logger.debug(
+        f"[LegacyFormat] Found {len(di_pins)} DI pins for {slave_id} (model={model}): " f"{[pin[1] for pin in di_pins]}"
+    )
 
     for idx, (pin_num, pin_name) in enumerate(di_pins):
         try:
             pin_value = int(float(snapshot[pin_name]))
         except Exception as e:
-            logger.warning(f"[LegacyFormat] Invalid value for {pin_name}: {snapshot.get(pin_name)}, error: {e}")
+            logger.warning(f"[LegacyFormat] Invalid value for {pin_name}: " f"{snapshot.get(pin_name)}, error: {e}")
             continue
+
+        # Model-specific DO state mapping
+        mc_status0 = _get_do_state_for_di(snapshot, pin_num, model)
 
         policy: DeviceIdPolicy = get_policy()
         device_id = policy.build_device_id(
@@ -55,7 +138,7 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         data = {
             "Relay0": pin_value,
             "Relay1": 0,
-            "MCStatus0": 0,
+            "MCStatus0": mc_status0,  # Now populated for IMA_C
             "MCStatus1": 0,
             "ByPass": 0,
         }

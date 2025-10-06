@@ -52,9 +52,17 @@ class TestDelayedResendStart:
     async def test_when_delay_elapsed_then_resend_worker_starts(self, sender_adapter):
         """Test that resend worker starts after delay"""
         sender_adapter.resend_start_delay_sec = 0.5
+        sender_adapter.fail_resend_interval_sec = 2
+        sender_adapter.resend_anchor_offset_sec = 0
 
+        start_time = datetime.now(TIMEZONE_INFO)
         await sender_adapter.start()
-        await asyncio.sleep(0.6)
+
+        min_start = start_time + timedelta(seconds=0.5)
+        next_aligned = sender_adapter._compute_next_resend_time(min_start)
+        expected_wait = (next_aligned - start_time).total_seconds()
+
+        await asyncio.sleep(expected_wait + 0.2)
 
         assert sender_adapter._resend_task is not None
         assert not sender_adapter._resend_task.done()

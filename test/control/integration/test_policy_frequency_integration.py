@@ -50,7 +50,7 @@ SD400:
         # DISCRETE_SETPOINT - Fixed value control
         - name: "High Temperature Shutdown"
           code: "HIGH_TEMP"
-          priority: 80
+          priority: 12
           composite:
             any:
               - type: threshold
@@ -77,7 +77,7 @@ SD400:
         # ABSOLUTE_LINEAR - Single temperature mapping
         - name: "Environment Temperature Linear Control"
           code: "LIN_ABS01"
-          priority: 85
+          priority: 11
           composite:
             any:
               - type: threshold
@@ -101,7 +101,7 @@ SD400:
         # INCREMENTAL_LINEAR - Temperature difference adjustment
         - name: "Supply-Return Temperature Difference Control"
           code: "LIN_INC01"
-          priority: 90
+          priority: 10
           composite:
             any:
               - type: difference

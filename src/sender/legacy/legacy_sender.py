@@ -90,6 +90,8 @@ class LegacySenderAdapter:
         )
 
         self.series_number = series_number
+        self.resend_anchor_offset_sec = int(sender_config_schema.resend_anchor_offset_sec)
+
         try:
             self._system_info = SystemInfoCollector()
             logger.info("[LegacySender] System info collector initialized")
@@ -501,50 +503,72 @@ class LegacySenderAdapter:
 
     async def _resend_worker_loop(self) -> None:
         """
-        Background resend loop:
-          - Health threshold: only run if now - last_post_ok_at <= last_post_ok_within_sec
-          - Each round processes at most fail_resend_batch files (FIFO: oldest first)
-          - Interval: fail_resend_interval_sec, but can be woken up immediately by _resend_wakeup
+        Background resend loop with time alignment.
+
+        Features:
+        - Each execution is aligned to `resend_anchor_offset_sec`
+        - Can be woken up early by `_resend_wakeup` (used to quickly drain backlog after a success)
+        - Health gate protection (only runs if there has been a recent successful upload)
         """
         try:
             while not self._stopping:
+                # Compute the next aligned run time
+                now = datetime.now(TIMEZONE_INFO)
+                next_run = self._compute_next_resend_time(now)
+                wait_sec = (next_run - now).total_seconds()
+
+                logger.debug(f"[ResendWorker] next run at {next_run.strftime('%H:%M:%S')}, " f"waiting {wait_sec:.1f}s")
+
+                # Wait until the next run time (or get woken up earlier)
                 try:
-                    await asyncio.wait_for(self._resend_wakeup.wait(), timeout=self.fail_resend_interval_sec)
+                    await asyncio.wait_for(self._resend_wakeup.wait(), timeout=wait_sec)
+                    logger.debug("[ResendWorker] woken up early by success signal")
                 except asyncio.TimeoutError:
-                    pass  # Normal timeout, continue execution as usual
+                    pass  # Normal timeout, reached scheduled run
                 finally:
                     self._resend_wakeup.clear()
 
                 if self._stopping:
                     break
 
-                # Health threshold: only clear the outbox if there was a recent successful upload
+                # === Health Gate Check ===
                 now = datetime.now(TIMEZONE_INFO)
-                if self.last_post_ok_within_sec > 0:  # 1. Check gate enable first
-                    if self.last_post_ok_at is None:  # 2. And check success record
+                if self.last_post_ok_within_sec > 0:
+                    if self.last_post_ok_at is None:
                         logger.info("[ResendWorker] skip: no successful POST yet")
                         continue
 
-                    elapsed_time: float = (now - self.last_post_ok_at).total_seconds()  # 3. Check process time
-                    if elapsed_time > self.last_post_ok_within_sec:  # 4. Compare second
+                    elapsed_time = (now - self.last_post_ok_at).total_seconds()
+                    if elapsed_time > self.last_post_ok_within_sec:
                         logger.info(
-                            f"[ResendWorker] skip: no recent success within {self.last_post_ok_within_sec}s "
-                            f"(last_ok={self.last_post_ok_at.isoformat()}, elapsed={elapsed_time:.1f}s)"
+                            f"[ResendWorker] skip: no recent success within "
+                            f"{self.last_post_ok_within_sec}s "
+                            f"(last_ok={self.last_post_ok_at.strftime('%H:%M:%S')}, "
+                            f"elapsed={elapsed_time:.1f}s)"
                         )
                         continue
 
+                # === Execute Resend Batch ===
                 try:
                     processed, success = await self._resend_process_batch(self.fail_resend_batch)
+
                     if processed == 0:
+                        logger.debug("[ResendWorker] no files to process")
                         continue
+
+                    logger.info(f"[ResendWorker] processed {processed} files, " f"succeeded {success}")
+
+                    # If there were successes, wake up early for the next round (to drain backlog faster)
                     if success > 0:
                         self._resend_wakeup.set()
+
                 except Exception as e:
                     logger.warning(f"[ResendWorker] batch error: {e}")
+
         except asyncio.CancelledError:
             logger.info("[ResendWorker] cancelled")
         except Exception as e:
-            logger.error(f"[ResendWorker] crashed: {e}")
+            logger.error(f"[ResendWorker] crashed: {e}", exc_info=True)
 
     def _parse_iso_timestamp(self, timestamp_str: str | None) -> datetime | None:
         if not timestamp_str:
@@ -724,13 +748,78 @@ class LegacySenderAdapter:
 
     async def _delayed_resend_start(self):
         """
-        Delay resend worker startup to ensure current state is visible first.
-        This prevents "historical playback" effect when operators restart Talos.
+        Delayed start for Resend Worker, aligned to the configured anchor offset.
+
+        Flow:
+        1. Compute the earliest allowed start time = now + resend_start_delay_sec
+        2. Find the first aligned point after that earliest time
+        3. Wait until the aligned point
+        4. Start the worker loop
         """
+        now = datetime.now(TIMEZONE_INFO)
+
+        # Compute the earliest allowed start time
+        min_start_time = now + timedelta(seconds=self.resend_start_delay_sec)
+
+        # Compute the next aligned time
+        next_aligned = self._compute_next_resend_time(min_start_time)
+
+        wait_sec = (next_aligned - now).total_seconds()
+
         logger.info(
-            f"[ResendWorker] delaying start for {self.resend_start_delay_sec}s "
-            f"to prioritize current state visibility..."
+            f"[ResendWorker] scheduled start at {next_aligned.strftime('%Y-%m-%d %H:%M:%S')} "
+            f"(anchor={self.resend_anchor_offset_sec}s, "
+            f"interval={self.fail_resend_interval_sec}s, "
+            f"min_delay={self.resend_start_delay_sec}s, "
+            f"waiting {wait_sec:.1f}s)"
         )
-        await asyncio.sleep(self.resend_start_delay_sec)
-        logger.info("[ResendWorker] delay completed, starting backfill now")
+
+        await asyncio.sleep(wait_sec)
+
+        logger.info(f"[ResendWorker] starting now at {datetime.now(TIMEZONE_INFO).strftime('%H:%M:%S')}")
         self._resend_task = asyncio.create_task(self._resend_worker_loop())
+
+    def _compute_next_resend_time(self, after: datetime) -> datetime:
+        """
+        Compute the next time aligned to resend_anchor_offset_sec.
+
+        Args:
+            after: The first aligned point strictly after this timestamp
+
+        Returns:
+            Aligned datetime (tz-aware)
+
+        Examples:
+            >>> # resend_anchor_offset_sec = 5, fail_resend_interval_sec = 120
+            >>> # after = 2025-01-01 12:02:30
+            >>> result = _compute_next_resend_time(after)
+            >>> # result = 2025-01-01 12:03:05
+
+            >>> # after = 2025-01-01 12:03:10
+            >>> result = _compute_next_resend_time(after)
+            >>> # result = 2025-01-01 12:05:05
+        """
+        interval = self.fail_resend_interval_sec
+        anchor = self.resend_anchor_offset_sec
+
+        # Compute relative to epoch (ensures consistent timezone)
+        epoch = datetime(1970, 1, 1, tzinfo=TIMEZONE_INFO)
+        after_tz = after.astimezone(TIMEZONE_INFO) if after.tzinfo else after.replace(tzinfo=TIMEZONE_INFO)
+
+        # Calculate elapsed seconds since epoch
+        elapsed_sec = int((after_tz - epoch).total_seconds())
+
+        # Determine the current cycle (starting from 0)
+        # Example: elapsed=245, anchor=5, interval=120
+        #   -> cycle = (245 - 5) // 120 = 240 // 120 = 2
+        cycle = (elapsed_sec - anchor) // interval
+
+        # Compute the next aligned point (cycle + 1)
+        next_aligned_sec = (cycle + 1) * interval + anchor
+        next_aligned = epoch + timedelta(seconds=next_aligned_sec)
+
+        # Ensure result is strictly later than `after` (handle edge cases)
+        while next_aligned <= after_tz:
+            next_aligned += timedelta(seconds=interval)
+
+        return next_aligned

@@ -1,11 +1,16 @@
+# Control Priority Reference:
+#  0–9   : Emergency Control (critical)
+#  10–49 : High Priority (safety / key systems)
+#  50–99 : Normal Control (routine optimization)
+#  100+  : Low Priority (background)
+
 version: 1.0.0
 SD400:
   default_controls: 
     # VFD1 Emergency Control - Monitor AIn01 sensor
     - name: Emergency High Water Temperature Override VFD1
       code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-      # TODO: lower number is first
-      priority: 151
+      priority: 0
       composite:
         any:
           - type: threshold
@@ -27,7 +32,7 @@ SD400:
     # VFD2 Emergency Control - Monitor AIn02 sensor
     - name: Emergency High Water Temperature Override VFD2
       code: EMERGENCY_HIGH_WATER_TEMP_VFD2
-      priority: 150
+      priority: 1
       composite:
         any:
           - type: threshold
@@ -47,12 +52,135 @@ SD400:
         emergency_override: true
 
   instances:
+    "2":
+      use_default_controls: true
+      controls:
+        # ========================================
+        # Section 1: Large Temperature Difference - Emergency Adjustment (Highest Priority)
+        # ========================================
+        - name: "Large Temperature Difference - Emergency Adjustment"
+          code: "TEMP_DIFF_LARGE"
+          priority: 0  # Highest priority (smaller number = higher priority)
+          composite:
+            any:
+              - type: difference
+                sources:
+                  - AIn01  # Supply water temperature
+                  - AIn02  # Return water temperature
+                operator: gt
+                threshold: 8.0  # Trigger when ΔT > 8°C
+                abs: false
+                hysteresis: 1.5  # Enter at 8.0°C, exit at 6.5°C (prevent frequent switching)
+                debounce_sec: 3.0  # Must persist for 3 seconds (fast response but avoids noise)
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources:
+              - AIn01
+              - AIn02
+            gain_hz_per_unit: 5.0  # Large step size: ±5Hz per adjustment
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: adjust_frequency
+            target: RW_HZ
+
+        # ========================================
+        # Section 2: Moderate Temperature Difference - Standard Adjustment
+        # ========================================
+        - name: "Moderate Temperature Difference - Standard Adjustment"
+          code: "TEMP_DIFF_MODERATE"
+          priority: 30  # Medium priority
+          composite:
+            any:
+              - type: difference
+                sources:
+                  - AIn01
+                  - AIn02
+                operator: gt
+                threshold: 4.0  # Trigger when ΔT > 4°C
+                abs: false
+                hysteresis: 0.8  # Enter at 4.0°C, exit at 3.2°C
+                debounce_sec: 10.0  # Must persist for 10 seconds (stable control)
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources:
+              - AIn01
+              - AIn02
+            gain_hz_per_unit: 2.0  # Medium step size: ±2Hz per adjustment
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: adjust_frequency
+            target: RW_HZ
+
+        # ========================================
+        # Section 3: Small Temperature Difference - Fine Tuning
+        # ========================================
+        - name: "Small Temperature Difference - Fine Tuning"
+          code: "TEMP_DIFF_SMALL"
+          priority: 50  # Lower priority
+          composite:
+            any:
+              - type: difference
+                sources:
+                  - AIn01
+                  - AIn02
+                operator: gt
+                threshold: 1.5  # Trigger when ΔT > 1.5°C
+                abs: false
+                hysteresis: 0.3  # Enter at 1.5°C, exit at 1.2°C
+                debounce_sec: 20.0  # Must persist for 20 seconds (avoid over-adjustment)
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources:
+              - AIn01
+              - AIn02
+            gain_hz_per_unit: 0.5  # Small step size: ±0.5Hz per adjustment
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: adjust_frequency
+            target: RW_HZ
+
+        # ========================================
+        # Optional: Negative Temperature Difference Handling (Frequency Reduction)
+        # ========================================
+        - name: "Negative Temperature Difference - Reduce Frequency"
+          code: "TEMP_DIFF_NEGATIVE"
+          priority: 60
+          composite:
+            any:
+              - type: difference
+                sources:
+                  - AIn01
+                  - AIn02
+                operator: lt
+                threshold: -2.0  # Trigger when ΔT < -2°C (return water is warmer than supply)
+                abs: false
+                hysteresis: 0.5
+                debounce_sec: 30.0  # Longer confirmation time (frequency reduction should be cautious)
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources:
+              - AIn01
+              - AIn02
+            gain_hz_per_unit: 1.0  # Negative ΔT will produce negative adjustment automatically
+          action:
+            model: TECO_VFD
+            slave_id: "2"
+            type: adjust_frequency
+            target: RW_HZ
+
     '3':
-      use_default_controls: true  # 啟用 default_controls
+      use_default_controls: true  # Enable default_controls
       controls:
         - name: High Temperature Set Frequency
           code: HIGH_TEMP_FREQ
-          priority: 80
+          priority: 13
           composite:
             any:
               - type: threshold
@@ -78,7 +206,7 @@ SD400:
             
         - name: High Temperature Turn On DOut01
           code: HIGH_TEMP_DO01_ON
-          priority: 85
+          priority: 12
           composite:
             any:
               - type: threshold
@@ -94,7 +222,7 @@ SD400:
             
         - name: Low Temperature Turn Off DOut02
           code: LOW_TEMP_DO02_OFF
-          priority: 90
+          priority: 11
           composite:
             any:
               - type: threshold
@@ -110,7 +238,7 @@ SD400:
             
         - name: Low Temperature Turn Off Inverter
           code: LOW_TEMP_VFD_OFF
-          priority: 95
+          priority: 10
           composite:
             any:
               - type: threshold
@@ -125,7 +253,7 @@ SD400:
             
         - name: HIGH Temperature Turn On Inverter
           code: HIGH_TEMP_VFD_ON
-          priority: 75
+          priority: 14
           composite:
             any:
               - type: threshold
@@ -144,7 +272,7 @@ SD400:
             
         - name: Environment Temperature Linear Control
           code: LIN_ABS01
-          priority: 85
+          priority: 12
           composite:
             any:
               - type: threshold
@@ -168,7 +296,7 @@ SD400:
             
         - name: Supply-Return Temperature Difference Control
           code: LIN_INC01
-          priority: 90
+          priority: 11
           composite:
             any:
               - type: difference

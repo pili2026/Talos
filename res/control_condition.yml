@@ -4,7 +4,7 @@ SD400:
     # VFD1 Emergency Control - Monitor AIn01 sensor
     - name: Emergency High Water Temperature Override VFD1
       code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-      priority: 151
+      priority: 0
       composite:
         any:
           - type: threshold
@@ -26,7 +26,7 @@ SD400:
     # VFD2 Emergency Control - Monitor AIn02 sensor
     - name: Emergency High Water Temperature Override VFD2
       code: EMERGENCY_HIGH_WATER_TEMP_VFD2
-      priority: 150
+      priority: 1
       composite:
         any:
           - type: threshold
@@ -47,11 +47,11 @@ SD400:
 
   instances:
     '3':
-      use_default_controls: false
+      use_default_controls: true
       controls:
         - name: Supply-Return Temperature Difference Control
           code: LIN_INC01
-          priority: 90
+          priority: 10
           composite:
             any:
               - type: difference

@@ -325,9 +325,9 @@ SD400:
     '3':
       use_default_controls: false
       controls:
-        - name: Emergency VFD1 Priority 150
-          code: EMERGENCY_VFD1_P150
-          priority: 150
+        - name: Emergency VFD1 Priority 1
+          code: EMERGENCY_VFD1_P1
+          priority: 1
           composite:
             any:
               - type: threshold
@@ -344,9 +344,9 @@ SD400:
             value: 55
             emergency_override: true
             
-        - name: Emergency VFD1 Priority 151
-          code: EMERGENCY_VFD1_P151
-          priority: 151
+        - name: Emergency VFD1 Priority 0
+          code: EMERGENCY_VFD1_P0
+          priority: 0
           composite:
             any:
               - type: threshold
@@ -378,8 +378,8 @@ SD400:
         # Assert: Should select priority 151
         assert len(actions) == 1
         action = actions[0]
-        assert "EMERGENCY_VFD1_P151" in action.reason
-        assert "priority=151" in action.reason
+        assert "EMERGENCY_VFD1_P0" in action.reason
+        assert "priority=0" in action.reason
         assert action.value == 60
 
     def test_when_emergency_and_normal_control_both_triggered_then_emergency_wins(
@@ -396,7 +396,7 @@ SD400:
       controls:
         - name: Normal High Temperature Control
           code: NORMAL_HIGH_TEMP
-          priority: 90
+          priority: 10
           composite:
             any:
               - type: threshold
@@ -414,7 +414,7 @@ SD400:
             
         - name: Emergency High Water Temperature Override
           code: EMERGENCY_HIGH_WATER_TEMP
-          priority: 151
+          priority: 0
           composite:
             any:
               - type: threshold

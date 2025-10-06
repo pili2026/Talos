@@ -183,9 +183,11 @@ class ControlConfig(BaseModel):
         deduplicated_controls: list[ControlConditionModel] = list(reversed(deduped_reversed))  # 4) restore order
 
         if dropped_rules:
-            logger.warning(
-                f"[{model}_{instance_id}] duplicate priorities resolved; kept later rule, "
-                f"dropped={sorted(dropped_rules)}"
+            logger.error(
+                f"[{model}_{instance_id}] PRIORITY CONFLICT: "
+                f"instance controls override default controls at same priority. "
+                f"Dropped rules: {sorted(dropped_rules)}. "
+                f"To fix: use different priorities or set use_default_controls=false"
             )
 
         return deduplicated_controls
