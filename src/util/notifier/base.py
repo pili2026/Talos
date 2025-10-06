@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from model.alert_model import AlertMessageModel
+from schema.alert_schema import AlertMessageModel
 
 
 class BaseNotifier(ABC):

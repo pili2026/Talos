@@ -1,7 +1,7 @@
 import pytest
 from time_control.conftest import _build_datetime
 
-from model.control_model import ControlActionType
+from schema.control_condition_schema import ControlActionType
 
 
 @pytest.mark.parametrize(

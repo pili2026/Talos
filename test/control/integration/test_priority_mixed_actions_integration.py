@@ -10,7 +10,7 @@ import yaml
 from evaluator.control_evaluator import ControlEvaluator
 from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
-from model.control_model import ControlActionType
+from schema.control_condition_schema import ControlActionType
 
 
 class TestMixedActionsPriority:

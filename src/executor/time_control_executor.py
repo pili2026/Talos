@@ -1,7 +1,7 @@
 import logging
 
 from device.generic.capability import CapabilityResolver, OnOffBinding
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 
@@ -13,7 +13,7 @@ class TimeControlExecutor:
         self.pubsub = pubsub
         self.cap = capability_resolver
 
-    async def _publish(self, action: ControlActionModel):
+    async def _publish(self, action: ControlActionSchema):
         await self.pubsub.publish(PubSubTopic.CONTROL, action)
 
     async def send_control(self, device_id, model, slave_id, action_type, reason):
@@ -25,7 +25,7 @@ class TimeControlExecutor:
         # 1) Supports on/off → send as-is
         if self.cap.supports_on_off(model, slave_id):
             await self._publish(
-                ControlActionModel(
+                ControlActionSchema(
                     model=model,
                     slave_id=slave_id,
                     type=action_type,
@@ -48,7 +48,7 @@ class TimeControlExecutor:
             value: int = binding.on if action_type == ControlActionType.TURN_ON else binding.off
             for target in binding.targets:
                 await self._publish(
-                    ControlActionModel(
+                    ControlActionSchema(
                         model=model,
                         slave_id=slave_id,
                         type=ControlActionType.WRITE_DO,

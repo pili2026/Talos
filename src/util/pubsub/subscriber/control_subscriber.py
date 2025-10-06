@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
-from model.control_model import ControlActionModel
+from schema.control_condition_schema import ControlActionSchema
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 
@@ -27,7 +27,7 @@ class ControlSubscriber:
                 slave_id: str = message["slave_id"]
                 snapshot: dict = message["values"]
 
-                control_actions: list[ControlActionModel] = self.evaluator.evaluate(
+                control_actions: list[ControlActionSchema] = self.evaluator.evaluate(
                     model=model, slave_id=slave_id, snapshot=snapshot
                 )
                 if control_actions:

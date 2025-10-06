@@ -6,12 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from model.control_composite import CompositeNode
 from model.enum.condition_enum import ControlActionType
-from model.policy_model import PolicyConfig
+from schema.policy_schema import PolicyConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ControlActionModel(BaseModel):
+class ControlActionSchema(BaseModel):
     """
     Control Action Configuration Model
 
@@ -54,7 +54,7 @@ class ControlActionModel(BaseModel):
 
     # ---- Validation rules (by action type) ----
     @model_validator(mode="after")
-    def validate_by_action_type(self) -> ControlActionModel:
+    def validate_by_action_type(self) -> ControlActionSchema:
         """Validate action configuration based on action type"""
         # Skip validation if type is None (will be filtered out at runtime)
         if self.type is None:
@@ -101,7 +101,7 @@ class ControlActionModel(BaseModel):
 
 
 # --- Control Condition Model ---
-class ControlConditionModel(BaseModel):
+class ConditionSchema(BaseModel):
     """
     Control Condition Configuration Model
 
@@ -124,7 +124,7 @@ class ControlConditionModel(BaseModel):
 
     name: str
     code: str
-    action: ControlActionModel | None = None  # Optional for soft validation
+    action: ControlActionSchema | None = None  # Optional for soft validation
     priority: int = 0
     composite: CompositeNode | None = Field(default=None)
     policy: PolicyConfig | None = Field(default=None)

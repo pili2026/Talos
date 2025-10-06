@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from model.alert_model import AlertConditionModel, ModelConfig
+from schema.alert_schema import AlertConditionModel, ModelConfig
 
 
 class AlertConfig(BaseModel):

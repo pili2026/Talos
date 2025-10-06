@@ -2,9 +2,9 @@ import logging
 from functools import partial
 
 from evaluator.composite_evaluator import CompositeEvaluator
-from model.control_model import ControlActionModel, ControlConditionModel
+from schema.control_condition_schema import ControlActionSchema, ConditionSchema
 from model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
-from model.policy_model import PolicyConfig
+from schema.policy_schema import PolicyConfig
 from schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
 from schema.control_config_schema import ControlConfig
 
@@ -23,11 +23,11 @@ class ControlEvaluator:
         """Fetch a numeric value by key from the given snapshot."""
         return snapshot.get(key)
 
-    def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionModel]:
+    def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionSchema]:
         """Evaluate control conditions and return the highest priority matching action"""
         conditions = self.control_config.get_control_list(model, slave_id)
 
-        best_condition: ControlConditionModel | None = None
+        best_condition: ConditionSchema | None = None
         best_priority: int | None = None
 
         get_value = partial(self.get_snapshot_value, snapshot)
@@ -51,8 +51,8 @@ class ControlEvaluator:
         if best_condition is None:
             return []
 
-        selected: ControlConditionModel = best_condition
-        action: ControlActionModel = selected.action
+        selected: ConditionSchema = best_condition
+        action: ControlActionSchema = selected.action
 
         if not action.model or not action.slave_id:
             logger.warning(
@@ -61,9 +61,9 @@ class ControlEvaluator:
             return []
 
         if action.emergency_override:
-            processed_action: ControlActionModel | None = self._handle_emergency_override(action)
+            processed_action: ControlActionSchema | None = self._handle_emergency_override(action)
         else:
-            processed_action: ControlActionModel | None = self._apply_policy_to_action(
+            processed_action: ControlActionSchema | None = self._apply_policy_to_action(
                 condition=selected, action=action, snapshot=snapshot
             )
 
@@ -101,8 +101,8 @@ class ControlEvaluator:
         return [processed_action]
 
     def _apply_policy_to_action(
-        self, condition: ControlConditionModel, action: ControlActionModel, snapshot: dict[str, float]
-    ) -> ControlActionModel | None:
+        self, condition: ConditionSchema, action: ControlActionSchema, snapshot: dict[str, float]
+    ) -> ControlActionSchema | None:
         """Apply policy processing to calculate dynamic action values"""
         if condition.policy is None:
             return action
@@ -144,8 +144,8 @@ class ControlEvaluator:
             return None
 
     def _apply_absolute_linear_policy(
-        self, action: ControlActionModel, policy: PolicyConfig, snapshot: dict[str, float]
-    ) -> ControlActionModel | None:
+        self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
+    ) -> ControlActionSchema | None:
         # Single temperature value control
         if not policy.source:
             logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing source")
@@ -173,8 +173,8 @@ class ControlEvaluator:
         return new_action
 
     def _apply_incremental_linear_policy(
-        self, action: ControlActionModel, policy: PolicyConfig, snapshot: dict[str, float]
-    ) -> ControlActionModel | None:
+        self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
+    ) -> ControlActionSchema | None:
         # Temperature difference control
         condition_value = self._get_condition_value(policy, snapshot)  # Calculate temperature difference
         if condition_value is None:
@@ -192,7 +192,7 @@ class ControlEvaluator:
         logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
         return new_action
 
-    def _handle_emergency_override(self, action: ControlActionModel) -> ControlActionModel | None:
+    def _handle_emergency_override(self, action: ControlActionSchema) -> ControlActionSchema | None:
         """Handle emergency override logic: ensure the target can reach 60 Hz if needed.
 
         Rules:

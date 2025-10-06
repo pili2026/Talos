@@ -6,7 +6,7 @@ Tests the emergency override logic that bypasses constraints for safety
 import pytest
 from unittest.mock import Mock
 from evaluator.control_evaluator import ControlEvaluator
-from model.control_model import ControlActionModel
+from schema.control_condition_schema import ControlActionSchema
 from schema.constraint_schema import ConstraintConfigSchema
 
 
@@ -26,7 +26,7 @@ class TestEmergencyOverrideLogic:
 
         evaluator = ControlEvaluator(Mock(), constraint_config)
 
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type="set_frequency", target="RW_HZ", value=60, emergency_override=True
         )
 
@@ -46,7 +46,7 @@ class TestEmergencyOverrideLogic:
 
         evaluator = ControlEvaluator(Mock(), constraint_config)
 
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type="set_frequency", target="RW_HZ", value=60, emergency_override=True
         )
 
@@ -64,7 +64,7 @@ class TestEmergencyOverrideLogic:
 
         evaluator = ControlEvaluator(Mock(), constraint_config)
 
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type="set_frequency", target="RW_HZ", value=60, emergency_override=True
         )
 

@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 import pytest
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorSetFrequency:
@@ -27,7 +27,7 @@ class TestControlExecutorSetFrequency:
     ):
         """Test that SET_FREQUENCY uses default target RW_HZ when target is None"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.SET_FREQUENCY,
@@ -79,7 +79,7 @@ class TestControlExecutorSetFrequency:
     ):
         """Test that SET_FREQUENCY is skipped when target register doesn't exist"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.SET_FREQUENCY,
@@ -102,7 +102,7 @@ class TestControlExecutorSetFrequency:
         """Test that SET_FREQUENCY is skipped when value is truly None (using Mock)"""
         # Arrange - Use Mock to force None value since Pydantic converts None to default
 
-        action = Mock(spec=ControlActionModel)
+        action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
         action.slave_id = "2"
         action.type = ControlActionType.SET_FREQUENCY
@@ -123,7 +123,7 @@ class TestControlExecutorSetFrequency:
     ):
         """Test that SET_FREQUENCY with 0.0 value executes normally (since None gets converted to 0.0)"""
         # Arrange - This reflects the actual behavior when user sets value=None
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.SET_FREQUENCY,
@@ -160,7 +160,7 @@ class TestControlExecutorSetFrequency:
     ):
         """Test that SET_FREQUENCY tolerance check works correctly for numeric values"""
         # Arrange - current value very close but not exactly equal
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
         )
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device

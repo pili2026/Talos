@@ -3,7 +3,7 @@ from typing import Optional
 
 from device.generic.generic_device import AsyncGenericModbusDevice
 from device_manager import AsyncDeviceManager
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 from model.device_constant import REG_RW_ON_OFF
 
 
@@ -24,7 +24,7 @@ class ControlExecutor:
         self.device_manager = device_manager
         self.logger = logging.getLogger(__class__.__name__)
 
-    async def execute(self, action_list: list[ControlActionModel]):
+    async def execute(self, action_list: list[ControlActionSchema]):
         for action in action_list:
             # Basic context check
             if not action.model or not action.slave_id:
@@ -218,6 +218,6 @@ class ControlExecutor:
             return False
 
     @staticmethod
-    def _get_reason_suffix(action: ControlActionModel) -> str:
+    def _get_reason_suffix(action: ControlActionSchema) -> str:
         """Return reason string prefixed with a space, if present."""
         return f" {action.reason}" if getattr(action, "reason", None) else ""

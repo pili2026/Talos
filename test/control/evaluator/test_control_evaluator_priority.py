@@ -2,7 +2,7 @@ import pytest
 import logging
 from unittest.mock import Mock
 from evaluator.control_evaluator import ControlEvaluator
-from model.control_model import ControlActionModel, ControlConditionModel
+from schema.control_condition_schema import ControlActionSchema, ConditionSchema
 
 
 class TestControlEvaluatorPriorityHandling:
@@ -277,7 +277,7 @@ class TestControlEvaluatorPriorityHandling:
     # Helper method to create mock conditions
     def _create_mock_condition(self, code: str, name: str, priority: int) -> Mock:
         """Create a mock condition with basic setup"""
-        condition = Mock(spec=ControlConditionModel)
+        condition = Mock(spec=ConditionSchema)
         condition.code = code
         condition.name = name
         condition.priority = priority
@@ -291,7 +291,7 @@ class TestControlEvaluatorPriorityHandling:
         condition.policy.type = "discrete_setpoint"
 
         # Mock action
-        condition.action = Mock(spec=ControlActionModel)
+        condition.action = Mock(spec=ControlActionSchema)
         condition.action.model = "TECO_VFD"
         condition.action.slave_id = "2"
         condition.action.type = "set_frequency"
@@ -325,11 +325,11 @@ class TestControlEvaluatorMultiConditionEdgeCases:
     ):
         """Test that empty list is returned when all conditions have invalid composite"""
         # Arrange
-        condition1 = Mock(spec=ControlConditionModel)
+        condition1 = Mock(spec=ConditionSchema)
         condition1.composite = Mock()
         condition1.composite.invalid = True
 
-        condition2 = Mock(spec=ControlConditionModel)
+        condition2 = Mock(spec=ConditionSchema)
         condition2.composite = None
 
         conditions = [condition1, condition2]
@@ -346,7 +346,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
     def test_when_single_condition_matches_then_returns_that_condition(self, control_evaluator: ControlEvaluator):
         """Test that single matching condition is returned correctly"""
         # Arrange
-        condition = Mock(spec=ControlConditionModel)
+        condition = Mock(spec=ConditionSchema)
         condition.code = "Threshold"
         condition.name = "Single Condition"
         condition.priority = 75
@@ -356,7 +356,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         condition.policy.type = "discrete_setpoint"
         condition.emergency_override = False
 
-        condition.action = Mock(spec=ControlActionModel)
+        condition.action = Mock(spec=ControlActionSchema)
         condition.action.model = "TECO_VFD"
         condition.action.slave_id = "2"
         condition.action.type = "set_frequency"
@@ -386,7 +386,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
     def test_when_priority_is_none_then_handles_gracefully(self, control_evaluator: ControlEvaluator):
         """Test that conditions with None priority are handled correctly"""
         # Arrange
-        none_priority_condition = Mock(spec=ControlConditionModel)
+        none_priority_condition = Mock(spec=ConditionSchema)
         none_priority_condition.code = "NONE_PRI"
         none_priority_condition.name = "None Priority"
         none_priority_condition.priority = None  # None priority
@@ -396,7 +396,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         none_priority_condition.policy = Mock()
         none_priority_condition.policy.type = "discrete_setpoint"
 
-        none_priority_condition.action = Mock(spec=ControlActionModel)
+        none_priority_condition.action = Mock(spec=ControlActionSchema)
         none_priority_condition.action.model = "TECO_VFD"
         none_priority_condition.action.slave_id = "2"
         none_priority_condition.action.type = "set_frequency"
@@ -405,7 +405,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
 
         none_priority_condition.action.model_copy.return_value = none_priority_condition.action
 
-        normal_condition = Mock(spec=ControlConditionModel)
+        normal_condition = Mock(spec=ConditionSchema)
         normal_condition.code = "NORMAL"
         normal_condition.name = "Normal Condition"
         normal_condition.priority = 50
@@ -414,7 +414,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         normal_condition.policy = Mock()
         normal_condition.policy.type = "discrete_setpoint"
 
-        normal_condition.action = Mock(spec=ControlActionModel)
+        normal_condition.action = Mock(spec=ControlActionSchema)
         normal_condition.action.model = "TECO_VFD"
         normal_condition.action.slave_id = "2"
         normal_condition.action.type = "set_frequency"

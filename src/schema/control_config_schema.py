@@ -2,7 +2,7 @@ import logging
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from model.control_model import ControlConditionModel
+from schema.control_condition_schema import ConditionSchema
 from model.enum.condition_enum import ControlPolicyType
 
 logger = logging.getLogger("ControlConfig")
@@ -10,11 +10,11 @@ logger = logging.getLogger("ControlConfig")
 
 class ControlInstanceConfig(BaseModel):
     use_default_controls: bool = False
-    controls: list[ControlConditionModel] = Field(default_factory=list)
+    controls: list[ConditionSchema] = Field(default_factory=list)
 
 
 class ControlModelConfig(BaseModel):
-    default_controls: list[ControlConditionModel] = Field(default_factory=list)
+    default_controls: list[ConditionSchema] = Field(default_factory=list)
     # Recommend adding default_factory to avoid parse errors when instances is not declared
     instances: dict[str, ControlInstanceConfig] = Field(default_factory=dict)
 
@@ -60,7 +60,7 @@ class ControlConfig(BaseModel):
 
         return self
 
-    def _validate_single_control(self, control: ControlConditionModel, context: str) -> list[str]:
+    def _validate_single_control(self, control: ConditionSchema, context: str) -> list[str]:
         """Validate a single control's composite structure"""
         errors = []
 
@@ -97,7 +97,7 @@ class ControlConfig(BaseModel):
 
         return errors
 
-    def get_control_list(self, model: str, slave_id: str) -> list[ControlConditionModel]:
+    def get_control_list(self, model: str, slave_id: str) -> list[ConditionSchema]:
         """
         Return the list of control conditions for the given (model, slave_id).
         Rules:
@@ -120,13 +120,13 @@ class ControlConfig(BaseModel):
             return []
 
         # 1) Merge controls
-        merged_control_list: list[ControlConditionModel] = []
+        merged_control_list: list[ConditionSchema] = []
         if instance_config.use_default_controls:
             merged_control_list.extend(model_config.default_controls)
         merged_control_list.extend(instance_config.controls)
 
         # 2) Filter invalid (log + skip) - Enhanced validation
-        filtered_control_list: list[ControlConditionModel] = []
+        filtered_control_list: list[ConditionSchema] = []
         for rule in merged_control_list:
             rid = rule.code or rule.name or "<unknown>"
             context = f"[{model}_{instance_id}]"
@@ -168,7 +168,7 @@ class ControlConfig(BaseModel):
 
         # 3) Deduplicate by priority (keep the *last* one)
         seen_priorities: set[int] = set()
-        deduped_reversed: list[ControlConditionModel] = []
+        deduped_reversed: list[ConditionSchema] = []
         dropped_rules: list[tuple[int, str]] = []
 
         for rule in reversed(filtered_control_list):
@@ -180,7 +180,7 @@ class ControlConfig(BaseModel):
             seen_priorities.add(priority)
             deduped_reversed.append(rule)
 
-        deduplicated_controls: list[ControlConditionModel] = list(reversed(deduped_reversed))  # 4) restore order
+        deduplicated_controls: list[ConditionSchema] = list(reversed(deduped_reversed))  # 4) restore order
 
         if dropped_rules:
             logger.error(

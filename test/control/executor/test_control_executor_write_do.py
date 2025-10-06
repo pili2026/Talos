@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 import pytest
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorWriteDO:
@@ -28,7 +28,7 @@ class TestControlExecutorWriteDO:
     ):
         """Test that WRITE_DO uses default target RW_DO when target is None"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="DO_MODULE",
             slave_id="3",
             type=ControlActionType.WRITE_DO,
@@ -81,7 +81,7 @@ class TestControlExecutorWriteDO:
     ):
         """Test that WRITE_DO is skipped when target register doesn't exist"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="DO_MODULE",
             slave_id="3",
             type=ControlActionType.WRITE_DO,
@@ -104,7 +104,7 @@ class TestControlExecutorWriteDO:
         """Test that WRITE_DO is skipped when value is truly None (using Mock)"""
         # Arrange - Use Mock to force None value since Pydantic converts None to default
 
-        action = Mock(spec=ControlActionModel)
+        action = Mock(spec=ControlActionSchema)
         action.model = "DO_MODULE"
         action.slave_id = "3"
         action.type = ControlActionType.WRITE_DO
@@ -125,7 +125,7 @@ class TestControlExecutorWriteDO:
     ):
         """Test that WRITE_DO with 0 value executes normally (since None gets converted to 0)"""
         # Arrange - This reflects the actual behavior when user sets value=None
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="DO_MODULE",
             slave_id="3",
             type=ControlActionType.WRITE_DO,
@@ -164,10 +164,10 @@ class TestControlExecutorWriteDO:
         """Test that WRITE_DO can control multiple digital output pins"""
         # Arrange
         actions = [
-            ControlActionModel(
+            ControlActionSchema(
                 model="DO_MODULE", slave_id="3", type=ControlActionType.WRITE_DO, target="DO_01", value=1
             ),
-            ControlActionModel(
+            ControlActionSchema(
                 model="DO_MODULE", slave_id="3", type=ControlActionType.WRITE_DO, target="DO_02", value=0
             ),
         ]

@@ -14,9 +14,9 @@ from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
 from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
-from model.control_model import ControlActionModel
+from schema.control_condition_schema import ControlActionSchema
 
-from model.control_model import ControlActionType
+from schema.control_condition_schema import ControlActionType
 
 
 class TestControlIntegration:
@@ -293,7 +293,7 @@ SD400:
         expected_new_freq = 50.0 + 1.5
         mock_device.write_value.assert_called_once_with("RW_HZ", expected_new_freq)
 
-    def _verify_action_properties(self, action: ControlActionModel, expected_props: dict):
+    def _verify_action_properties(self, action: ControlActionSchema, expected_props: dict):
         """Helper to verify action properties"""
         for prop, expected_value in expected_props.items():
             actual_value = getattr(action, prop)

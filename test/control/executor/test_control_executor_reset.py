@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 import pytest
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorReset:
@@ -27,7 +27,7 @@ class TestControlExecutorReset:
     ):
         """Test that RESET uses default target RW_RESET when target is None"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.RESET,
@@ -79,7 +79,7 @@ class TestControlExecutorReset:
     ):
         """Test that RESET is skipped when target register doesn't exist"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.RESET,
@@ -102,7 +102,7 @@ class TestControlExecutorReset:
         """Test that RESET is skipped when value is truly None (using Mock)"""
         # Arrange - Use Mock to force None value since Pydantic converts None to default
 
-        action = Mock(spec=ControlActionModel)
+        action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
         action.slave_id = "2"
         action.type = ControlActionType.RESET
@@ -123,7 +123,7 @@ class TestControlExecutorReset:
     ):
         """Test that RESET with 0 value executes normally (since None gets converted to 0)"""
         # Arrange - This reflects the actual behavior when user sets value=None
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.RESET,
@@ -176,7 +176,7 @@ class TestControlExecutorReset:
     ):
         """Test that RESET can write custom reset values (not just 1)"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.RESET,

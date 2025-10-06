@@ -1,5 +1,5 @@
 import pytest
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorBasic:
@@ -9,7 +9,7 @@ class TestControlExecutorBasic:
     async def test_when_action_missing_model_then_skips_execution(self, control_executor, mock_device_manager):
         """Test that action without model is skipped"""
         # Arrange
-        action = ControlActionModel(model="", slave_id="2", type=ControlActionType.TURN_ON)  # Missing model
+        action = ControlActionSchema(model="", slave_id="2", type=ControlActionType.TURN_ON)  # Missing model
 
         # Act
         await control_executor.execute([action])
@@ -21,7 +21,7 @@ class TestControlExecutorBasic:
     async def test_when_action_missing_slave_id_then_skips_execution(self, control_executor, mock_device_manager):
         """Test that action without slave_id is skipped"""
         # Arrange
-        action = ControlActionModel(model="TECO_VFD", slave_id="", type=ControlActionType.TURN_ON)  # Missing slave_id
+        action = ControlActionSchema(model="TECO_VFD", slave_id="", type=ControlActionType.TURN_ON)  # Missing slave_id
 
         # Act
         await control_executor.execute([action])
@@ -50,10 +50,10 @@ class TestControlExecutorBasic:
         """Test that multiple valid actions are all executed"""
         # Arrange
         actions = [
-            ControlActionModel(
+            ControlActionSchema(
                 model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=45.0
             ),
-            ControlActionModel(
+            ControlActionSchema(
                 model="DO_MODULE", slave_id="3", type=ControlActionType.WRITE_DO, target="DO_01", value=1
             ),
         ]
@@ -84,10 +84,10 @@ class TestControlExecutorBasic:
         """Test that exception in one action doesn't stop execution of subsequent actions"""
         # Arrange
         actions = [
-            ControlActionModel(
+            ControlActionSchema(
                 model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=45.0
             ),
-            ControlActionModel(
+            ControlActionSchema(
                 model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
             ),
         ]

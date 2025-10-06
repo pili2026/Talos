@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
 from executor.control_executor import ControlExecutor
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 @pytest.fixture
@@ -64,19 +64,19 @@ def mock_control_evaluator():
 @pytest.fixture
 def turn_on_action():
     """Create a TURN_ON action for testing"""
-    return ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
+    return ControlActionSchema(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
 
 
 @pytest.fixture
 def turn_off_action():
     """Create a TURN_OFF action for testing"""
-    return ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_OFF)
+    return ControlActionSchema(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_OFF)
 
 
 @pytest.fixture
 def set_frequency_action():
     """Create a SET_FREQUENCY action for testing"""
-    return ControlActionModel(
+    return ControlActionSchema(
         model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
     )
 
@@ -84,7 +84,7 @@ def set_frequency_action():
 @pytest.fixture
 def adjust_frequency_action():
     """Create an ADJUST_FREQUENCY action for testing"""
-    return ControlActionModel(
+    return ControlActionSchema(
         model="TECO_VFD", slave_id="2", type=ControlActionType.ADJUST_FREQUENCY, target="RW_HZ", value=2.5
     )
 
@@ -92,7 +92,7 @@ def adjust_frequency_action():
 @pytest.fixture
 def write_do_action():
     """Create a WRITE_DO action for testing"""
-    return ControlActionModel(
+    return ControlActionSchema(
         model="DO_MODULE", slave_id="3", type=ControlActionType.WRITE_DO, target="DO_01", value=1  # Digital output pin
     )
 
@@ -100,4 +100,4 @@ def write_do_action():
 @pytest.fixture
 def reset_action():
     """Create a RESET action for testing"""
-    return ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.RESET, target="RW_RESET", value=1)
+    return ControlActionSchema(model="TECO_VFD", slave_id="2", type=ControlActionType.RESET, target="RW_RESET", value=1)

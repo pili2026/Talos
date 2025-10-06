@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorAdjustFrequency:
@@ -9,7 +9,7 @@ class TestControlExecutorAdjustFrequency:
     @pytest.fixture
     def adjust_frequency_action(self):
         """Create a basic ADJUST_FREQUENCY action for testing"""
-        return ControlActionModel(
+        return ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -39,7 +39,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY correctly handles negative adjustments (decrease frequency)"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -61,7 +61,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY is skipped when target is None (explicit target required)"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -83,7 +83,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY is skipped when target is empty string"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -121,7 +121,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY is skipped when adjustment value is None"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -143,7 +143,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY is skipped when adjustment value is zero or below tolerance"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -214,7 +214,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY is skipped when target register doesn't exist"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,
@@ -237,7 +237,7 @@ class TestControlExecutorAdjustFrequency:
     ):
         """Test that ADJUST_FREQUENCY executes normally when target is explicitly specified"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.ADJUST_FREQUENCY,

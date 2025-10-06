@@ -240,7 +240,7 @@ class TestControlListExtraction:
         assert controls[0].action.value == 50.0
 
         # Should log duplicate resolution
-        assert "duplicate priorities resolved" in caplog.text
+        assert "PRIORITY CONFLICT" in caplog.text
 
     def test_when_instance_uses_default_controls_then_both_are_merged(self, config_with_duplicate_priorities):
         """Test that default controls are included when use_default_controls=True"""

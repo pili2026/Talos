@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from model.control_model import ControlActionType
+from schema.control_condition_schema import ControlActionType
 from schema.time_control_schema import DeviceSchedule, TimeControlConfig
 from util.time_util import TIMEZONE_INFO
 

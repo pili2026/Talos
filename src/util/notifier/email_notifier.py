@@ -7,7 +7,7 @@ from datetime import datetime
 from email.message import EmailMessage
 from email.utils import make_msgid
 
-from model.alert_model import AlertMessageModel
+from schema.alert_schema import AlertMessageModel
 from util.config_manager import ConfigManager
 from util.notifier.base import BaseNotifier
 from util.time_util import TIMEZONE_INFO

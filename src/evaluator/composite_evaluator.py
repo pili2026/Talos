@@ -4,7 +4,7 @@ import math
 import time
 from typing import Callable
 
-from model.control_model import CompositeNode
+from schema.control_condition_schema import CompositeNode
 from model.enum.condition_enum import ConditionOperator, ConditionType
 
 Number = float | int

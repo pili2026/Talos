@@ -2,7 +2,7 @@ import logging
 
 from evaluator.time_evalutor import TimeControlEvaluator
 from executor.time_control_executor import TimeControlExecutor
-from model.control_model import ControlActionType
+from schema.control_condition_schema import ControlActionType
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 

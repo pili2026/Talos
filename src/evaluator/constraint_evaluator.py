@@ -1,6 +1,6 @@
 import logging
 from device.generic.generic_device import AsyncGenericModbusDevice
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 from schema.constraint_schema import ConstraintConfig
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
@@ -30,7 +30,7 @@ class ConstraintEvaluator:
                         f"[{min_val}, {max_val}], correcting to {corrected_value}"
                     )
                     control_actions.append(
-                        ControlActionModel(
+                        ControlActionSchema(
                             model=device.model,
                             slave_id=device.slave_id,
                             type=ControlActionType.SET_FREQUENCY,

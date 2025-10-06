@@ -1,7 +1,7 @@
 import pytest
 import logging
 from unittest.mock import Mock
-from model.control_model import ControlActionModel, ControlConditionModel
+from schema.control_condition_schema import ControlActionSchema, ConditionSchema
 from model.enum.condition_enum import ControlActionType
 from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
@@ -41,7 +41,7 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_discrete_setpoint_policy_then_returns_original_fixed_value(self, control_evaluator):
         """Test that discrete_setpoint policy returns the original fixed value from YAML"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_condition.code = "HIGH_TEMP"
         mock_condition.name = "High Temperature Shutdown"
         mock_condition.priority = 80
@@ -52,7 +52,7 @@ class TestControlEvaluatorPolicyProcessing:
         mock_condition.policy = mock_policy
 
         # action with fixed value
-        mock_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
         mock_action.model = "TECO_VFD"
         mock_action.slave_id = "2"
         mock_action.type = "set_frequency"
@@ -73,7 +73,7 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_absolute_linear_then_calculates_absolute_frequency(self, control_evaluator):
         """Test that absolute_linear policy calculates absolute frequency based on single temperature"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_condition.code = "ABS_TEMP01"
 
         # absolute_linear policy with correct configuration
@@ -90,14 +90,14 @@ class TestControlEvaluatorPolicyProcessing:
         )
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
         mock_action.model = "TECO_VFD"
         mock_action.slave_id = "2"
         mock_action.type = "set_frequency"
         mock_action.target = "RW_HZ"
         mock_action.value = None  # Will be calculated
 
-        new_action = Mock(spec=ControlActionModel)
+        new_action = Mock(spec=ControlActionSchema)
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
@@ -115,7 +115,7 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_absolute_linear_at_base_temp_then_uses_base_frequency(self, control_evaluator):
         """Test that absolute_linear policy uses base frequency when temperature equals base_temp"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
@@ -129,8 +129,8 @@ class TestControlEvaluatorPolicyProcessing:
         )
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
-        new_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
+        new_action = Mock(spec=ControlActionSchema)
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
@@ -148,7 +148,7 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_incremental_linear_then_calculates_adjustment(self, control_evaluator):
         """Test that incremental_linear policy calculates frequency adjustment (no max_step limitation)"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
@@ -160,8 +160,8 @@ class TestControlEvaluatorPolicyProcessing:
         )
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
-        new_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
+        new_action = Mock(spec=ControlActionSchema)
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
@@ -179,7 +179,7 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_incremental_linear_negative_diff_then_calculates_negative_adjustment(self, control_evaluator):
         """Test that incremental_linear policy calculates negative adjustment for negative temperature difference"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_policy = Mock()
         mock_policy.configure_mock(
             **{
@@ -191,8 +191,8 @@ class TestControlEvaluatorPolicyProcessing:
         )
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
-        new_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
+        new_action = Mock(spec=ControlActionSchema)
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
@@ -210,7 +210,7 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_absolute_linear_then_calculates_absolute_frequency(self, control_evaluator):
         """Test that absolute_linear policy calculates absolute frequency based on single temperature"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_condition.code = "ABS_TEMP01"
 
         # absolute_linear policy with correct configuration
@@ -227,14 +227,14 @@ class TestControlEvaluatorPolicyProcessing:
         )
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
         mock_action.model = "TECO_VFD"
         mock_action.slave_id = "2"
         mock_action.type = "set_frequency"
         mock_action.target = "RW_HZ"
         mock_action.value = None  # Will be calculated
 
-        new_action = Mock(spec=ControlActionModel)
+        new_action = Mock(spec=ControlActionSchema)
         mock_action.model_copy.return_value = new_action
         mock_condition.action = mock_action
 
@@ -281,10 +281,10 @@ class TestControlEvaluatorPolicyProcessing:
     def test_when_no_policy_exists_then_returns_original_action(self, control_evaluator):
         """Test that original action is returned when no policy is defined"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_condition.policy = None
 
-        mock_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
         snapshot = {}
 
         # Act
@@ -297,12 +297,12 @@ class TestControlEvaluatorPolicyProcessing:
         """Test that original action is returned when policy type is unknown"""
         # Arrange
         caplog.set_level(logging.WARNING)
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_policy = Mock()
         mock_policy.configure_mock(**{"type": "unknown_policy_type"})
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
         snapshot = {}
 
         # Act
@@ -352,7 +352,7 @@ class TestControlEvaluatorIntegration:
         caplog.set_level(logging.DEBUG)
 
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_condition.code = "ABS_TEMP01"
         mock_condition.name = "Environment Temperature Linear Control"
         mock_condition.priority = 90
@@ -379,7 +379,7 @@ class TestControlEvaluatorIntegration:
         )
         mock_condition.policy = mock_policy
 
-        mock_action = Mock(spec=ControlActionModel)
+        mock_action = Mock(spec=ControlActionSchema)
         mock_action.model = "TECO_VFD"
         mock_action.slave_id = "2"
         mock_action.type = "set_frequency"
@@ -388,7 +388,7 @@ class TestControlEvaluatorIntegration:
         mock_action.emergency_override = False
 
         # Create a new action for model_copy
-        new_action = Mock(spec=ControlActionModel)
+        new_action = Mock(spec=ControlActionSchema)
         new_action.model = "TECO_VFD"
         new_action.slave_id = "2"
         new_action.type = "set_frequency"
@@ -420,7 +420,7 @@ class TestControlEvaluatorIntegration:
     def test_when_no_conditions_match_then_returns_empty_list(self, control_evaluator):
         """Test that empty list is returned when no conditions match"""
         # Arrange
-        mock_condition = Mock(spec=ControlConditionModel)
+        mock_condition = Mock(spec=ConditionSchema)
         mock_composite = Mock()
         mock_condition.composite = mock_composite
 

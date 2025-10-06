@@ -1,5 +1,5 @@
 import pytest
-from model.control_model import ControlActionModel, ControlActionType
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorGeneral:
@@ -13,7 +13,7 @@ class TestControlExecutorGeneral:
         # Arrange - Use Mock to force None value since Pydantic converts None to default
         from unittest.mock import Mock
 
-        action = Mock(spec=ControlActionModel)
+        action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
         action.slave_id = "2"
         action.type = ControlActionType.SET_FREQUENCY
@@ -34,7 +34,7 @@ class TestControlExecutorGeneral:
     ):
         """Test that SET_FREQUENCY with 0.0 value executes normally (since None gets converted to 0.0)"""
         # Arrange - This reflects the actual behavior when user sets value=None
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.SET_FREQUENCY,
@@ -56,7 +56,7 @@ class TestControlExecutorGeneral:
     ):
         """Test that action is skipped when target register doesn't exist"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.SET_FREQUENCY,
@@ -78,7 +78,7 @@ class TestControlExecutorGeneral:
     ):
         """Test that action is skipped when target register is not writable"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD",
             slave_id="2",
             type=ControlActionType.SET_FREQUENCY,
@@ -111,7 +111,7 @@ class TestControlExecutorGeneral:
     ):
         """Test that action is skipped when device has no register_map attribute"""
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
         )
         del mock_device.register_map  # Remove register_map attribute
@@ -131,7 +131,7 @@ class TestControlExecutorGeneral:
         # Arrange - Use Mock to test non-numeric values since ControlActionModel only accepts numbers
         from unittest.mock import Mock
 
-        action = Mock(spec=ControlActionModel)
+        action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
         action.slave_id = "2"
         action.type = ControlActionType.WRITE_DO
@@ -155,7 +155,7 @@ class TestControlExecutorGeneral:
         # Arrange - Use Mock to test string values since ControlActionModel only accepts numbers
         from unittest.mock import Mock
 
-        action = Mock(spec=ControlActionModel)
+        action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
         action.slave_id = "2"
         action.type = ControlActionType.WRITE_DO
@@ -177,7 +177,7 @@ class TestControlExecutorGeneral:
     ):
         """Test that tolerance check works correctly for floating point precision edge cases"""
         # Arrange - Test numeric tolerance behavior with realistic values
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
         )
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
@@ -197,7 +197,7 @@ class TestControlExecutorGeneral:
         """Test that _normalize_on_off_state correctly converts numeric values"""
         # This is testing the internal method indirectly through TURN_ON behavior
         # Arrange
-        action = ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
+        action = ControlActionSchema(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
         mock_device.read_value.return_value = "0.0"  # String representation of float
 
@@ -213,7 +213,7 @@ class TestControlExecutorGeneral:
     ):
         """Test that invalid on/off state values result in write anyway"""
         # Arrange
-        action = ControlActionModel(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
+        action = ControlActionSchema(model="TECO_VFD", slave_id="2", type=ControlActionType.TURN_ON)
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
         mock_device.read_value.return_value = "INVALID"  # Invalid state
 
@@ -232,7 +232,7 @@ class TestControlExecutorGeneral:
         # We can't directly test log output, but we can verify the action executes normally
         # with a reason attribute present
         # Arrange
-        action = ControlActionModel(
+        action = ControlActionSchema(
             model="TECO_VFD", slave_id="2", type=ControlActionType.SET_FREQUENCY, target="RW_HZ", value=50.0
         )
         # Add reason attribute (this might be added by the evaluator)
@@ -254,21 +254,21 @@ class TestControlExecutorGeneral:
         """Test that mix of valid and invalid actions only executes valid ones"""
         # Arrange
         actions = [
-            ControlActionModel(
+            ControlActionSchema(
                 model="TECO_VFD",
                 slave_id="2",
                 type=ControlActionType.SET_FREQUENCY,
                 target="RW_HZ",
                 value=45.0,  # Valid action
             ),
-            ControlActionModel(
+            ControlActionSchema(
                 model="TECO_VFD",
                 slave_id="2",
                 type=ControlActionType.SET_FREQUENCY,
                 target="NONEXISTENT_REG",  # Invalid - register doesn't exist
                 value=50.0,
             ),
-            ControlActionModel(
+            ControlActionSchema(
                 model="DO_MODULE",
                 slave_id="3",
                 type=ControlActionType.WRITE_DO,

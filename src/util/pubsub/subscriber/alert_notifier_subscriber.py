@@ -1,6 +1,6 @@
 import logging
 
-from model.alert_model import AlertMessageModel
+from schema.alert_schema import AlertMessageModel
 from util.notifier.base import BaseNotifier
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
