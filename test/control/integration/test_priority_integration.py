@@ -50,7 +50,7 @@ SD400:
         # DISCRETE_SETPOINT - Fixed value control
         - name: "High Temperature Shutdown"
           code: "HIGH_TEMP"
-          priority: 80
+          priority: 12
           composite:
             any:
               - type: threshold
@@ -77,7 +77,7 @@ SD400:
         # ABSOLUTE_LINEAR - Single temperature mapping
         - name: "Environment Temperature Linear Control"
           code: "LIN_ABS01"
-          priority: 85
+          priority: 11
           composite:
             any:
               - type: threshold
@@ -101,7 +101,7 @@ SD400:
         # INCREMENTAL_LINEAR - Temperature difference adjustment
         - name: "Supply-Return Temperature Difference Control"
           code: "LIN_INC01"
-          priority: 90
+          priority: 10
           composite:
             any:
               - type: difference
@@ -171,7 +171,7 @@ SD400:
     def test_when_incremental_and_absolute_conditions_triggered_then_incremental_wins_by_priority(
         self, control_evaluator
     ):
-        """T2.1: INCREMENTAL (90) vs ABSOLUTE (85) - INCREMENTAL should win"""
+        """T2.1: INCREMENTAL (10) vs ABSOLUTE (11) - INCREMENTAL should win"""
         # Arrange: Trigger both conditions
         snapshot = {"AIn01": 35.0, "AIn02": 25.0}  # Trigger ABSOLUTE (>25) and INCREMENTAL  # Difference 10°C > 4°C
         model, slave_id = "SD400", "3"
@@ -183,7 +183,7 @@ SD400:
         assert len(actions) == 1
         action = actions[0]
 
-        # INCREMENTAL should win (priority=90 > 85)
+        # INCREMENTAL should win (priority=10 > 11)
         assert action.type == ControlActionType.ADJUST_FREQUENCY
         assert action.value == 1.5
 

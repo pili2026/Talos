@@ -11,9 +11,9 @@ class TestControlEvaluatorPriorityHandling:
     def test_when_multiple_conditions_match_then_selects_highest_priority(self, control_evaluator: ControlEvaluator):
         """Test that highest priority condition is selected when multiple conditions match"""
         # Arrange
-        low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 50)
+        low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 90)
         medium_priority_condition = self._create_mock_condition("MED_TEMP", "Medium Temperature", 70)
-        high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 90)
+        high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 50)
 
         conditions = [low_priority_condition, medium_priority_condition, high_priority_condition]
         control_evaluator.control_config.get_control_list.return_value = conditions
@@ -31,7 +31,7 @@ class TestControlEvaluatorPriorityHandling:
         assert len(result) == 1
         result_action = result[0]
         assert "HIGH_TEMP" in result_action.reason
-        assert "priority=90" in result_action.reason
+        assert "priority=50" in result_action.reason
 
     def test_when_conditions_have_same_priority_then_selects_first_matching(self, control_evaluator: ControlEvaluator):
         """Test that first condition is selected when multiple conditions have the same priority"""
@@ -63,9 +63,9 @@ class TestControlEvaluatorPriorityHandling:
     ):
         """Test that highest available priority is selected when high priority conditions don't match"""
         # Arrange
-        low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 30)
+        low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 90)
         medium_priority_condition = self._create_mock_condition("MED_TEMP", "Medium Temperature", 60)
-        high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 90)
+        high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 30)
 
         conditions = [low_priority_condition, medium_priority_condition, high_priority_condition]
         control_evaluator.control_config.get_control_list.return_value = conditions
@@ -95,8 +95,8 @@ class TestControlEvaluatorPriorityHandling:
     def test_when_priority_order_mixed_then_still_selects_highest(self, control_evaluator: ControlEvaluator):
         """Test that highest priority is selected regardless of order in condition list"""
         # Arrange - conditions in non-priority order
-        high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 95)
-        low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 10)
+        high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 10)
+        low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 95)
         medium_priority_condition = self._create_mock_condition("MED_TEMP", "Medium Temperature", 50)
 
         # Mix the order intentionally
@@ -116,7 +116,7 @@ class TestControlEvaluatorPriorityHandling:
         assert len(result) == 1
         result_action = result[0]
         assert "HIGH_TEMP" in result_action.reason
-        assert "priority=95" in result_action.reason
+        assert "priority=10" in result_action.reason
 
     def test_when_no_conditions_match_then_returns_empty_list(self, control_evaluator: ControlEvaluator):
         """Test that empty list is returned when no conditions match composite evaluation"""
@@ -245,10 +245,10 @@ class TestControlEvaluatorPriorityHandling:
     ):
         """Test complex scenario with mix of matching/non-matching conditions at different priorities"""
         # Arrange
-        non_matching_high = self._create_mock_condition("HIGH_NO_MATCH", "High No Match", 100)
-        matching_medium = self._create_mock_condition("MED_MATCH", "Medium Match", 60)
-        non_matching_medium = self._create_mock_condition("MED_NO_MATCH", "Medium No Match", 65)
-        matching_low = self._create_mock_condition("LOW_MATCH", "Low Match", 20)
+        non_matching_high = self._create_mock_condition("HIGH_NO_MATCH", "High No Match", 10)
+        matching_medium = self._create_mock_condition("MED_MATCH", "Medium Match", 65)
+        non_matching_medium = self._create_mock_condition("MED_NO_MATCH", "Medium No Match", 60)
+        matching_low = self._create_mock_condition("LOW_MATCH", "Low Match", 100)
 
         conditions = [non_matching_high, matching_medium, non_matching_medium, matching_low]
         control_evaluator.control_config.get_control_list.return_value = conditions
@@ -272,7 +272,7 @@ class TestControlEvaluatorPriorityHandling:
         assert len(result) == 1
         result_action = result[0]
         assert "MED_MATCH" in result_action.reason
-        assert "priority=60" in result_action.reason
+        assert "priority=65" in result_action.reason
 
     # Helper method to create mock conditions
     def _create_mock_condition(self, code: str, name: str, priority: int) -> Mock:

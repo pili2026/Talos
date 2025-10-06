@@ -1,10 +1,8 @@
-# tests/test_convert_snapshot_to_legacy_payload.py
-
 import pytest
 from unittest.mock import Mock
-from converter.legacy_converter import (
-    convert_snapshot_to_legacy_payload,
-)
+
+from sender.legacy.converter_registry import CONVERTER_MAP
+from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 
 
 @pytest.fixture
@@ -187,10 +185,7 @@ class TestConvertSnapshotToLegacyPayload:
         def mock_converter_that_raises(*args, **kwargs):
             raise ValueError("Simulated converter error")
 
-        # Patch the DI converter to raise an exception
-        from converter import legacy_converter
-
-        monkeypatch.setitem(legacy_converter.CONVERTER_MAP, "di_module", mock_converter_that_raises)
+        monkeypatch.setitem(CONVERTER_MAP, "di_module", mock_converter_that_raises)
 
         snapshot = {"type": "di_module", "model": "IMA_C", "slave_id": "5", "values": {"DIn01": "1"}}
 

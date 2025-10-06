@@ -44,7 +44,7 @@ class ControlEvaluator:
                 best_condition = condition_model
                 best_priority = condition_model.priority
             else:
-                if best_priority is None or condition_model.priority > best_priority:
+                if best_priority is None or condition_model.priority < best_priority:
                     best_condition = condition_model
                     best_priority = condition_model.priority
 

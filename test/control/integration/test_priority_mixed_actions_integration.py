@@ -41,10 +41,10 @@ class TestMixedActionsPriority:
                   "3":
                     use_default_controls: false
                     controls:
-                      # Priority 95 - Safety shutdown (highest)
+                      # Priority 10 - Safety shutdown (highest)
                       - name: "Low Temperature Turn Off Inverter"
                         code: "LOW_TEMP_VFD_OFF"
-                        priority: 95
+                        priority: 10
                         composite:
                           any:
                             - type: threshold
@@ -59,10 +59,10 @@ class TestMixedActionsPriority:
                           type: turn_off
                           target: RW_ON_OFF
 
-                      # Priority 90 - DO control first, then Incremental frequency (order matters!)
+                      # Priority 11 - DO control first, then Incremental frequency (order matters!)
                       - name: "Low Temperature Turn Off DOut02"
                         code: "LOW_TEMP_DO02_OFF"
-                        priority: 90
+                        priority: 11
                         composite:
                           any:
                             - type: threshold
@@ -80,7 +80,7 @@ class TestMixedActionsPriority:
 
                       - name: "Supply-Return Temperature Difference Control"
                         code: "LIN_INC01"
-                        priority: 90
+                        priority: 11
                         composite:
                           any:
                             - type: difference
@@ -104,10 +104,10 @@ class TestMixedActionsPriority:
                           type: adjust_frequency
                           target: RW_HZ
 
-                      # Priority 85 - DO control + Absolute frequency  
+                      # Priority 13 - DO control + Absolute frequency  
                       - name: "High Temperature Turn On DOut01"
                         code: "HIGH_TEMP_DO01_ON"
-                        priority: 85
+                        priority: 13
                         composite:
                           any:
                             - type: threshold
@@ -125,7 +125,7 @@ class TestMixedActionsPriority:
 
                       - name: "Environment Temperature Linear Control"
                         code: "LIN_ABS01"
-                        priority: 85
+                        priority: 13
                         composite:
                           any:
                             - type: threshold
@@ -145,10 +145,10 @@ class TestMixedActionsPriority:
                           type: set_frequency
                           target: RW_HZ
 
-                      # Priority 80 - Fixed frequency
+                      # Priority 14 - Fixed frequency
                       - name: "High Temperature Set Frequency"
                         code: "HIGH_TEMP_FREQ"
-                        priority: 80
+                        priority: 14
                         composite:
                           any:
                             - type: threshold
@@ -169,10 +169,10 @@ class TestMixedActionsPriority:
                           target: RW_HZ
                           value: 45.0
 
-                      # Priority 75 - Device turn on (lowest)
+                      # Priority 15 - Device turn on (lowest)
                       - name: "High Temperature Turn On Inverter"
                         code: "HIGH_TEMP_VFD_ON"
-                        priority: 75
+                        priority: 15
                         composite:
                           any:
                             - type: threshold
