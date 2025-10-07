@@ -1,6 +1,7 @@
 import logging
 
 from pymodbus.client import AsyncModbusSerialClient
+from model.device_constant import DEFAULT_MISSING_VALUE
 
 logger = logging.getLogger("ModbusBus")
 
@@ -27,19 +28,20 @@ class ModbusBus:
 
     async def read_regs(self, offset: int, count: int) -> list[int]:
         if not self.client.connected and not await self.client.connect():
-            logger.error(f"[Bus] connect failed (slave={self.slave_id}), return zeros")
-            return [0] * count
+            logger.error(f"[Bus] connect failed (slave={self.slave_id}), return missing values")
+            return [DEFAULT_MISSING_VALUE] * count
+
         if self.register_type == "holding":
             resp = await self.client.read_holding_registers(address=offset, count=count, slave=self.slave_id)
         elif self.register_type == "input":
             resp = await self.client.read_input_registers(address=offset, count=count, slave=self.slave_id)
         else:
             logger.error(f"[Bus] Unsupported register type: {self.register_type}")
-            return [0] * count
+            return [DEFAULT_MISSING_VALUE] * count
 
         if resp.isError():
             logger.warning(f"[Bus] Modbus error response: {resp}")
-            return [0] * count
+            return [DEFAULT_MISSING_VALUE] * count
         return resp.registers
 
     async def write_u16(self, offset: int, value: int):
