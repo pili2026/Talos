@@ -2,8 +2,8 @@ import logging
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from schema.control_condition_schema import ConditionSchema
 from model.enum.condition_enum import ControlPolicyType
+from schema.control_condition_schema import ConditionSchema
 
 logger = logging.getLogger("ControlConfig")
 

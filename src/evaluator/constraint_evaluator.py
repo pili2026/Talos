@@ -1,7 +1,8 @@
 import logging
+
 from device.generic.generic_device import AsyncGenericModbusDevice
-from schema.control_condition_schema import ControlActionSchema, ControlActionType
 from schema.constraint_schema import ConstraintConfig
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
 

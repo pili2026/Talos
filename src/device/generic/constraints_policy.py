@@ -1,4 +1,5 @@
 from logging import Logger
+
 from schema.constraint_schema import ConstraintConfig
 
 

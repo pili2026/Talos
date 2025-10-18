@@ -3,9 +3,8 @@ from typing import Optional
 
 from device.generic.generic_device import AsyncGenericModbusDevice
 from device_manager import AsyncDeviceManager
-from schema.control_condition_schema import ControlActionSchema, ControlActionType
 from model.device_constant import REG_RW_ON_OFF
-
+from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 # Default target mapping (aligned with your config)
 DEFAULT_TARGET_BY_ACTION: dict[ControlActionType, str] = {

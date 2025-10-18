@@ -4,8 +4,8 @@ import math
 import time
 from typing import Callable
 
-from schema.control_condition_schema import CompositeNode
 from model.enum.condition_enum import ConditionOperator, ConditionType
+from schema.control_condition_schema import CompositeNode
 
 Number = float | int
 ValueGetter = Callable[[str], Number | None]  # e.g., lambda key: snapshot.get(key)

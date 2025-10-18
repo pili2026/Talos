@@ -2,11 +2,11 @@ import logging
 from functools import partial
 
 from evaluator.composite_evaluator import CompositeEvaluator
-from schema.control_condition_schema import ControlActionSchema, ConditionSchema
 from model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
-from schema.policy_schema import PolicyConfig
 from schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
+from schema.control_condition_schema import ConditionSchema, ControlActionSchema
 from schema.control_config_schema import ControlConfig
+from schema.policy_schema import PolicyConfig
 
 logger = logging.getLogger(__name__)
 

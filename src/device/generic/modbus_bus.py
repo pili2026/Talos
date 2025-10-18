@@ -1,6 +1,7 @@
 import logging
 
 from pymodbus.client import AsyncModbusSerialClient
+
 from model.device_constant import DEFAULT_MISSING_VALUE
 
 logger = logging.getLogger("ModbusBus")

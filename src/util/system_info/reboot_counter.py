@@ -9,7 +9,6 @@ from pathlib import Path
 
 from util.system_info.path_selector import PathSelector
 
-
 logger = logging.getLogger("RebootCounter")
 
 

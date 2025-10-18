@@ -1,7 +1,8 @@
 import logging
-from schema.system_config_schema import SystemConfig, DeviceIdPolicyConfig
+
 from model.enum.equipment_enum import EquipmentType
 from model.enum.policy_enum import Radix
+from schema.system_config_schema import DeviceIdPolicyConfig, SystemConfig
 
 logger = logging.getLogger("DeviceIdPolicy")
 
