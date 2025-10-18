@@ -39,7 +39,7 @@ python3.12 --version || true
 echo "==> Step 6: Create venv (~/py312-venv)"
 if [ ! -d "$HOME/py312-venv" ]; then
   python3.12 -m venv "$HOME/py312-venv"
-  echo "✅ Created ~/py312-venv"
+  echo " Created ~/py312-venv"
 fi
 
 echo "==> Step 7: Restore original swap settings"
@@ -52,6 +52,6 @@ if [ -f "$BACKUP" ]; then
 fi
 
 echo
-echo "✅ Done! Usage:"
+echo " Done! Usage:"
 echo "   source ~/py312-venv/bin/activate"
 echo "   python --version"
