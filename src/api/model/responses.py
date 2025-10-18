@@ -5,8 +5,9 @@ Defines output data structures for all API endpoints,
 providing a unified response format.
 """
 
-from pydantic import BaseModel, Field
 from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 from api.model.enums import ParameterType, ResponseStatus
 

@@ -11,7 +11,6 @@ from api.model.enums import DeviceConnectionStatus, ResponseStatus
 from api.model.responses import DeviceInfo, DeviceListResponse
 from api.service.device_service import DeviceService
 
-
 router = APIRouter()
 
 

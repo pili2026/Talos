@@ -8,10 +8,11 @@ Handles business logic related to devices:
 """
 
 from typing import Any
-from api.model.responses import DeviceInfo
+
 from api.model.enums import DeviceConnectionStatus
-from api.repository.modbus_repository import ModbusRepository
+from api.model.responses import DeviceInfo
 from api.repository.config_repository import ConfigRepository
+from api.repository.modbus_repository import ModbusRepository
 
 
 class DeviceService:

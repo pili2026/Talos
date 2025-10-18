@@ -1,0 +1,230 @@
+asyncapi: 3.0.0
+
+info:
+  title: Modbus Monitoring WebSocket API
+  version: 1.0.0
+  description: |
+    Real-time monitoring WebSocket API for Modbus devices.
+    
+    Features:
+    - Single device monitoring
+    - Multiple devices monitoring
+    - Configurable update interval
+    - Real-time data streaming
+  contact:
+    name: API Support
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  development:
+    host: localhost:8000
+    protocol: ws
+    description: Development server
+  production:
+    host: 192.168.6.66:8000
+    protocol: ws
+    description: Production server
+
+channels:
+  singleDevice:
+    address: /api/monitoring/device/{deviceId}
+    parameters:
+      deviceId:
+        description: Unique device identifier
+        examples:
+          - IMA_C_5
+          - SD400_3
+    messages:
+      SingleDeviceConnected:
+        $ref: '#/components/messages/SingleDeviceConnected'
+      SingleDeviceData:
+        $ref: '#/components/messages/SingleDeviceData'
+      ErrorMessage:
+        $ref: '#/components/messages/ErrorMessage'
+
+  multipleDevices:
+    address: /api/monitoring/devices
+    messages:
+      MultipleDevicesConnected:
+        $ref: '#/components/messages/MultipleDevicesConnected'
+      MultipleDevicesData:
+        $ref: '#/components/messages/MultipleDevicesData'
+      ErrorMessage:
+        $ref: '#/components/messages/ErrorMessage'
+
+operations:
+  subscribeSingleDevice:
+    action: receive
+    channel:
+      $ref: '#/channels/singleDevice'
+    summary: Subscribe to single device updates
+    messages:
+      - $ref: '#/channels/singleDevice/messages/SingleDeviceConnected'
+      - $ref: '#/channels/singleDevice/messages/SingleDeviceData'
+      - $ref: '#/channels/singleDevice/messages/ErrorMessage'
+
+  subscribeMultipleDevices:
+    action: receive
+    channel:
+      $ref: '#/channels/multipleDevices'
+    summary: Subscribe to multiple devices updates
+    messages:
+      - $ref: '#/channels/multipleDevices/messages/MultipleDevicesConnected'
+      - $ref: '#/channels/multipleDevices/messages/MultipleDevicesData'
+      - $ref: '#/channels/multipleDevices/messages/ErrorMessage'
+
+components:
+  messages:
+    SingleDeviceConnected:
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - device_id
+          - parameters
+          - interval
+        properties:
+          type:
+            type: string
+            const: connected
+          device_id:
+            type: string
+          parameters:
+            type: array
+            items:
+              type: string
+          interval:
+            type: number
+        examples:
+          - type: connected
+            device_id: IMA_C_5
+            parameters:
+              - DIn01
+              - DOut01
+            interval: 1.0
+
+    SingleDeviceData:
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - device_id
+          - timestamp
+          - data
+        properties:
+          type:
+            type: string
+            const: data
+          device_id:
+            type: string
+          timestamp:
+            type: string
+            format: date-time
+          data:
+            type: object
+            additionalProperties:
+              type: object
+              properties:
+                value:
+                  type: number
+                unit:
+                  type: string
+          errors:
+            type: array
+            items:
+              type: string
+        examples:
+          - type: data
+            device_id: IMA_C_5
+            timestamp: '2025-10-17T18:30:00.000Z'
+            data:
+              DIn01:
+                value: 1
+              DOut01:
+                value: 0
+
+    MultipleDevicesConnected:
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - device_ids
+          - interval
+        properties:
+          type:
+            type: string
+            const: connected
+          device_ids:
+            type: array
+            items:
+              type: string
+          parameters:
+            type: array
+            items:
+              type: string
+          interval:
+            type: number
+        examples:
+          - type: connected
+            device_ids:
+              - IMA_C_5
+              - SD400_3
+            parameters:
+              - DIn01
+            interval: 2.0
+
+    MultipleDevicesData:
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - timestamp
+          - devices
+        properties:
+          type:
+            type: string
+            const: data
+          timestamp:
+            type: string
+            format: date-time
+          devices:
+            type: object
+            additionalProperties:
+              type: object
+        examples:
+          - type: data
+            timestamp: '2025-10-17T18:30:00.000Z'
+            devices:
+              IMA_C_5:
+                DIn01:
+                  value: 1
+              SD400_3:
+                AIn01:
+                  value: 24.5
+
+    ErrorMessage:
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - message
+        properties:
+          type:
+            type: string
+            const: error
+          message:
+            type: string
+          device_id:
+            type: string
+        examples:
+          - type: error
+            message: Device not found
+            device_id: INVALID_ID

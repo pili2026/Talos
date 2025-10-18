@@ -6,16 +6,15 @@ Defines API endpoints for parameter read/write operations.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.model.requests import ReadSingleParameterRequest, ReadMultipleParametersRequest, WriteParameterRequest
+from api.dependency import get_parameter_service
+from api.model.requests import ReadMultipleParametersRequest, ReadSingleParameterRequest, WriteParameterRequest
 from api.model.responses import (
-    ReadParameterResponse,
     ReadMultipleParametersResponse,
-    WriteParameterResponse,
+    ReadParameterResponse,
     ResponseStatus,
+    WriteParameterResponse,
 )
 from api.service.parameter_service import ParameterService
-from api.dependency import get_parameter_service
-
 
 router = APIRouter()
 

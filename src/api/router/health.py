@@ -4,9 +4,10 @@ Health Check Router
 Provides system health monitoring endpoints.
 """
 
-from fastapi import APIRouter
-from datetime import datetime
 import platform
+from datetime import datetime
+
+from fastapi import APIRouter
 
 router = APIRouter()
 

@@ -11,11 +11,13 @@ Design principles:
 - Provides detailed operational feedback
 """
 
-from fastapi import APIRouter, Depends
-from typing import Any, Set
 import asyncio
 import logging
+from typing import Any, Set
 
+from fastapi import APIRouter, Depends
+
+from api.dependency import get_parameter_service
 from api.model.requests import (
     BatchReadAllRequest,
     BatchReadDevicesRequest,
@@ -24,10 +26,9 @@ from api.model.requests import (
     BatchWriteRequest,
 )
 from api.model.responses import ResponseStatus
-from api.service.parameter_service import ParameterService
-from api.dependency import get_parameter_service
 from api.repository.config_repository import ConfigRepository
 from api.repository.modbus_repository import ModbusRepository
+from api.service.parameter_service import ParameterService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

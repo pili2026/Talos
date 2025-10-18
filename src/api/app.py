@@ -8,24 +8,25 @@ Responsibilities:
 - Set up CORS
 """
 
-from dotenv import load_dotenv
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from api.router import devices, parameters, batch, monitoring, health
-from api.lifecycle import startup_event, shutdown_event
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.lifecycle import shutdown_event, startup_event
 from api.middleware.error_handler import add_error_handlers
 from api.middleware.logging_middleware import LoggingMiddleware
+from api.router import batch, devices, health, monitoring, parameters
 from api.util.logging_config import setup_logging
-
 
 # Configure logging
 setup_logging(log_level="INFO")

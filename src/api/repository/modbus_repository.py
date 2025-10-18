@@ -6,11 +6,12 @@ Provides low-level interfaces for device read/write operations.
 """
 
 import asyncio
+import logging
 import time
 from typing import Any
+
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
-import logging
 
 from api.repository.config_repository import ConfigRepository
 

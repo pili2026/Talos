@@ -6,8 +6,9 @@ Initializes and cleans up shared resources.
 """
 
 import logging
-from api.repository.modbus_repository import ModbusRepository
+
 from api.repository.config_repository import ConfigRepository
+from api.repository.modbus_repository import ModbusRepository
 
 logger = logging.getLogger(__name__)
 

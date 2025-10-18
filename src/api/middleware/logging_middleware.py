@@ -4,11 +4,12 @@ Request Logging Middleware
 Logs all API requests and responses.
 """
 
+import logging
+import time
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-import time
-import logging
 
 logger = logging.getLogger(__name__)
 

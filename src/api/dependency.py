@@ -6,12 +6,13 @@ Implements Inversion of Control (IoC).
 """
 
 from functools import lru_cache
+
 from fastapi import Depends
+
+from api.repository.config_repository import ConfigRepository
+from api.repository.modbus_repository import ModbusRepository
 from api.service.device_service import DeviceService
 from api.service.parameter_service import ParameterService
-from api.repository.modbus_repository import ModbusRepository
-from api.repository.config_repository import ConfigRepository
-
 
 # ===== Singleton Caches =====
 

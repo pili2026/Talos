@@ -5,10 +5,11 @@ Responsible for loading and managing Talos configuration files.
 Provides configuration query interfaces.
 """
 
-import yaml
+import logging
 from pathlib import Path
 from typing import Any
-import logging
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
