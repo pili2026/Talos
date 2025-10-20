@@ -160,7 +160,7 @@ async def get_available_devices():
     "/asyncapi.yaml",
     summary="AsyncAPI specification",
     description="Fetch the AsyncAPI specification for the WebSocket API.",
-    tags=["Documentation"],
+    tags=["Monitoring"],
 )
 async def get_asyncapi_spec():
     """Serve the AsyncAPI 3.0.0 specification (YAML)."""
@@ -180,7 +180,7 @@ async def get_asyncapi_spec():
     "/asyncapi.json",
     summary="AsyncAPI specification (JSON)",
     description="Fetch the AsyncAPI specification for the WebSocket API (JSON format).",
-    tags=["Documentation"],
+    tags=["Monitoring"],
 )
 async def get_asyncapi_spec_json():
     """Serve the AsyncAPI 3.0.0 specification (JSON)."""
@@ -208,7 +208,7 @@ async def get_asyncapi_spec_json():
     "/doc",
     summary="AsyncAPI documentation",
     description="View documentation for the WebSocket API (AsyncAPI 3.0.0 download page).",
-    tags=["Documentation"],
+    tags=["Monitoring"],
 )
 async def get_asyncapi_docs():
     """Serve a simple documentation page with links to the AsyncAPI spec."""

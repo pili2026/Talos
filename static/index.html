@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Device Monitoring Test</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h1 data-i18n="header.title">WebSocket Device Monitoring Test</h1>
+                <span id="connectionStatus" class="status disconnected" data-i18n="header.disconnected">● Disconnected</span>
+            </div>
+            <div class="header-right">
+                <div class="language-switch">
+                    <button onclick="changeLanguage('zh-TW')" class="active" id="btnZhTW">繁中</button>
+                    <button onclick="changeLanguage('en')" id="btnEn">English</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- Left Column -->
+            <div>
+                <!-- Connection Settings -->
+                <div class="card">
+                    <h2 data-i18n="connection.title">Connection Settings</h2>
+                    <div class="form-group">
+                        <label data-i18n="connection.mode">Monitoring Mode</label>
+                        <select id="monitorMode">
+                            <option value="single" data-i18n="connection.singleDevice">Single Device</option>
+                            <option value="multiple" data-i18n="connection.multipleDevices">Multiple Devices</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="connection.wsUrl">WebSocket URL</label>
+                        <input type="text" id="wsUrl" value="ws://192.168.213.197:8000">
+                    </div>
+                    <div id="singleDeviceSettings">
+                        <div class="form-group">
+                            <label data-i18n="connection.deviceId">Device ID</label>
+                            <input type="text" id="deviceId" value="IMA_C_5" data-i18n-placeholder="connection.deviceIdPlaceholder">
+                        </div>
+                    </div>
+                    <div id="multipleDeviceSettings" style="display: none;">
+                        <div class="form-group">
+                            <label data-i18n="connection.deviceIds">Device ID List</label>
+                            <input type="text" id="deviceIds" value="IMA_C_5,SD400_3" data-i18n-placeholder="connection.deviceIdsPlaceholder">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="connection.parameters">Parameters</label>
+                        <input type="text" id="parameters" data-i18n-placeholder="connection.parametersPlaceholder">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="connection.interval">Update Interval (seconds)</label>
+                        <input type="number" id="interval" value="1.0" min="0.5" max="60" step="0.5">
+                    </div>
+                    <button class="button primary" onclick="connect()" data-i18n="connection.connect">Connect</button>
+                    <button class="button danger" onclick="disconnect()" disabled id="disconnectBtn" data-i18n="connection.disconnect">Disconnect</button>
+                </div>
+
+                <!-- Device Control -->
+                <div class="card" style="margin-top: 20px;">
+                    <h2 data-i18n="control.title">Device Control</h2>
+                    <div class="form-group">
+                        <label data-i18n="control.parameter">Parameter Name</label>
+                        <input type="text" id="controlParam" data-i18n-placeholder="control.parameterPlaceholder" style="text-transform: uppercase;">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="control.value">Value</label>
+                        <input type="number" id="controlValue" data-i18n-placeholder="control.valuePlaceholder">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="forceWrite">
+                            <span data-i18n="control.force">Force write</span>
+                        </label>
+                    </div>
+                    <div class="control-panel">
+                        <button class="button success" onclick="writeParameter()" id="writeBtn" disabled data-i18n="control.write">Write Parameter</button>
+                        <button class="button primary" onclick="sendPing()" id="pingBtn" disabled data-i18n="control.ping">Send Ping</button>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="card" style="margin-top: 20px;">
+                    <h2 data-i18n="stats.title">Statistics</h2>
+                    <div class="stats">
+                        <div class="stat-box">
+                            <div class="value" id="messageCount">0</div>
+                            <div class="label" data-i18n="stats.messageCount">Messages Received</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="value" id="sentCount">0</div>
+                            <div class="label" data-i18n="stats.sentCount">Commands Sent</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="value" id="errorCount">0</div>
+                            <div class="label" data-i18n="stats.errorCount">Errors</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div>
+                <!-- Real-time Data -->
+                <div class="card">
+                    <h2>
+                        <span data-i18n="data.title">Real-time Data</span>
+                        <button class="button" onclick="clearData()" style="float: right; padding: 6px 12px; font-size: 12px;" data-i18n="data.clear">Clear</button>
+                    </h2>
+                    <div class="data-display" id="dataDisplay">
+                        <p style="color: #9ca3af;" data-i18n="data.waiting">Waiting for connection...</p>
+                    </div>
+                </div>
+
+                <!-- Logs -->
+                <div class="card" style="margin-top: 20px;">
+                    <h2>
+                        <span data-i18n="logs.title">System Logs</span>
+                        <button class="button" onclick="clearLogs()" style="float: right; padding: 6px 12px; font-size: 12px;" data-i18n="logs.clear">Clear</button>
+                    </h2>
+                    <div class="logs" id="logs"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script src="/static/js/config.js"></script>
+    <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
