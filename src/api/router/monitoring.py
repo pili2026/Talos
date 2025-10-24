@@ -388,7 +388,7 @@ async def monitor_single_device(
 
     # Parse the list of parameters to monitor
     if parameters:
-        param_list = [p.strip().upper() for p in parameters.split(",")]
+        param_list = [p.strip() for p in parameters.split(",")]
     else:
         device_config = config_repo.get_device_config(device_id)
         if not device_config:
@@ -455,7 +455,7 @@ async def monitor_single_device(
 
                     # Handle write command
                     if message.get("action") == "write":
-                        parameter = message.get("parameter", "").upper()
+                        parameter = message.get("parameter", "")
                         value = message.get("value")
                         force = message.get("force", False)
 
@@ -586,7 +586,7 @@ async def monitor_multiple_devices(
     config_repo = ConfigRepository()
     service = ParameterService(modbus_repo, config_repo)
 
-    param_list = [p.strip().upper() for p in parameters.split(",")] if parameters else None
+    param_list = [p.strip() for p in parameters.split(",")] if parameters else None
 
     try:
         await websocket.send_json(

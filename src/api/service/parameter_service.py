@@ -13,6 +13,7 @@ from api.model.enums import ParameterType
 from api.model.responses import ParameterValue
 from api.repository.config_repository import ConfigRepository
 from api.repository.modbus_repository import ModbusRepository
+from model.enum.register_type_enum import RegisterType
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +87,10 @@ class ParameterService:
                     error_message="Parameter has no offset defined",
                 )
 
-            register_type = param_def.get("type", "holding")
-            if register_type not in ["holding", "input"]:
+            register_type = param_def.get("register_type", RegisterType.HOLDING)
+            if register_type not in RegisterType:
                 logger.warning(f"Invalid register type '{register_type}' for {normalized_param}, using 'holding'")
-                register_type = "holding"
+                register_type = RegisterType.HOLDING
 
             logger.info(f"[READ] Device: {device_id}, Parameter: {parameter} -> {normalized_param}")
             logger.info(
@@ -196,7 +197,7 @@ class ParameterService:
                         return {"success": False, "error": constraint_check["error"], "previous_value": previous_value}
 
             register_offset = param_def.get("offset")
-            register_type = param_def.get("type", "holding")
+            register_type: str = param_def.get("register_type", RegisterType.HOLDING)
 
             #  Handle Bit writing (atomic operation)
             if "bit" in param_def:

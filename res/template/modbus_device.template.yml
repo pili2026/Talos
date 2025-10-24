@@ -49,3 +49,9 @@ devices:
     model_file: driver/adtek_cpm_10.yml
     <<: *shared_config
     slave_id: 9
+
+  - model: JY_DAM0204
+    type: di_module
+    model_file: driver/jy_dam0204.yml
+    <<: *shared_config
+    slave_id: 10

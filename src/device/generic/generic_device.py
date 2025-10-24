@@ -39,6 +39,12 @@ class AsyncGenericModbusDevice:
         )
         self.bus = ModbusBus(client, slave_id, register_type)
 
+        # Create bus cache for different register types
+        # This allows pins to override register_type at pin-level
+        self._bus_cache: dict[str, ModbusBus] = {register_type: self.bus}  # default bus
+
+        self.logger.debug(f"[{self.model}_{self.slave_id}] Initialized with default register_type='{register_type}'")
+
         # allow tables/modes at same level as register_map (backward compat)
         table_dict = table_dict if table_dict is not None else register_map.pop("tables", {})
         mode_dict = mode_dict if mode_dict is not None else register_map.pop("modes", {})
@@ -66,12 +72,14 @@ class AsyncGenericModbusDevice:
         return str(self.device_type).lower() in {"inverter", "vfd", "inverter_vfd"}
 
     async def read_all(self) -> dict[str, Any]:
-        # 1) First check connectivity: if not connected → return an offline snapshot immediately
+        """Read all readable pins."""
+        # 1) First check connectivity using default bus
         if not await self.bus.ensure_connected():
-            self.logger.warning("[OFFLINE] bus not connected; return default -1 snapshot")
+            self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
             return self._default_offline_snapshot()
 
-        # 2) If connected → read normally; if a single read fails → set that field to -1
+        # 2) If connected, read all pins
+        # Note: Each pin may use a different bus (different register_type)
         result: dict[str, Any] = {}
         for name, cfg in self.register_map.items():
             if not cfg.get("readable"):
@@ -85,18 +93,49 @@ class AsyncGenericModbusDevice:
         return result
 
     async def read_value(self, name: str) -> float | int:
+        """
+        Read a value from a pin.
+
+        Supports:
+        - Holding/Input registers (original)
+        - Coil (FC 01)
+        - Discrete Input (FC 02)
+        """
         config: dict = self._require_readable(name)
         if not config:
             return DEFAULT_MISSING_VALUE
 
-        # 1) raw
-        value: int | float = await self._read_raw(config)
-        if value == DEFAULT_MISSING_VALUE:
-            return value
+        bus: ModbusBus = self._get_bus_for_pin(name)
+        pin_register_type: str = config.get("register_type", self.register_type)
 
-        # 2) bit
-        if config.get("bit") is not None:
-            value = self.decoder.apply_bit(value, config["bit"])
+        # 1) Read raw value based on register_type
+        if pin_register_type == "coil":
+            # Read Coil (FC 01)
+            try:
+                raw_bool = await bus.read_coil(config["offset"])
+                value = 1 if raw_bool else 0
+            except Exception as e:
+                self.logger.warning(f"[{self.model}_{self.slave_id}] Failed to read coil {name}: {e}")
+                return DEFAULT_MISSING_VALUE
+
+        elif pin_register_type == "discrete_input":
+            # Read Discrete Input (FC 02)
+            try:
+                raw_bool = await bus.read_discrete_input(config["offset"])
+                value = 1 if raw_bool else 0
+            except Exception as e:
+                self.logger.warning(f"[{self.model}_{self.slave_id}] Failed to read discrete_input {name}: {e}")
+                return DEFAULT_MISSING_VALUE
+
+        else:
+            # Original holding/input register logic
+            value: int | float = await self._read_raw(config)
+            if value == DEFAULT_MISSING_VALUE:
+                return value
+
+            # 2) bit extraction (only for holding/input registers)
+            if config.get("bit") is not None:
+                value = self.decoder.apply_bit(value, config["bit"])
 
         # 3) linear formula
         if config.get("formula"):
@@ -110,27 +149,49 @@ class AsyncGenericModbusDevice:
         if scale_from:
             factor = await self._resolve_dynamic_scale(scale_from)
             value = self.decoder.apply_scale(value, factor)
+
         return value
 
     async def write_value(self, name: str, value: int | float):
-        """Write a value to a pin. Supports bit-level RMW and whole-word writes."""
-        pin_cfg = self._require_writable(name)
-        if not pin_cfg:
-            return
+        """
+        Write a value to a pin.
+
+        Supports:
+        - Bit-level RMW for holding registers
+        - Direct coil write (FC 05)
+        - Full-word write for holding registers
+        """
+        pin_config: dict = self._require_writable(name)
+        if not pin_config:
+            raise ValueError(f"Pin '{name}' is not writable in register_map")
+
         if not self.constraints.allow(name, float(value)):
             return
 
-        # TODO: Need to support more complex types on future
+        bus: ModbusBus = self._get_bus_for_pin(name)
+        pin_register_type: str = pin_config.get("register_type", self.register_type)
 
-        # Bit path (read-modify-write on a single bit)
-        bit_index = pin_cfg.get("bit")
+        if pin_register_type == "coil":
+            # Write Single Coil (FC 05)
+            bool_value = bool(value != 0)
+            try:
+                await bus.write_coil(pin_config["offset"], bool_value)
+                self.logger.info(
+                    f"[{self.model}_{self.slave_id}] Write coil {name} (offset={pin_config['offset']}) = {bool_value}"
+                )
+            except Exception as e:
+                self.logger.error(f"[{self.model}_{self.slave_id}] Failed to write coil {name}: {e}")
+                raise
+            return
+
+        bit_index = pin_config.get("bit")
         if bit_index is not None:
-            await self._write_bit(name, pin_cfg, int(bit_index), int(value))
+            await self._write_bit(name, pin_config, int(bit_index), int(value))
             return
 
         # Whole-word / analog path
-        raw = self._scaled_raw_value(pin_cfg, value)
-        await self._write_word(name, pin_cfg, raw)
+        raw = self._scaled_raw_value(pin_config, value)
+        await self._write_word(name, pin_config, raw)
 
     async def write_on_off(self, value: int) -> None:
         cfg = self.register_map.get(REG_RW_ON_OFF)
@@ -142,6 +203,41 @@ class AsyncGenericModbusDevice:
     # -----------------
     # internal helpers
     # -----------------
+
+    async def _write_word(self, name: str, pin_cfg: dict, raw_value: int) -> None:
+        """Write a full 16-bit word."""
+        await self.bus.write_u16(pin_cfg["offset"], int(raw_value))
+        self.hooks.on_write(name, pin_cfg)
+        self.logger.info(f"[{self.model}] Write {raw_value} to {name} (offset={pin_cfg['offset']})")
+
+    async def _write_bit(self, name: str, pin_cfg: dict, bit_index: int, bit_value: int) -> None:
+        """Read-modify-write a single bit within a 16-bit register."""
+        try:
+            current = await self.bus.read_u16(pin_cfg["offset"])
+        except Exception as e:
+            self.logger.warning(f"[{self.model}] Read before bit-write failed for {name}: {e}")
+            return
+
+        new_word = int(current)
+        if bit_value:
+            new_word |= 1 << bit_index
+        else:
+            new_word &= ~(1 << bit_index)
+
+        try:
+            await self.bus.write_u16(pin_cfg["offset"], new_word)
+            self.hooks.on_write(name, pin_cfg)
+            self.logger.info(
+                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"[{self.model}] Bit-write failed for {name}: {e}. "
+                f"WriteBit {bit_value} to {name}[bit={bit_index}] "
+                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
+            )
+
     async def _read_raw(self, reg_config: dict) -> float | int:
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] bus not connected; return -1 for raw read")
@@ -230,51 +326,44 @@ class AsyncGenericModbusDevice:
         scale = float(pin_cfg.get("scale", 1.0))
         return int(round(float(value) / scale))
 
-    async def _write_word(self, name: str, pin_cfg: dict, raw_value: int) -> None:
-        """Write a full 16-bit word."""
-        await self.bus.write_u16(pin_cfg["offset"], int(raw_value))
-        self.hooks.on_write(name, pin_cfg)
-        self.logger.info(f"[{self.model}] Write {raw_value} to {name} (offset={pin_cfg['offset']})")
+    def _get_bus_for_pin(self, pin_name: str) -> ModbusBus:
+        """
+        Get the ModbusBus instance for a specific pin.
 
-    async def _write_bit(self, name: str, pin_cfg: dict, bit_index: int, bit_value: int) -> None:
-        """Read-modify-write a single bit within a 16-bit register."""
-        try:
-            current = await self.bus.read_u16(pin_cfg["offset"])
-        except Exception as e:
-            self.logger.warning(f"[{self.model}] Read before bit-write failed for {name}: {e}")
-            return
+        If the pin has a 'register_type' attribute, use that to select the bus.
+        Otherwise, use the default register_type.
 
-        new_word = int(current)
-        if bit_value:
-            new_word |= 1 << bit_index
-        else:
-            new_word &= ~(1 << bit_index)
+        Lazily creates bus instances as needed and caches them.
 
-        try:
-            await self.bus.write_u16(pin_cfg["offset"], new_word)
-            self.hooks.on_write(name, pin_cfg)
-            self.logger.info(
-                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
-                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
-            )
-        except Exception as e:
-            self.logger.warning(
-                f"[{self.model}] Bit-write failed for {name}: {e}",
-                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
-                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
-            )
-            self.logger.warning(
-                f"[{self.model}] Bit-write failed for {name}: {e}",
-                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
-                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
-            )
-            self.logger.warning(
-                f"[{self.model}] Bit-write failed for {name}: {e}",
-                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
-                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
-            )
-            self.logger.warning(
-                f"[{self.model}] Bit-write failed for {name}: {e}",
-                f"[{self.model}] WriteBit {bit_value} to {name}[bit={bit_index}] "
-                f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}",
-            )
+        Args:
+            pin_name: Name of the pin
+
+        Returns:
+            ModbusBus instance for the pin's register_type
+        """
+        pin_def: dict = self.register_map.get(pin_name)
+        if not pin_def:
+            # Pin not found, return default bus
+            return self.bus
+
+        # Get pin-level register_type (if specified)
+        pin_register_type: str = pin_def.get("register_type", self.register_type)
+
+        # Return cached bus if exists
+        if pin_register_type in self._bus_cache:
+            return self._bus_cache[pin_register_type]
+
+        # Create new bus for this register_type
+        slave_id = (
+            int(self.slave_id) if isinstance(self.slave_id, str) and self.slave_id.isdigit() else int(self.slave_id)
+        )
+
+        new_bus = ModbusBus(self.client, slave_id, pin_register_type)
+        self._bus_cache[pin_register_type] = new_bus
+
+        self.logger.info(
+            f"[{self.model}_{self.slave_id}] Created ModbusBus for pin '{pin_name}' "
+            f"with register_type='{pin_register_type}'"
+        )
+
+        return new_bus

@@ -14,6 +14,7 @@ from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
 from api.repository.config_repository import ConfigRepository
+from model.enum.register_type_enum import RegisterType
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ class ModbusRepository:
             self._device_configs: dict[str, dict[str, Any]] = {}
             self._lock = asyncio.Lock()
 
-            #  New: device status cache
             self._device_status: dict[str, dict[str, Any]] = {}
             # Format: {device_id: {"is_online": bool, "last_check": timestamp, "failure_count": int}}
             self._register_locks: dict[tuple, asyncio.Lock] = {}
@@ -77,21 +77,6 @@ class ModbusRepository:
         if self._client:
             self._client.close()
             logger.info("Closed Modbus serial connection")
-
-    def get_device_status(self, device_id: str) -> dict[str, Any]:
-        """
-        Get cached device status.
-
-        Returns:
-            Dict: {"is_online": bool, "last_check": float, "failure_count": int}
-        """
-        return self._device_status.get(device_id, {"is_online": None, "last_check": 0, "failure_count": 0})  # Unknown
-
-    def clear_device_status(self, device_id: str):
-        """Clear cached device status"""
-        if device_id in self._device_status:
-            del self._device_status[device_id]
-            logger.info(f"[STATUS] Cleared status cache for {device_id}")
 
     async def test_connection(self, device_id: str, use_cache: bool = True) -> bool:
         """
@@ -165,7 +150,7 @@ class ModbusRepository:
         self,
         device_id: str,
         register_offset: int,
-        register_type: str = "holding",
+        register_type: RegisterType = RegisterType.HOLDING,
         combine_high_offset: int | None = None,
     ) -> int | None:
         """
@@ -191,7 +176,7 @@ class ModbusRepository:
             slave_id = int(device_config["slave_id"])
 
             # Normalize register_type
-            if register_type not in ["holding", "input"]:
+            if register_type not in RegisterType:
                 logger.warning(f"[MODBUS] Invalid register type '{register_type}', defaulting to 'holding'")
                 register_type = "holding"
 
@@ -233,11 +218,14 @@ class ModbusRepository:
 
                 return combined_value
 
-            # Normal 16-bit read
-            if register_type == "holding":
+            if register_type == RegisterType.HOLDING:
                 response = await self._client.read_holding_registers(address=register_offset, count=1, slave=slave_id)
-            elif register_type == "input":
+            elif register_type == RegisterType.INPUT:
                 response = await self._client.read_input_registers(address=register_offset, count=1, slave=slave_id)
+            elif register_type == RegisterType.DISCRETE_INPUT:
+                response = await self._client.read_discrete_inputs(address=register_offset, count=1, slave=slave_id)
+            elif register_type == RegisterType.COIL:
+                response = await self._client.read_coils(address=register_offset, count=1, slave=slave_id)
             else:
                 logger.error(f"[MODBUS] Unknown register type: {register_type}")
                 return None
@@ -248,8 +236,14 @@ class ModbusRepository:
                 self._mark_device_failure(device_id)
                 return None
 
-            raw_value = response.registers[0]
-            logger.info(f"[MODBUS] Read success: offset={register_offset} -> raw_value={raw_value}")
+            if register_type in [RegisterType.DISCRETE_INPUT, RegisterType.COIL]:
+                # Discrete input and coil return bits (True/False)
+                raw_value = 1 if response.bits[0] else 0
+                logger.info(f"[MODBUS] Read success (bit): offset={register_offset} -> raw_value={raw_value}")
+            else:
+                # Holding and input register return registers (int)
+                raw_value = response.registers[0]
+                logger.info(f"[MODBUS] Read success (register): offset={register_offset} -> raw_value={raw_value}")
 
             #  Read succeeded; mark device online
             self._mark_device_success(device_id)
@@ -265,23 +259,8 @@ class ModbusRepository:
             self._mark_device_failure(device_id)
             return None
 
-    def _mark_device_success(self, device_id: str):
-        """Mark device read success (online)"""
-        self._device_status[device_id] = {"is_online": True, "last_check": time.time(), "failure_count": 0}
-
-    def _mark_device_failure(self, device_id: str):
-        """Mark device read failure (possibly offline)"""
-        status = self._device_status.get(device_id, {})
-        failure_count = status.get("failure_count", 0) + 1
-
-        self._device_status[device_id] = {
-            "is_online": False if failure_count >= 2 else status.get("is_online"),
-            "last_check": time.time(),
-            "failure_count": failure_count,
-        }
-
     async def write_register(
-        self, device_id: str, register_offset: int, value: int, register_type: str = "holding"
+        self, device_id: str, register_offset: int, value: int, register_type: RegisterType = RegisterType.HOLDING
     ) -> bool:
         """
         Write a Modbus register.
@@ -308,19 +287,22 @@ class ModbusRepository:
 
                 slave_id = int(device_config["slave_id"])
 
-                if register_type not in ["holding", "input"]:
+                if register_type not in RegisterType:
                     logger.warning(f"[MODBUS WRITE] Invalid register type '{register_type}', defaulting to 'holding'")
-                    register_type = "holding"
+                    register_type = RegisterType.HOLDING
 
                 logger.info(
                     f"[MODBUS WRITE] Device: {device_id}, Slave: {slave_id}, Offset: {register_offset}, Value: {value} (0b{bin(value)[2:].zfill(16)}), Type: {register_type}"
                 )
 
-                if register_type == "holding":
+                if register_type == RegisterType.HOLDING:
                     response = await self._client.write_register(address=register_offset, value=value, slave=slave_id)
+                elif register_type == RegisterType.COIL:
+                    bool_value: bool = bool(value)
+                    response = await self._client.write_coil(address=register_offset, value=bool_value, slave=slave_id)
                 else:
-                    logger.error(f"[MODBUS WRITE] Cannot write to register type: {register_type}")
-                    raise ValueError(f"Cannot write to register type: {register_type}")
+                    logger.error(f"[MODBUS] Unsupported write for register type: {register_type}")
+                    return False
 
                 if response.isError():
                     logger.error(f"[MODBUS WRITE] Write error: {response}")
@@ -336,19 +318,13 @@ class ModbusRepository:
                 self._mark_device_failure(device_id)
                 return False
 
-    def _get_register_lock(self, device_id: str, register_offset: int) -> asyncio.Lock:
-        """
-        Get the lock for a specific register.
-
-        Prevents race conditions for concurrent read-modify-write operations on the same register.
-        """
-        key = (device_id, register_offset)
-        if key not in self._register_locks:
-            self._register_locks[key] = asyncio.Lock()
-        return self._register_locks[key]
-
     async def read_modify_write_bit(
-        self, device_id: str, register_offset: int, bit_position: int, bit_value: int, register_type: str = "holding"
+        self,
+        device_id: str,
+        register_offset: int,
+        bit_position: int,
+        bit_value: int,
+        register_type: RegisterType = RegisterType.HOLDING,
     ) -> bool:
         """
         Atomic bit read-modify-write operation.
@@ -409,8 +385,23 @@ class ModbusRepository:
                 logger.error(f"[BIT WRITE] Exception during atomic operation: {e}", exc_info=True)
                 return False
 
+    def get_device_status(self, device_id: str) -> dict[str, Any]:
+        """
+        Get cached device status.
+
+        Returns:
+            Dict: {"is_online": bool, "last_check": float, "failure_count": int}
+        """
+        return self._device_status.get(device_id, {"is_online": None, "last_check": 0, "failure_count": 0})  # Unknown
+
+    def clear_device_status(self, device_id: str):
+        """Clear cached device status"""
+        if device_id in self._device_status:
+            del self._device_status[device_id]
+            logger.info(f"[STATUS] Cleared status cache for {device_id}")
+
     async def _read_register_unlocked(
-        self, device_id: str, register_offset: int, register_type: str = "holding"
+        self, device_id: str, register_offset: int, register_type: RegisterType = RegisterType.HOLDING
     ) -> int | None:
         """
         Read a register (unlocked version).
@@ -427,9 +418,10 @@ class ModbusRepository:
 
             slave_id = int(device_config["slave_id"])
 
-            if register_type == "holding":
+            # TODO: Support coil writing
+            if register_type == RegisterType.HOLDING:
                 response = await self._client.read_holding_registers(address=register_offset, count=1, slave=slave_id)
-            elif register_type == "input":
+            elif register_type == RegisterType.INPUT:
                 response = await self._client.read_input_registers(address=register_offset, count=1, slave=slave_id)
             else:
                 return None
@@ -444,7 +436,7 @@ class ModbusRepository:
             return None
 
     async def _write_register_unlocked(
-        self, device_id: str, register_offset: int, value: int, register_type: str = "holding"
+        self, device_id: str, register_offset: int, value: int, register_type: RegisterType = RegisterType.HOLDING
     ) -> bool:
         """
         Write a register (unlocked version).
@@ -461,7 +453,8 @@ class ModbusRepository:
 
             slave_id = int(device_config["slave_id"])
 
-            if register_type == "holding":
+            # TODO: Support coil writing
+            if register_type == RegisterType.HOLDING:
                 response = await self._client.write_register(address=register_offset, value=value, slave=slave_id)
             else:
                 return False
@@ -476,3 +469,29 @@ class ModbusRepository:
             logger.error(f"[MODBUS] Write error: {e}")
             self._mark_device_failure(device_id)
             return False
+
+    def _mark_device_success(self, device_id: str):
+        """Mark device read success (online)"""
+        self._device_status[device_id] = {"is_online": True, "last_check": time.time(), "failure_count": 0}
+
+    def _mark_device_failure(self, device_id: str):
+        """Mark device read failure (possibly offline)"""
+        status = self._device_status.get(device_id, {})
+        failure_count = status.get("failure_count", 0) + 1
+
+        self._device_status[device_id] = {
+            "is_online": False if failure_count >= 2 else status.get("is_online"),
+            "last_check": time.time(),
+            "failure_count": failure_count,
+        }
+
+    def _get_register_lock(self, device_id: str, register_offset: int) -> asyncio.Lock:
+        """
+        Get the lock for a specific register.
+
+        Prevents race conditions for concurrent read-modify-write operations on the same register.
+        """
+        key = (device_id, register_offset)
+        if key not in self._register_locks:
+            self._register_locks[key] = asyncio.Lock()
+        return self._register_locks[key]

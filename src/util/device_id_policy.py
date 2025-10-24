@@ -24,21 +24,23 @@ class DeviceIdPolicy:
         """
         self._config = config
 
-    def parse_slave_id(self, slave_id: str) -> int:
-        """Convert slave_id (0-9, a-z) to int; fallback=0 if invalid"""
+    def parse_slave_id(self, slave_id: str | int) -> int:
+        if isinstance(slave_id, int):
+            return slave_id
+        s = str(slave_id).strip().lower()
         try:
-            return int(str(slave_id).strip().lower(), 36)
+            return int(s, 10)  # Default decimal
         except Exception:
             logger.warning(f"Invalid slave_id={slave_id!r}, fallback=0")
             return 0
 
-    def generate_code(self, slave_id: str, idx: int) -> str:
-        """Generate code string according to the policy"""
+    def generate_code(self, slave_id: int, idx: int) -> str:
+        # TODO: Need to support more than 16 devices per slave?
         if not 0 <= idx <= 15:
             logger.warning(f"idx out of range (0..15): {idx}, fallback=0")
             idx = 0
 
-        parsed_slave_id = self.parse_slave_id(slave_id)
+        parsed_slave_id = int(slave_id)
         radix = Radix(self._config.RADIX.lower())
 
         if radix == Radix.HEX:
@@ -51,8 +53,7 @@ class DeviceIdPolicy:
         code = base + parsed_slave_id * 16 + idx
         return f"{code:0{self._config.WIDTH}d}"
 
-    def build_device_id(self, gateway_id: str, slave_id: str, idx: int, eq_suffix: EquipmentType = "") -> str:
-        """Build complete device ID"""
+    def build_device_id(self, gateway_id: str, slave_id: int, idx: int, eq_suffix: EquipmentType = "") -> str:
         code = self.generate_code(slave_id, idx)
         return f"{gateway_id}_{self._config.PREFIX}{code}{eq_suffix}"
 
