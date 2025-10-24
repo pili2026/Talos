@@ -1,7 +1,7 @@
 model: "JY_DAM0204"
 type: "io_module"
 
-# 預設 register_type (可被 pin-level 的設定覆蓋)
+# Default register_type (pin-level to cover it)
 register_type: discrete_input
 
 capabilities:
@@ -13,7 +13,7 @@ capabilities:
 
 register_map:
   # ==================== Digital Inputs ====================
-  # 使用 pin-level 的 register_type 覆蓋預設值
+  # Using pin-level's register_type to cover the difference
   
   DIn01:
     offset: 0
