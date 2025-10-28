@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
@@ -29,7 +30,6 @@ logger = logging.getLogger("TalosAPI")
 
 # Obtain the absolute path to the static directory
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-
 
 # Configure logging
 setup_logging(log_level="INFO")
@@ -86,7 +86,30 @@ def create_application() -> FastAPI:
 
     # Ensure static directory exists
     if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        # Mount /assets 路徑（FE JS、CSS etc.）
+        assets_dir = static_dir / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        # Catch-all route: 所有非 API 路徑都返回 index.html
+        # 這支援 Vue Router 的 history mode
+        @app.get("/{full_path:path}")
+        async def serve_frontend(full_path: str):
+            """
+            Serve frontend for all non-API routes
+            Supports Vue Router history mode
+            """
+            # If it's an API path, do not handle (let FastAPI return 404)
+            if full_path.startswith("api/"):
+                return {"error": "Not found"}
+
+            # Return index.html
+            index_file = static_dir / "index.html"
+            if index_file.exists():
+                return FileResponse(index_file)
+            else:
+                return {"error": "Frontend not found"}
+
     else:
         logger.warning(f"Warning: Static directory not found at {static_dir}")
 
@@ -94,7 +117,6 @@ def create_application() -> FastAPI:
 
 
 app = create_application()
-
 
 if __name__ == "__main__":
     import uvicorn
