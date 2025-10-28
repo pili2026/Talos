@@ -55,3 +55,9 @@ devices:
     model_file: driver/jy_dam0204.yml
     <<: *shared_config
     slave_id: 10
+
+  - model: DAE_PM210
+    type: power_meter
+    model_file: driver/dae_pm210.yml
+    <<: *shared_config
+    slave_id: 11

@@ -1,0 +1,31 @@
+model: DAE_PM210
+register_type: holding
+register_map:
+  # ========== Energy ==========
+  Kwh:   { offset: 48, readable: true, format: u32_le, scale: 0.01 }
+  Kvarh: { offset: 50, readable: true, format: u32_le, scale: 0.01 }
+  
+  # ========== Voltages (raw, not apply PT) ==========
+  Phase_A_Voltage: { offset: 20, readable: true, format: u32_le, scale: 0.1 }
+  Phase_B_Voltage: { offset: 22, readable: true, format: u32_le, scale: 0.1 }
+  Phase_C_Voltage: { offset: 24, readable: true, format: u32_le, scale: 0.1 }
+  Line_AB_Voltage: { offset: 26, readable: true, format: u32_le, scale: 0.1 }
+  Line_BC_Voltage: { offset: 28, readable: true, format: u32_le, scale: 0.1 }
+  Line_CA_Voltage: { offset: 30, readable: true, format: u32_le, scale: 0.1 }
+  
+  # ========== Currents (raw, not apply CT) ==========
+  Phase_A_Current: { offset: 32, readable: true, format: u32_le, scale: 0.001 }
+  Phase_B_Current: { offset: 34, readable: true, format: u32_le, scale: 0.001 }
+  Phase_C_Current: { offset: 36, readable: true, format: u32_le, scale: 0.001 }
+  
+  # ========== Power Factor ==========
+  AveragePowerFactor: { offset: 46, readable: true, format: u32_le, scale: 0.001 }
+  
+  # ========== Power (raw, not apply PT×CT) ==========
+  Kw:   { offset: 102, readable: true, format: u32_le, scale: 0.001 }
+  Kva:  { offset: 110, readable: true, format: u32_le, scale: 0.001 }
+  Kvar: { offset: 118, readable: true, format: u32_le, scale: 0.001 }
+  
+  # ========== PT/CT Ratio ==========
+  PT_Ratio_Raw_x100: { offset: 133, readable: true, writable: true, format: u16 }
+  CT_Ratio:          { offset: 134, readable: true, writable: true, format: u16 }
