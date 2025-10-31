@@ -2,10 +2,10 @@ import logging
 import re
 
 from model.enum.equipment_enum import EquipmentType
+from util.converter_invstatus import compute_legacy_invstatus_code, to_int_or_none, u16_to_bit_flags, u16_to_hex
 from util.device_id_policy import DeviceIdPolicy, get_policy
 
 logger = logging.getLogger("SnapshotConverter")
-
 
 
 def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
@@ -149,6 +149,12 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
 
 
 def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str]) -> list[dict]:
+    """
+    Convert inverter snapshot data into the Legacy format.
+    - Regular numeric fields are directly cast to the expected type.
+    - INVSTATUS: keep raw value, expose debug-friendly fields (hex/bit flags),
+      and compute legacy-compatible status code.
+    """
     field_map = {
         "KWH": ("kwh", float),
         "VOLTAGE": ("voltage", float),
@@ -157,24 +163,41 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
         "HZ": ("hz", float),
         "ERROR": ("error", int),
         "ALERT": ("alert", int),
-        "INVSTATUS": ("invstatus", int),
+        # "INVSTATUS" handled in a dedicated section (with derived fields)
         "RW_HZ": ("set_hz", int),
         "RW_ON_OFF": ("on_off", int),
     }
 
     policy: DeviceIdPolicy = get_policy()
-    device_id = policy.build_device_id(
-        gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.CI
-    )  # ← TODO:idx=0
-    data = {}
+    device_id = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.CI)
+
+    data: dict = {}
+
+    # Regular numeric fields
     for raw_key, (target_key, caster) in field_map.items():
-        val = snapshot.get(raw_key)
-        if val is None:
+        raw_val: str | None = snapshot.get(raw_key)
+        if raw_val is None:
             continue
         try:
-            data[target_key] = caster(float(val))
+            data[target_key] = caster(float(raw_val))
         except Exception:
             pass
+
+    # ---- INVSTATUS section: raw + derived fields + compatibility mapping ----
+    invstatus_raw: int | None = to_int_or_none(snapshot.get("INVSTATUS"))
+
+    # Debug-friendly / visualization fields (raw, hex, bit-flags)
+    data["invstatus_raw_u16"] = invstatus_raw
+    data["invstatus_hex"] = u16_to_hex(invstatus_raw)
+    data["invstatus_bits"] = u16_to_bit_flags(invstatus_raw)
+
+    # Legacy-compatible status code (%10 rule; negative → 0)
+    invstatus_code: int | None = compute_legacy_invstatus_code(invstatus_raw, negative_fallback=0)
+    data["invstatus_code"] = invstatus_code
+
+    # Legacy cloud expects field name "invstatus" (required in legacy payload)
+    if invstatus_code is not None:
+        data["invstatus"] = invstatus_code
 
     return [{"DeviceID": device_id, "Data": data}] if data else []
 
