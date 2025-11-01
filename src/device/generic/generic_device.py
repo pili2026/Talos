@@ -95,7 +95,6 @@ class AsyncGenericModbusDevice:
     async def read_value(self, name: str) -> float | int:
         """
         Read a value from a pin.
-
         Supports:
         - Holding/Input registers (original)
         - Coil (FC 01)
@@ -107,35 +106,48 @@ class AsyncGenericModbusDevice:
 
         bus: ModbusBus = self._get_bus_for_pin(name)
         pin_register_type: str = config.get("register_type", self.register_type)
+        offset: int | str = config.get("offset", "unknown")
 
         # 1) Read raw value based on register_type
         if pin_register_type == "coil":
             # Read Coil (FC 01)
             try:
-                raw_bool = await bus.read_coil(config["offset"])
+                raw_bool = await bus.read_coil(offset)
                 value = 1 if raw_bool else 0
             except Exception as e:
-                self.logger.warning(f"[{self.model}_{self.slave_id}] Failed to read coil {name}: {e}")
+                self.logger.warning(
+                    f"[{self.model}:{self.slave_id}] " f"Parameter '{name}' (coil) read failed (offset={offset}) - {e}"
+                )
                 return DEFAULT_MISSING_VALUE
 
         elif pin_register_type == "discrete_input":
             # Read Discrete Input (FC 02)
             try:
-                raw_bool = await bus.read_discrete_input(config["offset"])
+                raw_bool: bool = await bus.read_discrete_input(offset)
                 value = 1 if raw_bool else 0
             except Exception as e:
-                self.logger.warning(f"[{self.model}_{self.slave_id}] Failed to read discrete_input {name}: {e}")
+                self.logger.warning(
+                    f"[{self.model}:{self.slave_id}] "
+                    f"Parameter '{name}' (discrete_input) read failed (offset={offset}) - {e}"
+                )
                 return DEFAULT_MISSING_VALUE
 
         else:
             # Original holding/input register logic
             value: int | float = await self._read_raw(config)
+
+            # Record holding/input register read failure
             if value == DEFAULT_MISSING_VALUE:
+                self.logger.warning(
+                    f"[{self.model}:{self.slave_id}] "
+                    f"Parameter '{name}' ({pin_register_type}) read failed (offset={offset}) - "
+                    f"device may not support this feature"
+                )
                 return value
 
-            # 2) bit extraction (only for holding/input registers)
-            if config.get("bit") is not None:
-                value = self.decoder.apply_bit(value, config["bit"])
+        # 2) bit extraction (only for holding/input registers)
+        if config.get("bit") is not None:
+            value = self.decoder.apply_bit(value, config["bit"])
 
         # 3) linear formula
         if config.get("formula"):
