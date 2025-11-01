@@ -1,20 +1,20 @@
 model: SD500
 register_type: holding
-
 register_map:
-  DIn01: { offset: 0, format: uint16, readable: true }
-  DIn02: { offset: 1, format: uint16, readable: true }
-  DIn03: { offset: 2, format: uint16, readable: true }
-  DIn04: { offset: 3, format: uint16, readable: true }
-  DIn05: { offset: 4, format: uint16, readable: true }
-  DIn06: { offset: 5, format: uint16, readable: true }
-  DIn07: { offset: 6, format: uint16, readable: true }
-  DIn08: { offset: 7, format: uint16, readable: true }
-  DIn09: { offset: 8, format: uint16, readable: true }
-  DIn10: { offset: 9, format: uint16, readable: true }
-  DIn11: { offset: 10, format: uint16, readable: true }
-  DIn12: { offset: 11, format: uint16, readable: true }
-  DIn13: { offset: 12, format: uint16, readable: true }
-  DIn14: { offset: 13, format: uint16, readable: true }
-  DIn15: { offset: 14, format: uint16, readable: true }
-  DIn16: { offset: 15, format: uint16, readable: true }
+  # All 16 DI channels are read from register 0, using bits 0-15 for extraction.
+  DIn01: { offset: 0, bit: 0, readable: true }
+  DIn02: { offset: 0, bit: 1, readable: true }
+  DIn03: { offset: 0, bit: 2, readable: true }
+  DIn04: { offset: 0, bit: 3, readable: true }
+  DIn05: { offset: 0, bit: 4, readable: true }
+  DIn06: { offset: 0, bit: 5, readable: true }
+  DIn07: { offset: 0, bit: 6, readable: true }
+  DIn08: { offset: 0, bit: 7, readable: true }
+  DIn09: { offset: 0, bit: 8, readable: true }
+  DIn10: { offset: 0, bit: 9, readable: true }
+  DIn11: { offset: 0, bit: 10, readable: true }
+  DIn12: { offset: 0, bit: 11, readable: true }
+  DIn13: { offset: 0, bit: 12, readable: true }
+  DIn14: { offset: 0, bit: 13, readable: true }
+  DIn15: { offset: 0, bit: 14, readable: true }
+  DIn16: { offset: 0, bit: 15, readable: true }
