@@ -147,11 +147,11 @@ class AsyncGenericModbusDevice:
 
         # 2) bit extraction (only for holding/input registers)
         if config.get("bit") is not None:
-            value = self.decoder.apply_bit(value, config["bit"])
+            value = self.decoder.extract_bit(value, config["bit"])
 
         # 3) linear formula
         if config.get("formula"):
-            value = self.decoder.apply_formula(value, config["formula"])
+            value = self.decoder.apply_linear_formula(value, config["formula"])
 
         # 4) constant scale
         value = self.decoder.apply_scale(value, config.get("scale", 1.0))
