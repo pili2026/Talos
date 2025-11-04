@@ -270,7 +270,6 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     Supports multiple power meter patterns:
     1. Simple pattern (e.g., DAE_PM210): Direct Kwh/Kvarh fields
        - Driver provides simple scaled values
-       - PT/CT ratios applied separately by _apply_pt_ct_ratios()
 
     2. Composed pattern (e.g., ADTEK_CPM10): Kwh_SUM/Kvarh_SUM fields
        - Driver uses scale_from mechanism

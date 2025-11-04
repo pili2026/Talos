@@ -182,125 +182,6 @@ class LegacySenderAdapter:
     # -------------------------
     # Internal
     # -------------------------
-    def _apply_pt_ct_ratios(self, snap: dict) -> dict:
-        """
-        Apply PTxCT ratio for DAE_PM210.
-        Modifies values in-place.
-        """
-        device_id: str = snap.get("device_id", "")
-        device_model, slave_id = device_id.rsplit("_", 1)
-
-        try:
-            device = self.device_manager.get_device_by_model_and_slave_id(device_model, slave_id)
-            if not device or device.model != "DAE_PM210":
-                return snap
-        except Exception:
-            return snap
-
-        values = snap.get("values")
-        if not values or not isinstance(values, dict):
-            logger.warning(f"[DAE_PM210] {device_id}: No 'values' dict found")
-            return snap
-
-        pt_raw = values.get("PT_Ratio_Raw_x100")
-        ct_ratio = values.get("CT_Ratio")
-
-        if pt_raw is None or ct_ratio is None:
-            logger.warning(f"[DAE_PM210] {device_id}: Missing PT={pt_raw}, CT={ct_ratio}")
-            return snap
-
-        try:
-            pt = float(pt_raw) / 100.0
-            ct = float(ct_ratio)
-
-            logger.info(f"[DAE_PM210] {device_id}: PT={pt}, CT={ct}")
-
-            # ========== Determine effective phase count (based on voltage) ==========
-            phase_v = [
-                float(values.get("Phase_A_Voltage", 0) or 0),
-                float(values.get("Phase_B_Voltage", 0) or 0),
-                float(values.get("Phase_C_Voltage", 0) or 0),
-            ]
-
-            logger.info(f"[DAE_PM210] {device_id}: Phase voltages (raw): {phase_v}")
-
-            # If all phase voltages are zero, fall back to line voltages
-            if all(v == 0 for v in phase_v):
-                phase_v = [
-                    float(values.get("Line_AB_Voltage", 0) or 0),
-                    float(values.get("Line_BC_Voltage", 0) or 0),
-                    float(values.get("Line_CA_Voltage", 0) or 0),
-                ]
-                logger.info(f"[DAE_PM210] {device_id}: Fallback to line voltages: {phase_v}")
-
-            # Count number of active phases (non-zero voltages)
-            active_phase_count = sum(1 for v in phase_v if v != 0)
-            if active_phase_count == 0:
-                active_phase_count = 1  # avoid division by zero
-
-            logger.info(f"[DAE_PM210] {device_id}: Active phase count = {active_phase_count}")
-
-            # ========== Compute average voltage ==========
-            active_v = [v for v in phase_v if v != 0]
-            if active_v:
-                avg_voltage_raw = sum(active_v) / len(active_v)
-                values["AverageVoltage"] = avg_voltage_raw * pt
-                logger.info(
-                    f"[DAE_PM210] {device_id}: AverageVoltage = {avg_voltage_raw} × {pt} = {values['AverageVoltage']:.2f}"
-                )
-            else:
-                values["AverageVoltage"] = 0.0
-                logger.warning(f"[DAE_PM210] {device_id}: All voltages are 0")
-
-            # ========== Compute average current (using effective phase count) ==========
-            # Read three-phase raw current values
-            i1 = float(values.get("Phase_A_Current", 0) or 0)
-            i2 = float(values.get("Phase_B_Current", 0) or 0)
-            i3 = float(values.get("Phase_C_Current", 0) or 0)
-
-            logger.info(f"[DAE_PM210] {device_id}: Phase currents (raw): [{i1}, {i2}, {i3}]")
-
-            # Three-phase total / active phase count × CT
-            avg_current_raw = (i1 + i2 + i3) / active_phase_count
-            values["AverageCurrent"] = avg_current_raw * ct
-
-            logger.info(
-                f"[DAE_PM210] {device_id}: AverageCurrent = ({i1}+{i2}+{i3})/{active_phase_count} × {ct} = {values['AverageCurrent']:.2f}"
-            )
-
-            # ========== Power × (PT × CT) ==========
-            pt_ct = pt * ct
-            for key in ["Kw", "Kva", "Kvar"]:
-                if key in values:
-                    original = float(values[key])
-                    values[key] = original * pt_ct
-                    logger.info(f"[DAE_PM210] {device_id}: {key} = {original} × {pt_ct} = {values[key]:.2f}")
-
-            # ========== Individual voltages × PT ==========
-            for key in [
-                "Phase_A_Voltage",
-                "Phase_B_Voltage",
-                "Phase_C_Voltage",
-                "Line_AB_Voltage",
-                "Line_BC_Voltage",
-                "Line_CA_Voltage",
-            ]:
-                if key in values:
-                    values[key] = float(values[key]) * pt
-
-            # ========== Individual currents × CT ==========
-            for key in ["Phase_A_Current", "Phase_B_Current", "Phase_C_Current"]:
-                if key in values:
-                    values[key] = float(values[key]) * ct
-
-            logger.info(
-                f"[DAE_PM210] {device_id}: ✅ Final - Voltage={values.get('AverageVoltage', 0):.2f}V, Current={values.get('AverageCurrent', 0):.2f}A"
-            )
-
-        except Exception as e:
-            logger.error(f"[DAE_PM210] {device_id}: Calculation error: {e}", exc_info=True)
-
-        return snap
 
     async def _warmup_send_once(self, timeout_sec: int = 15, debounce_s: int = 1) -> None:
         try:
@@ -333,8 +214,6 @@ class LegacySenderAdapter:
             last_ts = self.__last_sent_ts_by_device.get(dev_id, self._epoch)
             if snap_ts <= last_ts:
                 continue
-
-            snap = self._apply_pt_ct_ratios(snap)
 
             converted = convert_snapshot_to_legacy_payload(
                 gateway_id=self.gateway_id,
@@ -559,8 +438,6 @@ class LegacySenderAdapter:
             last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_time <= last_label:
                 continue
-
-            snap = self._apply_pt_ct_ratios(snap)
 
             converted = convert_snapshot_to_legacy_payload(
                 gateway_id=self.gateway_id,
