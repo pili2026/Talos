@@ -311,6 +311,10 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
         mapped["Kwh"] = read_3w("Kwh")
         mapped["Kvarh"] = read_3w("Kvarh")
 
+    # NOTE: Kvah intentionally omitted (DAE_PM210, ADTEK_CPM10 hardware doesn't support this field).
+    # Maintains NULL in database for consistency with other unsupported meter fields.
+    # TODO: Standardize unsupported field handling across all power meters.
+
     # --- Apply rounding rules based on metadata ---
     mapped = _apply_rounding(mapped)
 
