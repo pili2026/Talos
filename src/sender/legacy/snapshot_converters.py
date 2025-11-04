@@ -1,11 +1,23 @@
 import logging
 import re
 
+from model.device_constant import POWER_METER_FIELDS
 from model.enum.equipment_enum import EquipmentType
 from util.converter_invstatus import compute_legacy_invstatus_code, to_int_or_none, u16_to_bit_flags, u16_to_hex
 from util.device_id_policy import DeviceIdPolicy, get_policy
+from util.value_util import to_float, to_int
+
+_COMMON_FIELDS = [k for k, v in POWER_METER_FIELDS.items() if v["common"]]
 
 logger = logging.getLogger("SnapshotConverter")
+
+
+def _apply_rounding(mapped: dict) -> dict:
+    """Apply rounding rules based on field metadata."""
+    for field, config in POWER_METER_FIELDS.items():
+        if field in mapped:
+            mapped[field] = round(mapped[field], config["round"])
+    return mapped
 
 
 def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
@@ -255,56 +267,43 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     """
     Convert driver snapshot into SE's Data.
 
-    New driver (M1+) already applies all scaling:
-      - AverageVoltage/Current, Phase_*_Current already applied index scaling
-      - Kw/Kva/Kvar already applied energy_index scaling
-      - AveragePowerFactor already multiplied by 0.001
-      - Kwh_SUM / Kvarh_SUM already composed from 3 words and scaled (KWh also handles MV mode)
+    Supports multiple power meter patterns:
+    1. Simple pattern (e.g., DAE_PM210): Direct Kwh/Kvarh fields
+       - Driver provides simple scaled values
+       - PT/CT ratios applied separately by _apply_pt_ct_ratios()
 
-    Therefore we just map fields; no extra scaling.
+    2. Composed pattern (e.g., ADTEK_CPM10): Kwh_SUM/Kvarh_SUM fields
+       - Driver uses scale_from mechanism
+       - PT/CT ratios already included in scaling
 
-    Legacy fallback (pre-M1): if Kwh_SUM/Kvarh_SUM are missing, reconstruct them and use energy_index (no MV support).
+    3. Legacy pattern: 3-word format with SCALE_EnergyIndex
+       - Backward compatibility for old drivers
+       - Manual 3-word reconstruction and scaling
     """
 
-    def to_int(x):
-        try:
-            return int(float(x))
-        except Exception:
-            return 0
+    # --- Direct mapping for common fields ---
+    mapped = {field: to_float(values.get(field)) for field in _COMMON_FIELDS}
 
-    def to_float(x):
-        try:
-            return float(x)
-        except Exception:
-            return 0.0
+    # --- Energies: Try patterns in order of simplicity ---
 
-    # --- Direct mapping (no further scaling) ---
-    mapped = {
-        "AverageVoltage": to_float(values.get("AverageVoltage")),
-        "AverageCurrent": to_float(values.get("AverageCurrent")),
-        "Phase_A_Current": to_float(values.get("Phase_A_Current")),
-        "Phase_B_Current": to_float(values.get("Phase_B_Current")),
-        "Phase_C_Current": to_float(values.get("Phase_C_Current")),
-        "Kw": to_float(values.get("Kw")),
-        "Kva": to_float(values.get("Kva")),
-        "Kvar": to_float(values.get("Kvar")),
-        "AveragePowerFactor": to_float(values.get("AveragePowerFactor")),
-    }
+    # Pattern 1: Simple direct values (e.g., DAE_PM210)
+    if "Kwh" in values and "Kvarh" in values:
+        mapped["Kwh"] = to_float(values.get("Kwh"))
+        mapped["Kvarh"] = to_float(values.get("Kvarh"))
 
-    # Energies: prefer already composed SUM fields (new driver)
-    if "Kwh_SUM" in values and "Kvarh_SUM" in values:
+    # Pattern 2: Composed SUM fields (e.g., ADTEK_CPM10)
+    elif "Kwh_SUM" in values and "Kvarh_SUM" in values:
         mapped["Kwh"] = to_float(values.get("Kwh_SUM"))
         mapped["Kvarh"] = to_float(values.get("Kvarh_SUM"))
+
+    # Pattern 3: Legacy 3-word format (backward compatibility)
     else:
-        # ---- Legacy fallback (only for old driver): estimate with energy_index, without MV handling ----
         ki = to_int(values.get("SCALE_EnergyIndex"))
-
         k_list = [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
-
-        # Used only in fallback; for safety use default if index is invalid
         e_mul = (k_list[ki] * 0.001) if 0 <= ki < len(k_list) else 0.001
 
         def read_3w(prefix: str) -> float:
+            """Read and combine 3 words into 48-bit value."""
             w1 = to_int(values.get(f"{prefix}_W1_HI"))
             w2 = to_int(values.get(f"{prefix}_W2_MD"))
             w3 = to_int(values.get(f"{prefix}_W3_LO"))
@@ -313,24 +312,11 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
         mapped["Kwh"] = read_3w("Kwh")
         mapped["Kvarh"] = read_3w("Kvarh")
 
-    # --- Rounding rules (same as your original convention) ---
-    round2 = (
-        "AverageVoltage",
-        "AverageCurrent",
-        "Phase_A_Current",
-        "Phase_B_Current",
-        "Phase_C_Current",
-        "Kw",
-        "Kva",
-        "Kvar",
-        "Kwh",
-        "Kvarh",
-    )
-    for k in round2:
-        mapped[k] = round(mapped.get(k, 0.0), 2)
-    mapped["AveragePowerFactor"] = round(mapped.get("AveragePowerFactor", 0.0), 3)
+    # --- Apply rounding rules based on metadata ---
+    mapped = _apply_rounding(mapped)
 
-    # Device ID (reuse your convention)
+    # --- Generate Device ID ---
     policy: DeviceIdPolicy = get_policy()
     device_id: str = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
+
     return [{"DeviceID": device_id, "Data": mapped}]
