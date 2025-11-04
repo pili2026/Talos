@@ -5,9 +5,9 @@ from device.generic.constraints_policy import ConstraintPolicy
 from device.generic.hooks import HookManager
 from device.generic.modbus_bus import ModbusBus
 from device.generic.scales import ScaleService
-from device.generic.value_codecs import ValueDecoder
+from util.value_decoder import ValueDecoder
 from model.device_constant import DEFAULT_MISSING_VALUE, HI_SHIFT, MD_SHIFT, REG_RW_ON_OFF
-from util.decode_util import NumericFormat
+from util.data_decoder import DataFormat
 
 
 class AsyncGenericModbusDevice:
@@ -250,43 +250,56 @@ class AsyncGenericModbusDevice:
                 f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
             )
 
+    # replace your method with this version
     async def _read_raw(self, reg_config: dict) -> float | int:
+        """
+        Read raw value(s) from Modbus according to the register configuration.
+        - Supports 48-bit composed values via `composed_of` (HI|MD|LO words).
+        - Chooses word count by format (u16/i16 → 1 word; u32/f32 → 2 words).
+        """
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] bus not connected; return -1 for raw read")
             return DEFAULT_MISSING_VALUE
 
-        # composed 48-bit (HI|MD|LO)
+        # --- 48-bit composed path: composed_of = [hi_key, md_key, lo_key] ---
         if reg_config.get("composed_of"):
-            # TODO: Need to clarify the format of composed_of
-            sub_registers: list | tuple = reg_config["composed_of"]
+            sub_registers = reg_config["composed_of"]
             if not isinstance(sub_registers, (list, tuple)) or len(sub_registers) != 3:
                 self.logger.error(f"[{self.model}] Invalid composed_of={sub_registers}, must have exactly 3 entries")
-                return DEFAULT_MISSING_VALUE  # fallback value
+                return DEFAULT_MISSING_VALUE
 
             register_value_list: list[int] = []
-            for sub_register in sub_registers:
-                pin_cfg = self.register_map.get(sub_register) or {}
+            for sub_key in sub_registers:
+                pin_cfg = self.register_map.get(sub_key) or {}
                 if "offset" not in pin_cfg:
+                    self.logger.error(f"[{self.model}] composed_of sub key '{sub_key}' missing 'offset'")
                     return DEFAULT_MISSING_VALUE
+                # Each part is a single 16-bit word
+                word = await self.bus.read_u16(pin_cfg["offset"])
+                register_value_list.append(int(word) & 0xFFFF)
 
-                register_value_list.append(await self.bus.read_u16(pin_cfg["offset"]))
-            hi, md, lo = [int(w) & 0xFFFF for w in register_value_list]
+            # Expect order: HI | MD | LO
+            hi, md, lo = register_value_list
             return (hi << HI_SHIFT) | (md << MD_SHIFT) | lo
 
-        # normal path: choose register count by format
-        fmt = reg_config.get("format", NumericFormat.U16)
-        requires_two_words: bool = str(fmt).lower() in {
-            NumericFormat.U32,
-            NumericFormat.UINT32,
-            NumericFormat.F32,
-            NumericFormat.FLOAT32,
-        } or fmt in {
-            NumericFormat.UINT32,
-            NumericFormat.FLOAT32,
-        }
-        word_count = 2 if requires_two_words else 1
-        register_value_list = await self.bus.read_regs(reg_config["offset"], word_count)
-        return self.decoder.decode_words(fmt, register_value_list)
+        # --- normal path: determine word count by format ---
+        fmt = reg_config.get("format", DataFormat.U16)
+        word_count: int = AsyncGenericModbusDevice._required_word_count(fmt)
+
+        try:
+            registers = await self.bus.read_regs(reg_config["offset"], word_count)
+            # Safety: ensure we got enough words
+            if not isinstance(registers, (list, tuple)) or len(registers) < word_count:
+                self.logger.error(f"[{self.model}] read_regs returned insufficient words for {fmt}: {registers}")
+                return DEFAULT_MISSING_VALUE
+        except Exception as e:
+            self.logger.exception(
+                f"[{self.model}] read_regs failed at offset={reg_config.get('offset')} fmt={fmt}: {e}"
+            )
+            return DEFAULT_MISSING_VALUE
+
+        # Decode using the high-level decoder (supports u32_le/u32_be/f32_le/f32_be/etc.)
+        return self.decoder.decode_registers(fmt, list(registers))
 
     async def _resolve_dynamic_scale(self, scale_from: str) -> float:
         async def index_reader(index_name: str) -> int:
@@ -379,3 +392,15 @@ class AsyncGenericModbusDevice:
         )
 
         return new_bus
+
+    @staticmethod
+    def _required_word_count(fmt: str | DataFormat) -> int:
+        """
+        Return number of 16-bit Modbus registers required for the given data format.
+        - 1 word: u16 / i16
+        - 2 words: u32 (le/be), f32 (le/be)
+        """
+        f = fmt.value if isinstance(fmt, DataFormat) else str(fmt).lower()
+        if f in {"u32", "u32_le", "u32_be", "f32", "float32", "f32_le", "f32_be"}:
+            return 2
+        return 1
