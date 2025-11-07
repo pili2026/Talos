@@ -4,8 +4,6 @@ Tests the complete flow: Config → ControlEvaluator → ControlExecutor
 """
 
 import pytest
-import sys
-import os
 from unittest.mock import Mock, AsyncMock
 
 import yaml
@@ -54,25 +52,27 @@ SD400:
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:  
+                  - AIn01
                 operator: gt
                 threshold: 40.0
                 hysteresis: 1.0
                 debounce_sec: 0.5
               - type: threshold
-                source: AIn03
+                sources:
+                  - AIn03
                 operator: between
                 min: 3.0
                 max: 5.0
                 hysteresis: 0.2
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency
-            target: RW_HZ
-            value: 45.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "2"
+              type: set_frequency
+              target: RW_HZ
+              value: 45.0
 
         # ABSOLUTE_LINEAR - Single temperature mapping
         - name: "Environment Temperature Linear Control"
@@ -81,22 +81,24 @@ SD400:
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:  
+                  - AIn01
                 operator: gt
                 threshold: 25.0
                 abs: false
           policy:
             type: absolute_linear
             condition_type: threshold
-            source: AIn01
+            sources:  
+              - AIn01
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency
-            target: RW_HZ
+          actions:
+            - model: TECO_VFD
+              slave_id: "2"
+              type: set_frequency
+              target: RW_HZ
 
         # INCREMENTAL_LINEAR - Temperature difference adjustment
         - name: "Supply-Return Temperature Difference Control"
@@ -119,11 +121,11 @@ SD400:
             condition_type: difference
             sources: [AIn01, AIn02]
             gain_hz_per_unit: 1.5
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
+          actions:
+            - model: TECO_VFD
+              slave_id: "2"
+              type: adjust_frequency
+              target: RW_HZ
 """
 
     @pytest.fixture
@@ -266,7 +268,7 @@ SD400:
         actions = control_evaluator.evaluate(model, slave_id, snapshot)
 
         # Assert:
-        assert len(actions) == 1
+        assert len(actions) == 2
         action = actions[0]
 
         expected_adjustment = 1.5

@@ -36,7 +36,6 @@ class PolicyConfig(BaseModel):
 
     # Input source configuration
     condition_type: ConditionType = ConditionType.THRESHOLD
-    source: str | None = None  # Used for "single" condition type
     sources: list[str] | None = None  # Used for "difference" condition type (>=2 required)
     abs: bool = False  # Whether to take absolute value in difference mode
 
@@ -72,11 +71,11 @@ class PolicyConfig(BaseModel):
         # Input source validation (discrete_setpoint doesn't need sources)
         if self.type != ControlPolicyType.DISCRETE_SETPOINT:
             if self.condition_type == ConditionType.THRESHOLD:
-                if not self.source:
-                    problems.append("policy.source required when condition_type='single'")
+                if not self.sources or len(self.sources) != 1:
+                    problems.append("policy.sources must contain exactly 1 item when condition_type='threshold'")
             else:  # ConditionType.DIFFERENCE
-                if not self.sources or len(self.sources) < 2:
-                    problems.append("policy.sources (>=2 items) required when condition_type='difference'")
+                if not self.sources or len(self.sources) != 2:
+                    problems.append("policy.sources must contain exactly 2 items when condition_type='difference'")
 
         # Policy-specific requirement validation
         if self.type == ControlPolicyType.ABSOLUTE_LINEAR:

@@ -43,43 +43,44 @@ SD400:
     "3":
       use_default_controls: false
       controls:
-        # High temperature turns ON DOut01
         - name: "High Temperature Turn On DOut01"
           code: "HIGH_TEMP_DO01_ON"
           priority: 85
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:
+                  - AIn01
                 operator: gt
                 threshold: 40.0
           policy:
             type: discrete_setpoint
-          action:
-            model: IMA_C
-            slave_id: "5"
-            type: write_do
-            target: DOut01
-            value: 1
+          actions:
+            - model: IMA_C
+              slave_id: "5"
+              type: write_do
+              target: DOut01
+              value: 1
 
-        # Low temperature turns OFF DOut02  
         - name: "Low Temperature Turn Off DOut02"
           code: "LOW_TEMP_DO02_OFF"
           priority: 90
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:
+                  - AIn01
                 operator: lt
                 threshold: 25.0
           policy:
             type: discrete_setpoint
-          action:
-            model: IMA_C
-            slave_id: "5"
-            type: write_do
-            target: DOut02
-            value: 0
+          actions:
+            - model: IMA_C
+              slave_id: "5"
+              type: write_do
+              target: DOut02
+              value: 0
+
 """
 
     @pytest.fixture

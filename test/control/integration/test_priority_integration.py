@@ -1,45 +1,93 @@
 """
-Integration Tests for Control System - Core Tests (T1-T3)
-Tests the complete flow: Config → ControlEvaluator → ControlExecutor
+Control System Tests (clean version for current design)
+- Evaluator: cumulative results + sorted by priority (smaller number → higher priority)
+- Executor: for the same device+target, higher-priority action wins; different targets both execute
+- Integration: verify emergency (blocking vs non-blocking) and policy calculations
 """
 
 import pytest
-import sys
-import os
-from unittest.mock import Mock, AsyncMock
-
 import yaml
+from unittest.mock import Mock, AsyncMock
 
 from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
-from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
+from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_condition_schema import ControlActionSchema
+from model.device_constant import REG_RW_ON_OFF
+from model.enum.condition_enum import ControlActionType
 
-from schema.control_condition_schema import ControlActionType
+# ---------------------------
+# Constants (avoid magic strings)
+# ---------------------------
+
+MODEL_SD400 = "SD400"
+MODEL_VFD = "TECO_VFD"
+SLAVE_ID_1 = "1"
+SLAVE_ID_2 = "2"
+INSTANCE_ID = "3"
+
+TARGET_HZ = "RW_HZ"
+TARGET_ON_OFF = "RW_ON_OFF"
+TARGET_DO = "RW_DO"
 
 
-class TestControlIntegration:
-    """Integration tests for the complete control flow"""
+# ---------------------------
+# Fixtures
+# ---------------------------
 
-    @pytest.fixture
-    def constraint_config_schema(self):
-        return ConstraintConfigSchema(
-            **{
-                "LITEON_EVO6800": {
-                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
-                    "instances": {
-                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
-                        "2": {"use_default_constraints": True},
-                    },
-                }
+
+@pytest.fixture
+def mock_device() -> Mock:
+    """Simulate a device supporting HZ and ON/OFF/DO (with proper AsyncMock setup)."""
+    device = Mock()
+    device.model = MODEL_VFD
+    device.slave_id = SLAVE_ID_2
+    device.register_map = {
+        TARGET_HZ: {"writable": True, "address": 8193},
+        TARGET_ON_OFF: {"writable": True, "address": 8192},
+        TARGET_DO: {"writable": True, "address": 8200},
+    }
+    device.read_value = AsyncMock(return_value=50.0)
+    device.write_value = AsyncMock()
+    device.write_on_off = AsyncMock()
+    device.supports_on_off = Mock(return_value=True)
+    return device
+
+
+@pytest.fixture
+def mock_device_manager(mock_device: Mock) -> Mock:
+    """Mock AsyncDeviceManager boundary."""
+    manager = Mock()
+    manager.get_device_by_model_and_slave_id = Mock(return_value=mock_device)
+    return manager
+
+
+@pytest.fixture
+def constraint_config_schema() -> ConstraintConfigSchema:
+    """Provide basic frequency min/max limits (used for emergency tests if needed)."""
+    return ConstraintConfigSchema(
+        **{
+            MODEL_VFD: {
+                "default_constraints": {TARGET_HZ: {"min": 30, "max": 55}},
+                "instances": {
+                    SLAVE_ID_1: {"constraints": {TARGET_HZ: {"min": 0, "max": 50}}},
+                    SLAVE_ID_2: {"use_default_constraints": True},
+                },
             }
-        )
+        }
+    )
 
+
+# =========================================================
+# ① Evaluator: cumulative & ordering
+# =========================================================
+
+
+class TestEvaluatorCumulativeAndOrder:
     @pytest.fixture
-    def sample_config_yaml(self):
-        """Sample YAML configuration based on user's actual config"""
-        return """
+    def control_config(self) -> ControlConfig:
+        yaml_text = """
 version: "1.0.0"
 SD400:
   default_controls: []
@@ -47,184 +95,400 @@ SD400:
     "3":
       use_default_controls: false
       controls:
-        # DISCRETE_SETPOINT - Fixed value control
-        - name: "High Temperature Shutdown"
-          code: "HIGH_TEMP"
-          priority: 12
+        - name: "High Temperature Fixed Setpoint"
+          code: "DISCRETE"
+          priority: 10
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:
+                  - AIn01
                 operator: gt
-                threshold: 40.0
-                hysteresis: 1.0
-                debounce_sec: 0.5
-              - type: threshold
-                source: AIn03
-                operator: between
-                min: 3.0
-                max: 5.0
-                hysteresis: 0.2
+                threshold: 25.0
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency
-            target: RW_HZ
-            value: 45.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "2"
+              type: set_frequency
+              target: RW_HZ
+              value: 45
 
-        # ABSOLUTE_LINEAR - Single temperature mapping
-        - name: "Environment Temperature Linear Control"
-          code: "LIN_ABS01"
+        - name: "Absolute Linear Control"
+          code: "ABS"
           priority: 11
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:
+                  - AIn01
                 operator: gt
                 threshold: 25.0
-                abs: false
           policy:
             type: absolute_linear
             condition_type: threshold
-            source: AIn01
+            sources:
+              - AIn01
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency
-            target: RW_HZ
+          actions:
+            - model: TECO_VFD
+              slave_id: "2"
+              type: set_frequency
+              target: RW_HZ
 
-        # INCREMENTAL_LINEAR - Temperature difference adjustment
-        - name: "Supply-Return Temperature Difference Control"
-          code: "LIN_INC01"
-          priority: 10
+        - name: "Incremental Linear Control"
+          code: "INC"
+          priority: 12
           composite:
             any:
               - type: difference
                 sources: [AIn01, AIn02]
                 operator: gt
                 threshold: 4.0
-                abs: false
-              - type: difference
-                sources: [AIn01, AIn02]
-                operator: lt
-                threshold: -4.0
-                abs: false
           policy:
             type: incremental_linear
             condition_type: difference
             sources: [AIn01, AIn02]
             gain_hz_per_unit: 1.5
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
+          actions:
+            - model: TECO_VFD
+              slave_id: "2"
+              type: adjust_frequency
+              target: RW_HZ
 """
-
-    @pytest.fixture
-    def control_config(self, sample_config_yaml):
-        """Create ControlConfig from YAML"""
-        config_dict = yaml.safe_load(sample_config_yaml)
+        config_dict = yaml.safe_load(yaml_text)
         version = config_dict.pop("version", "1.0.0")
         return ControlConfig(version=version, root=config_dict)
 
     @pytest.fixture
-    def control_evaluator(self, control_config, constraint_config_schema):
-        """Create ControlEvaluator with test configuration"""
+    def evaluator(
+        self, control_config: ControlConfig, constraint_config_schema: ConstraintConfigSchema
+    ) -> ControlEvaluator:
         return ControlEvaluator(control_config, constraint_config_schema)
 
-    @pytest.fixture
-    def mock_device(self):
-        """Mock AsyncGenericModbusDevice with proper AsyncMock for async methods"""
-        mock_device = Mock()
-        mock_device.model = "TECO_VFD"
-        mock_device.slave_id = "2"
-        mock_device.register_map = {
-            "RW_HZ": {"writable": True, "address": 8193},
-            "RW_ON_OFF": {"writable": True, "address": 8192},
-        }
+    def test_when_all_three_rules_match_then_actions_are_sorted_by_priority(self, evaluator: ControlEvaluator) -> None:
+        """
+        Expectation:
+        - All three rules match → return 3 actions
+        - Sorted by priority: 10(DISC) → 11(ABS) → 12(INC)
+        - ABS value = 40 + (AIn01 - 25) * 1.2
+        - INC value = +1.5 (positive difference)
+        """
+        # Arrange
+        snapshot = {"AIn01": 35.0, "AIn02": 25.0}  # diff=10
 
-        mock_device.read_value = AsyncMock(return_value=50.0)  # Current frequency 50.0 Hz
-        mock_device.write_value = AsyncMock(return_value=None)
-        mock_device.write_on_off = AsyncMock(return_value=None)
-        # Keep Mock for synchronous methods
-        mock_device.supports_on_off = Mock(return_value=True)
-        return mock_device
+        # Act
+        actions = evaluator.evaluate(MODEL_SD400, INSTANCE_ID, snapshot)
 
-    @pytest.fixture
-    def mock_device_manager(self, mock_device):
-        """Mock AsyncDeviceManager"""
-        mock_manager = Mock()
-        mock_manager.get_device_by_model_and_slave_id = Mock(return_value=mock_device)
-        return mock_manager
+        # Assert
+        assert len(actions) == 3
 
+        priorities = [a.priority for a in actions]
+        assert priorities == [10, 11, 12]
+
+        abs_action = actions[1]
+        assert abs_action.type == ControlActionType.SET_FREQUENCY
+        assert abs_action.target == TARGET_HZ
+        assert abs_action.value == pytest.approx(40.0 + (35.0 - 25.0) * 1.2, abs=1e-6)
+
+        inc_action = actions[2]
+        assert inc_action.type == ControlActionType.ADJUST_FREQUENCY
+        assert inc_action.target == TARGET_HZ
+        assert inc_action.value == pytest.approx(1.5, abs=1e-6)
+
+
+# =========================================================
+# ② Executor: same-target protection & different-target parallelism
+# =========================================================
+
+
+class TestExecutorPriorityProtectionAndParallelTargets:
     @pytest.fixture
-    def control_executor(self, mock_device_manager):
-        """Create ControlExecutor with mocked dependencies"""
+    def executor(self, mock_device_manager: Mock) -> ControlExecutor:
         return ControlExecutor(mock_device_manager)
 
-    def test_when_incremental_and_absolute_conditions_triggered_then_incremental_wins_by_priority(
-        self, control_evaluator
-    ):
-        """T2.1: INCREMENTAL (10) vs ABSOLUTE (11) - INCREMENTAL should win"""
-        # Arrange: Trigger both conditions
-        snapshot = {"AIn01": 35.0, "AIn02": 25.0}  # Trigger ABSOLUTE (>25) and INCREMENTAL  # Difference 10°C > 4°C
-        model, slave_id = "SD400", "3"
+    @pytest.mark.asyncio
+    async def test_when_two_actions_target_same_then_higher_priority_value_wins(
+        self, executor: ControlExecutor
+    ) -> None:
+        """
+        Same device+target (RW_HZ), priority 10 vs 20:
+        - Only one write, using priority=10 value (48.0)
+        """
+        # Arrange
+        high_priority_action = ControlActionSchema(
+            model=MODEL_VFD,
+            slave_id=SLAVE_ID_2,
+            type=ControlActionType.SET_FREQUENCY,
+            target=TARGET_HZ,
+            value=48.0,
+            priority=10,
+            reason="[DISCRETE] High",
+        )
+
+        low_priority_action = ControlActionSchema(
+            model=MODEL_VFD,
+            slave_id=SLAVE_ID_2,
+            type=ControlActionType.SET_FREQUENCY,
+            target=TARGET_HZ,
+            value=52.0,
+            priority=20,
+            reason="[ABS] Low",
+        )
 
         # Act
-        actions = control_evaluator.evaluate(model, slave_id, snapshot)
+        await executor.execute([high_priority_action, low_priority_action])
 
-        # Assert: Verify only one action is produced, and it is the higher priority INCREMENTAL
-        assert len(actions) == 1
-        action = actions[0]
+        device = executor.device_manager.get_device_by_model_and_slave_id(MODEL_VFD, SLAVE_ID_2)
 
-        # INCREMENTAL should win (priority=10 > 11)
-        assert action.type == ControlActionType.ADJUST_FREQUENCY
-        assert action.value == 1.5
+        # Assert
+        device.write_value.assert_called_once_with(TARGET_HZ, 48.0)
 
-    def test_when_absolute_and_discrete_conditions_triggered_then_absolute_wins_by_priority(self, control_evaluator):
-        """T2.2: ABSOLUTE (85) vs DISCRETE (80) - ABSOLUTE should win"""
-        # Arrange: Trigger ABSOLUTE and DISCRETE, but not INCREMENTAL
-        snapshot = {
-            "AIn01": 42.0,  # Trigger DISCRETE (>40) and ABSOLUTE (>25)
-            "AIn02": 40.0,  # Difference 2°C < 4°C，should not trigger INCREMENTAL
-            "AIn03": 4.0,  # Trigger DISCRETE between condition
-        }
-        model, slave_id = "SD400", "3"
+    @pytest.mark.asyncio
+    async def test_when_targets_differ_then_both_actions_execute(self, executor: ControlExecutor) -> None:
+        """
+        Different targets (RW_HZ vs RW_DO) → both actions are executed.
+        """
+        # Arrange
+        hz_action = ControlActionSchema(
+            model=MODEL_VFD,
+            slave_id=SLAVE_ID_2,
+            type=ControlActionType.SET_FREQUENCY,
+            target=TARGET_HZ,
+            value=46.0,
+            priority=10,
+            reason="[DISC]",
+        )
 
-        # Act
-        actions = control_evaluator.evaluate(model, slave_id, snapshot)
-
-        # Assert: ABSOLUTE Should win (priority=85 > 80)
-        assert len(actions) == 1
-        action = actions[0]
-
-        assert action.type == ControlActionType.SET_FREQUENCY
-        # Calculate value: 40.0 + (42.0 - 25.0) * 1.2 = 40.0 + 20.4 = 60.4
-        expected_frequency = 60.4
-        assert action.value == expected_frequency
-
-    def test_when_all_three_conditions_triggered_then_incremental_wins_by_highest_priority(self, control_evaluator):
-        """T2.3: Triple Conflict - INCREMENTAL (90) should win"""
-        # Arrange: Trigger ABSOLUTE and DISCRETE, but not INCREMENTAL
-        snapshot = {
-            "AIn01": 45.0,  # Trigger DISCRETE (>40)and ABSOLUTE (>25)
-            "AIn02": 35.0,  # Difference 10°C，trigger INCREMENTAL
-            "AIn03": 4.0,  # In Range 3.0~5.0，Trigger DISCRETE between
-        }
-        model, slave_id = "SD400", "3"
+        do_action = ControlActionSchema(
+            model=MODEL_VFD,
+            slave_id=SLAVE_ID_2,
+            type=ControlActionType.WRITE_DO,
+            target=TARGET_DO,
+            value=1,
+            priority=20,
+            reason="[DO]",
+        )
 
         # Act
-        actions = control_evaluator.evaluate(model, slave_id, snapshot)
+        await executor.execute([hz_action, do_action])
 
-        # Assert: INCREMENTAL should win (highest priority 90)
+        device = executor.device_manager.get_device_by_model_and_slave_id(MODEL_VFD, SLAVE_ID_2)
+
+        # Assert
+        device.write_value.assert_any_call(TARGET_HZ, 46.0)
+        device.write_value.assert_any_call(TARGET_DO, 1)
+        assert device.write_value.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_when_turn_on_with_explicit_target_then_write_on_off_is_called_once(
+        self, executor: ControlExecutor
+    ) -> None:
+        """
+        Strict mode in tests: explicit target = RW_ON_OFF for TURN_ON/OFF.
+        """
+        # Arrange
+        turn_on_action = ControlActionSchema(
+            model=MODEL_VFD,
+            slave_id=SLAVE_ID_2,
+            type=ControlActionType.TURN_ON,
+            target=REG_RW_ON_OFF,
+            value=1,
+            priority=10,
+            reason="[ON]",
+        )
+
+        # Act
+        await executor.execute([turn_on_action])
+
+        device = executor.device_manager.get_device_by_model_and_slave_id(MODEL_VFD, SLAVE_ID_2)
+        # Assert
+        device.write_on_off.assert_called_once_with(1)
+
+
+# =========================================================
+# ③ Integration: Emergency (blocking vs non-blocking)
+# =========================================================
+
+
+class TestIntegrationEmergencyAndPolicy:
+    @pytest.fixture
+    def control_config_emergency_nonblocking(self) -> ControlConfig:
+        """
+        Normal and Emergency both match; no blocking:
+        - Evaluator: returns both (Emergency must have higher priority and appear first)
+        - Executor: same target → Emergency final result takes effect
+        """
+        yaml_text = """
+version: "1.0.0"
+SD400:
+  default_controls: []
+  instances:
+    "3":
+      use_default_controls: false
+      controls:
+        - name: "Normal"
+          code: "NORMAL"
+          priority: 10
+          composite:
+            any:
+              - type: threshold
+                sources:
+                  - AIn01
+                operator: gt
+                threshold: 30.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 45
+
+        - name: "Emergency"
+          code: "EMG"
+          priority: 0
+          composite:
+            any:
+              - type: threshold
+                sources:
+                  - AIn01
+                operator: gt
+                threshold: 32.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 60
+              emergency_override: true
+"""
+        config_dict = yaml.safe_load(yaml_text)
+        version = config_dict.pop("version", "1.0.0")
+        return ControlConfig(version=version, root=config_dict)
+
+    @pytest.fixture
+    def control_config_emergency_blocking(self) -> ControlConfig:
+        """
+        Emergency + blocking=true:
+        - Evaluator: returns only Emergency
+        """
+        yaml_text = """
+version: "1.0.0"
+SD400:
+  default_controls: []
+  instances:
+    "3":
+      use_default_controls: false
+      controls:
+        - name: "Normal"
+          code: "NORMAL"
+          priority: 10
+          composite:
+            any:
+              - type: threshold
+                sources:
+                  - AIn01
+                operator: gt
+                threshold: 30.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 45
+
+        - name: "Emergency"
+          code: "EMG"
+          priority: 0
+          blocking: true
+          composite:
+            any:
+              - type: threshold
+                sources:
+                  - AIn01
+                operator: gt
+                threshold: 32.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 60
+              emergency_override: true
+"""
+        config_dict = yaml.safe_load(yaml_text)
+        version = config_dict.pop("version", "1.0.0")
+        return ControlConfig(version=version, root=config_dict)
+
+    @pytest.fixture
+    def evaluator_nonblocking(
+        self, control_config_emergency_nonblocking: ControlConfig, constraint_config_schema: ConstraintConfigSchema
+    ) -> ControlEvaluator:
+        return ControlEvaluator(control_config_emergency_nonblocking, constraint_config_schema)
+
+    @pytest.fixture
+    def evaluator_blocking(
+        self, control_config_emergency_blocking: ControlConfig, constraint_config_schema: ConstraintConfigSchema
+    ) -> ControlEvaluator:
+        return ControlEvaluator(control_config_emergency_blocking, constraint_config_schema)
+
+    @pytest.fixture
+    def executor(self, mock_device_manager: Mock) -> ControlExecutor:
+        return ControlExecutor(mock_device_manager)
+
+    @pytest.mark.asyncio
+    async def test_when_normal_and_emergency_trigger_nonblocking_then_executor_applies_emergency(
+        self, evaluator_nonblocking: ControlEvaluator, executor: ControlExecutor, mock_device_manager: Mock
+    ) -> None:
+        """
+        Evaluator: two actions (Emergency first).
+        Executor: same target → final write uses Emergency (60).
+        """
+        # Arrange
+        snapshot = {"AIn01": 35.0}
+
+        # Act
+        actions = evaluator_nonblocking.evaluate(MODEL_SD400, INSTANCE_ID, snapshot)
+
+        # Assert
+        # Evaluator: cumulative, Emergency priority=0 first
+        assert len(actions) == 2
+        assert actions[0].priority == 0
+        assert actions[0].emergency_override is True
+
+        # Mock
+        # Executor: same RW_HZ target, write once with Emergency's value
+        device = mock_device_manager.get_device_by_model_and_slave_id(MODEL_VFD, SLAVE_ID_1)
+        device.read_value = AsyncMock(return_value=45.0)  # ensure "not equal" branch
+        device.write_value = AsyncMock()
+
+        # Act
+        await executor.execute(actions)
+
+        # Assert
+        device.write_value.assert_called_once_with(TARGET_HZ, 60)
+
+    def test_when_emergency_is_blocking_then_only_emergency_action_is_returned(
+        self, evaluator_blocking: ControlEvaluator
+    ) -> None:
+        """blocking=true → Evaluator returns only Emergency."""
+        # Arrange
+        snapshot = {"AIn01": 35.0}
+
+        # Act
+        actions = evaluator_blocking.evaluate(MODEL_SD400, INSTANCE_ID, snapshot)
+
+        # Assert
         assert len(actions) == 1
-        action = actions[0]
-
-        assert action.type == ControlActionType.ADJUST_FREQUENCY
-        assert action.value == 1.5
+        assert actions[0].priority == 0
+        assert actions[0].emergency_override is True

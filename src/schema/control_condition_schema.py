@@ -22,6 +22,7 @@ class ControlActionSchema(BaseModel):
       * WRITE_DO/RESET require integer values
       * TURN_ON/TURN_OFF do not require values
     - Input normalization: strip whitespace for string fields; convert int `slave_id` to str.
+    - `priority` is populated by Evaluator during runtime (optional in config)
     """
 
     model_config = ConfigDict(
@@ -35,9 +36,11 @@ class ControlActionSchema(BaseModel):
     type: ControlActionType | None = None  # Optional for soft validation
     target: str | None = None
     value: float | int | None = None
-    source: str | None = None
+    # Tracking metadata (for logging/debugging)
+    source: str | None = None  # Origin of this action (e.g., "local_rule", "mqtt_command")
     reason: str | None = None
     emergency_override: bool = Field(default=False)
+    priority: int | None = None  # Populated by Evaluator at runtime
 
     # ---- Normalization (strings & types) ----
     @field_validator("model", "slave_id", "target", mode="before")
@@ -109,7 +112,15 @@ class ConditionSchema(BaseModel):
     - Identification (name, code, priority)
     - Trigger conditions (composite)
     - Control policy (policy)
-    - Action to execute (action)
+    - Actions to execute (actions) - supports multiple devices
+    - Blocking flag (blocking) - stops evaluation of lower priority rules
+
+    Execution Logic:
+    - Rules are evaluated in priority order (lower number = higher priority)
+    - All triggered rules are executed (cumulative mode)
+    - If a rule has blocking=True, subsequent rules are skipped
+    - Each rule can define multiple actions for different devices
+    - Higher priority actions (lower number) protect their writes from being overwritten
 
     Validation approach: Allow parsing with missing/invalid components,
     filter out invalid rules at runtime in get_control_list().
@@ -124,7 +135,17 @@ class ConditionSchema(BaseModel):
 
     name: str
     code: str
-    action: ControlActionSchema | None = None  # Optional for soft validation
+    actions: list[ControlActionSchema] = Field(
+        default_factory=list, description="List of actions to execute when condition is met"
+    )
     priority: int = 0
+    blocking: bool = Field(default=False, description="If True, prevents evaluation of lower priority rules")
     composite: CompositeNode | None = Field(default=None)
     policy: PolicyConfig | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def validate_actions_not_empty(self) -> ConditionSchema:
+        """Validate that at least one action is defined (soft validation)"""
+        if not self.actions:
+            logger.warning(f"[SCHEMA] Rule '{self.code}': no actions defined (will be filtered at runtime)")
+        return self

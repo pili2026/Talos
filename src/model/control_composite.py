@@ -34,7 +34,6 @@ class CompositeNode(BaseModel):
     debounce_sec: float | None = None
 
     # threshold condition fields
-    source: str | None = None
     threshold: float | None = None
     min: float | None = None
     max: float | None = None
@@ -116,7 +115,12 @@ class CompositeNode(BaseModel):
             if self.min is not None or self.max is not None:
                 problems.append("EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
 
-        elif self.operator in {ConditionOperator.GREATER_THAN, ConditionOperator.LESS_THAN}:
+        elif self.operator in {
+            ConditionOperator.GREATER_THAN,
+            ConditionOperator.LESS_THAN,
+            ConditionOperator.GREATER_THAN_OR_EQUAL,
+            ConditionOperator.LESS_THAN_OR_EQUAL,
+        }:
             # GT/LT requires threshold
             if self.threshold is None:
                 problems.append(f"{self.operator.value.upper()} operator requires 'threshold' value")
@@ -169,13 +173,13 @@ class CompositeNode(BaseModel):
         elif group_count == 0 and is_leaf:
             # Leaf node validation
             if self.type == ConditionType.THRESHOLD:
-                if self.operator is None:
-                    problems.append("threshold condition requires 'operator'")
+                if not self.sources or len(self.sources) != 1:
+                    problems.append("threshold condition requires exactly 1 source in 'sources' list")
                 else:
                     # Advanced operator-threshold combination validation
                     problems.extend(self._validate_operator_threshold_combination())
 
-                if not self.source:
+                if not self.sources:
                     problems.append("threshold condition requires non-empty 'source'")
 
             elif self.type == ConditionType.DIFFERENCE:

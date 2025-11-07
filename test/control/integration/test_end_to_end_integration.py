@@ -1,225 +1,359 @@
-"""
-Integration Tests for Control System - Core Tests (T1-T3)
-Tests the complete flow: Config → ControlEvaluator → ControlExecutor
-"""
-
 import pytest
-import sys
-import os
-from unittest.mock import Mock, AsyncMock
-
 import yaml
+from unittest.mock import AsyncMock, MagicMock
 
 from evaluator.control_evaluator import ControlEvaluator
 from executor.control_executor import ControlExecutor
 from schema.constraint_schema import ConstraintConfigSchema
 from schema.control_config_schema import ControlConfig
-from schema.control_condition_schema import ControlActionSchema
-
-from schema.control_condition_schema import ControlActionType
+from model.enum.condition_enum import ControlActionType
 
 
-class TestControlIntegration:
-    """Integration tests for the complete control flow"""
+class TestEndToEndIntegration:
+    """End-to-end integration tests for control system"""
 
     @pytest.fixture
     def constraint_config_schema(self):
         return ConstraintConfigSchema(
             **{
-                "LITEON_EVO6800": {
-                    "default_constraints": {"RW_HZ": {"min": 30, "max": 55}},
+                "TECO_VFD": {
+                    "default_constraints": {"RW_HZ": {"min": 0, "max": 60}},
                     "instances": {
-                        "1": {"constraints": {"RW_HZ": {"min": 55, "max": 57}}},
-                        "2": {"use_default_constraints": True},
+                        "2": {"constraints": {"RW_HZ": {"min": 30, "max": 55}}},
                     },
                 }
             }
         )
 
-    @pytest.fixture
-    def sample_config_yaml(self):
-        """Sample YAML configuration based on user's actual config"""
-        return """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    "3":
-      use_default_controls: false
-      controls:
-        # DISCRETE_SETPOINT - Fixed value control
-        - name: "High Temperature Shutdown"
-          code: "HIGH_TEMP"
-          priority: 12
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 40.0
-                hysteresis: 1.0
-                debounce_sec: 0.5
-              - type: threshold
-                source: AIn03
-                operator: between
-                min: 3.0
-                max: 5.0
-                hysteresis: 0.2
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency
-            target: RW_HZ
-            value: 45.0
-
-        # ABSOLUTE_LINEAR - Single temperature mapping
-        - name: "Environment Temperature Linear Control"
-          code: "LIN_ABS01"
-          priority: 11
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 25.0
-                abs: false
-          policy:
-            type: absolute_linear
-            condition_type: threshold
-            source: AIn01
-            base_freq: 40.0
-            base_temp: 25.0
-            gain_hz_per_unit: 1.2
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: set_frequency
-            target: RW_HZ
-
-        # INCREMENTAL_LINEAR - Temperature difference adjustment
-        - name: "Supply-Return Temperature Difference Control"
-          code: "LIN_INC01"
-          priority: 10
-          composite:
-            any:
-              - type: difference
-                sources: [AIn01, AIn02]
-                operator: gt
-                threshold: 4.0
-                abs: false
-              - type: difference
-                sources: [AIn01, AIn02]
-                operator: lt
-                threshold: -4.0
-                abs: false
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources: [AIn01, AIn02]
-            gain_hz_per_unit: 1.5
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
-"""
-
-    @pytest.fixture
-    def control_config(self, sample_config_yaml):
-        """Create ControlConfig from YAML"""
-        config_dict = yaml.safe_load(sample_config_yaml)
-        version = config_dict.pop("version", "1.0.0")
-        return ControlConfig(version=version, root=config_dict)
-
-    @pytest.fixture
-    def control_evaluator(self, control_config, constraint_config_schema):
-        """Create ControlEvaluator with test configuration"""
-        return ControlEvaluator(control_config, constraint_config_schema)
-
-    @pytest.fixture
-    def mock_device(self):
-        """Mock AsyncGenericModbusDevice with proper AsyncMock for async methods"""
-        mock_device = Mock()
-        mock_device.model = "TECO_VFD"
-        mock_device.slave_id = "2"
-        mock_device.register_map = {
-            "RW_HZ": {"writable": True, "address": 8193},
-            "RW_ON_OFF": {"writable": True, "address": 8192},
-        }
-
-        mock_device.read_value = AsyncMock(return_value=50.0)  # Current frequency 50.0 Hz
-        mock_device.write_value = AsyncMock(return_value=None)
-        mock_device.write_on_off = AsyncMock(return_value=None)
-        # Keep Mock for synchronous methods
-        mock_device.supports_on_off = Mock(return_value=True)
-        return mock_device
-
-    @pytest.fixture
-    def mock_device_manager(self, mock_device):
-        """Mock AsyncDeviceManager"""
-        mock_manager = Mock()
-        mock_manager.get_device_by_model_and_slave_id = Mock(return_value=mock_device)
-        return mock_manager
-
-    @pytest.fixture
-    def control_executor(self, mock_device_manager):
-        """Create ControlExecutor with mocked dependencies"""
-        return ControlExecutor(mock_device_manager)
-
     @pytest.mark.asyncio
-    async def test_when_complete_flow_executed_then_evaluator_and_executor_work_together(
-        self, sample_config_yaml, constraint_config_schema, mock_device_manager, mock_device
-    ):
-        """T3: Complete end-to-end flow test"""
-        # Step 1: Load configuration
-        config_dict = yaml.safe_load(sample_config_yaml)
+    async def test_when_incremental_policy_triggered_then_adjustment_applied(self, constraint_config_schema):
+        """T1: Test incremental linear policy end-to-end"""
+        config_yaml = """
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Supply-Return Temperature Difference Control
+                  code: LIN_INC01
+                  priority: 10
+                  composite:
+                    any:
+                      - type: difference
+                        sources: [AIn01, AIn02]
+                        operator: gt
+                        threshold: 4.0
+                  policy:
+                    type: incremental_linear
+                    condition_type: difference
+                    sources: [AIn01, AIn02]
+                    gain_hz_per_unit: 1.5
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "2"
+                      type: adjust_frequency
+                      target: RW_HZ
+        """
+
+        # Arrange
+        config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
         control_config = ControlConfig(version=version, root=config_dict)
 
-        # Step 2: Create components
+        # Mock
+        mock_device = MagicMock()
+        mock_device.model = "TECO_VFD"
+        mock_device.slave_id = "2"
+
+        mock_device.register_map = {"RW_HZ": {"writable": True}}
+
+        mock_device.read_value = AsyncMock(return_value=50.0)
+        mock_device.write_value = AsyncMock()
+
+        mock_device_manager = MagicMock()
+        mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
+
+        # Act
         evaluator = ControlEvaluator(control_config, constraint_config_schema)
         executor = ControlExecutor(mock_device_manager)
 
-        # Step 3: Test scenario - INCREMENTAL triggered
-        snapshot = {"AIn01": 38.0, "AIn02": 25.0}  # Difference 13°C
+        snapshot = {"AIn01": 38.0, "AIn02": 25.0}
         model, slave_id = "SD400", "3"
 
-        # Step 4: Evaluate and generate action
         actions = evaluator.evaluate(model, slave_id, snapshot)
+
+        # Assert
         assert len(actions) == 1
 
         action = actions[0]
         assert action.type == ControlActionType.ADJUST_FREQUENCY
-        expected_value = 1.5
-        assert action.value == expected_value
+        assert action.priority == 10
+        assert action.value == 1.5
 
-        # Step 5: Execute action
-        mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
-        mock_device.read_value.return_value = 50.0  # Current frequency 50.0 Hz
+        await executor.execute(actions)
 
-        await executor.execute([action])
-
-        # Step 6: Verify end-to-end flow
         mock_device_manager.get_device_by_model_and_slave_id.assert_called_once_with("TECO_VFD", "2")
         mock_device.read_value.assert_called_once_with("RW_HZ")
 
-        expected_new_freq = 50.0 + expected_value
+        expected_new_freq = 50.0 + 1.5
         mock_device.write_value.assert_called_once_with("RW_HZ", expected_new_freq)
 
-    def test_when_no_conditions_triggered_then_returns_empty_actions(self, control_evaluator):
-        """T3: Test scenario - No conditions triggered"""
-        # Arrange: All conditions are not met
-        snapshot = {
-            "AIn01": 20.0,  # < 25°C (ABSOLUTE) And < 40°C (DISCRETE)
-            "AIn02": 18.0,  # Difference 2°C < 4°C (INCREMENTAL)
-            "AIn03": 2.0,  # < 3.0 (DISCRETE between)
-        }
+    @pytest.mark.asyncio
+    async def test_when_multiple_rules_triggered_then_all_executed(self, constraint_config_schema):
+        """T2: Test cumulative execution - multiple rules"""
+        config_yaml = """
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Turn On VFD 1
+                  code: TURN_ON_VFD1
+                  priority: 10
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 27.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "1"
+                      type: turn_on
+
+                - name: Turn On VFD 2
+                  code: TURN_ON_VFD2
+                  priority: 20
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 28.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "2"
+                      type: turn_on
+        """
+
+        # Arrange
+        config_dict: dict = yaml.safe_load(config_yaml)
+        version: str = config_dict.pop("version", "1.0.0")
+        control_config = ControlConfig(version=version, root=config_dict)
+
+        evaluator = ControlEvaluator(control_config, constraint_config_schema)
+
+        # Temperature 29°C triggers both rules
+        snapshot = {"AIn01": 29.0}
         model, slave_id = "SD400", "3"
 
         # Act
-        actions = control_evaluator.evaluate(model, slave_id, snapshot)
+        actions = evaluator.evaluate(model, slave_id, snapshot)
 
-        # Assert: Should be no action
+        # Assert
+        assert len(actions) == 2
+        assert actions[0].slave_id == "1"
+        assert actions[1].slave_id == "2"
+        assert actions[0].priority == 10
+        assert actions[1].priority == 20
+
+    @pytest.mark.asyncio
+    async def test_when_blocking_rule_triggered_then_stops_remaining_rules(self, constraint_config_schema):
+        """T3: Test blocking mechanism"""
+        config_yaml = """
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency Stop
+                  code: EMERGENCY_STOP
+                  priority: 0
+                  blocking: true
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 35.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "1"
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 0
+
+                - name: Normal Control
+                  code: NORMAL_CONTROL
+                  priority: 20
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 25.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "1"
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 50
+        """
+
+        # Arrange
+        config_dict = yaml.safe_load(config_yaml)
+        version = config_dict.pop("version", "1.0.0")
+        control_config = ControlConfig(version=version, root=config_dict)
+
+        # Act
+        evaluator = ControlEvaluator(control_config, constraint_config_schema)
+
+        # Temperature 36°C triggers both rules, but emergency blocks normal
+        snapshot = {"AIn01": 36.0}
+        model, slave_id = "SD400", "3"
+
+        actions = evaluator.evaluate(model, slave_id, snapshot)
+
+        # Assert
+        assert len(actions) == 1
+        assert actions[0].value == 0
+        assert actions[0].priority == 0
+
+    @pytest.mark.asyncio
+    async def test_when_priority_conflict_then_higher_priority_protected(self, constraint_config_schema):
+        """T4: Test priority protection mechanism"""
+        config_yaml = """
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: High Priority Control
+                  code: HIGH_PRIORITY
+                  priority: 10
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 25.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "1"
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 50
+
+                - name: Low Priority Control
+                  code: LOW_PRIORITY
+                  priority: 20
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 28.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "1"
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 55
+        """
+
+        # Arrange
+        config_dict = yaml.safe_load(config_yaml)
+        version = config_dict.pop("version", "1.0.0")
+        control_config = ControlConfig(version=version, root=config_dict)
+
+        # Mock
+        mock_device = AsyncMock()
+        mock_device.model = "TECO_VFD"
+        mock_device.slave_id = "1"
+        mock_device.register_map = {"RW_HZ": {"writable": True}}
+        mock_device.read_value = AsyncMock(return_value=45.0)
+        mock_device.write_value = AsyncMock()
+
+        mock_device_manager = MagicMock()
+        mock_device_manager.get_device_by_model_and_slave_id = MagicMock(return_value=mock_device)
+
+        evaluator = ControlEvaluator(control_config, constraint_config_schema)
+        executor = ControlExecutor(mock_device_manager)
+
+        # Temperature 29°C triggers both rules
+        snapshot = {"AIn01": 29.0}
+        model, slave_id = "SD400", "3"
+
+        # Act
+        actions = evaluator.evaluate(model, slave_id, snapshot)
+
+        # Assert
+        assert len(actions) == 2
+        assert actions[0].value == 50  # High priority
+        assert actions[1].value == 55  # Low priority
+
+        # Execute - high priority should be written, low priority should be protected
+        await executor.execute(actions)
+
+        # High priority writes 50
+        assert mock_device.write_value.call_count == 1
+        mock_device.write_value.assert_called_with("RW_HZ", 50)
+
+    def test_when_no_conditions_triggered_then_returns_empty_actions(self, constraint_config_schema):
+        """T5: Test scenario - No conditions triggered"""
+        config_yaml = """
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: High Temperature Control
+                  code: HIGH_TEMP
+                  priority: 10
+                  composite:
+                    any:
+                      - type: threshold
+                        sources:
+                          - AIn01
+                        operator: gt
+                        threshold: 40.0
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: "2"
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+        """
+
+        # Arrange
+        config_dict = yaml.safe_load(config_yaml)
+        version = config_dict.pop("version", "1.0.0")
+        control_config = ControlConfig(version=version, root=config_dict)
+
+        evaluator = ControlEvaluator(control_config, constraint_config_schema)
+
+        # Temperature too low
+        snapshot = {"AIn01": 20.0}
+        model, slave_id = "SD400", "3"
+
+        # Act
+        actions = evaluator.evaluate(model, slave_id, snapshot)
+
+        # Assert
         assert len(actions) == 0

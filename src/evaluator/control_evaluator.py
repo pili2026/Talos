@@ -1,6 +1,8 @@
 import logging
 from functools import partial
 
+from typing import Callable
+
 from evaluator.composite_evaluator import CompositeEvaluator
 from model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
 from schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
@@ -24,81 +26,134 @@ class ControlEvaluator:
         return snapshot.get(key)
 
     def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionSchema]:
-        """Evaluate control conditions and return the highest priority matching action"""
-        conditions = self.control_config.get_control_list(model, slave_id)
+        """
+        Evaluate control conditions and return all matching actions in priority order.
 
-        best_condition: ConditionSchema | None = None
-        best_priority: int | None = None
+        Execution Mode: Cumulative with Priority Protection
+        - Collects all triggered rules
+        - Executes actions from all rules in priority order (lower number = higher priority)
+        - Higher priority actions protect their writes from being overwritten by lower priority actions
+        - Supports blocking: if a rule has blocking=True, stops processing remaining rules
+        """
+        condition_list: list[ConditionSchema] = self.control_config.get_control_list(model, slave_id)
 
-        get_value = partial(self.get_snapshot_value, snapshot)
+        # Step 1: Collect all triggered rules
+        triggered_rule_list: list[ConditionSchema] = []
+        get_value_by_snapshot: Callable[[str], float | None] = partial(self.get_snapshot_value, snapshot)
 
-        for condition_model in conditions:
-            if condition_model.composite is None or condition_model.composite.invalid:
+        for rule in condition_list:
+            if rule.composite is None or rule.composite.invalid:
                 continue
 
-            is_matched: bool = self.composite_evaluator.evaluate_composite_node(condition_model.composite, get_value)
-            if not is_matched:
-                continue
+            is_matched: bool = self.composite_evaluator.evaluate_composite_node(rule.composite, get_value_by_snapshot)
+            if is_matched:
+                triggered_rule_list.append(rule)
 
-            if best_condition is None:
-                best_condition = condition_model
-                best_priority = condition_model.priority
-            else:
-                if best_priority is None or condition_model.priority < best_priority:
-                    best_condition = condition_model
-                    best_priority = condition_model.priority
-
-        if best_condition is None:
+        if not triggered_rule_list:
             return []
 
-        selected: ConditionSchema = best_condition
-        action: ControlActionSchema = selected.action
+        # Log matched rules
+        matched_code_list: list[str] = [r.code for r in triggered_rule_list]
+        logger.info(f"[EVAL] Matched {len(triggered_rule_list)} rules for {model}_{slave_id}: {matched_code_list}")
 
-        if not action.model or not action.slave_id:
-            logger.warning(
-                f"[EVAL] Skip rule '{selected.code}' (p={selected.priority}) " f"due to missing action fields"
-            )
-            return []
-
-        if action.emergency_override:
-            processed_action: ControlActionSchema | None = self._handle_emergency_override(action)
-        else:
-            processed_action: ControlActionSchema | None = self._apply_policy_to_action(
-                condition=selected, action=action, snapshot=snapshot
-            )
-
-        if processed_action is None:
-            logger.warning(
-                f"[EVAL] Skip rule '{selected.code}' (p={selected.priority}) " f"due to policy processing failure"
-            )
-            return []
-
-        # Build reason string
-        try:
-            composite_summary = (
-                self.composite_evaluator.build_composite_reason_summary(selected.composite)
-                if selected.composite
-                else "composite"
-            )
-        except Exception:
-            composite_summary = "composite"
-
-        if action.emergency_override and processed_action.reason:
-            # Emergency information is at the front (most important), with additional control details
-            processed_action.reason = (
-                f"{processed_action.reason} | "
-                f"[{selected.code}] {selected.name} | {composite_summary} | priority={selected.priority}"
-            )
-        else:
-            # Normal Situation
-            processed_action.reason = (
-                f"[{selected.code}] {selected.name} | {composite_summary} | priority={selected.priority}"
-            )
-
-        logger.info(
-            f"[EVAL] Pick '{selected.code}' (p={selected.priority}) " f"model={model} slave_id={slave_id} via composite"
+        # Step 2: Sort by priority (lower number = higher priority)
+        triggered_rule_list.sort(
+            key=lambda r: (r.priority is None, r.priority if r.priority is not None else float("inf"))
         )
-        return [processed_action]
+
+        # Step 3: Process each rule and collect actions
+        result_action_list: list[ControlActionSchema] = []
+
+        for rule in triggered_rule_list:
+            # Build composite summary once for this rule
+            try:
+                composite_summary = (
+                    self.composite_evaluator.build_composite_reason_summary(rule.composite)
+                    if rule.composite
+                    else "composite"
+                )
+            except Exception:
+                composite_summary = "composite"
+
+            # Process each action in this rule
+            rule_actions_processed = 0
+            for action in rule.actions:
+                # Skip invalid actions
+                if not action.model or not action.slave_id or action.type is None:
+                    logger.warning(
+                        f"[EVAL] Skip action in rule '{rule.code}' (p={rule.priority}) "
+                        f"due to missing action fields (model/slave_id/type)"
+                    )
+                    continue
+
+                # Apply policy or emergency override
+                if action.emergency_override:
+                    processed_action: ControlActionSchema | None = self._handle_emergency_override(action)
+                else:
+                    processed_action: ControlActionSchema | None = self._apply_policy_to_action(
+                        condition=rule, action=action, snapshot=snapshot
+                    )
+
+                if processed_action is None:
+                    logger.warning(
+                        f"[EVAL] Skip action in rule '{rule.code}' (p={rule.priority}) "
+                        f"due to policy processing failure"
+                    )
+                    continue
+
+                # Attach priority to action (for Executor to use)
+                processed_action.priority = rule.priority
+
+                # Build reason string
+                action_desc = f"{action.model}_{action.slave_id}:{action.type.value}"
+                base_reason = f"[{rule.code}] {rule.name} | {composite_summary} | priority={rule.priority}"
+
+                if action.emergency_override and processed_action.reason:
+                    # Emergency info at front (most important)
+                    processed_action.reason = f"{processed_action.reason} | {base_reason} | {action_desc}"
+                else:
+                    # Normal situation
+                    processed_action.reason = f"{base_reason} | {action_desc}"
+
+                result_action_list.append(processed_action)
+                rule_actions_processed += 1
+
+            # Log rule execution
+            if rule_actions_processed > 0:
+                logger.info(
+                    f"[EVAL] Execute '{rule.code}' (priority={rule.priority}): " f"{rule_actions_processed} action(s)"
+                )
+            else:
+                logger.warning(
+                    f"[EVAL] Rule '{rule.code}' (priority={rule.priority}) triggered but produced no valid actions"
+                )
+
+            # Check blocking
+            if rule.blocking:
+                remaining_count: int = len(triggered_rule_list) - (triggered_rule_list.index(rule) + 1)
+                if remaining_count > 0:
+                    remaining_code_list: list[str] = [
+                        rule.code for rule in triggered_rule_list[triggered_rule_list.index(rule) + 1 :]
+                    ]
+                    logger.info(
+                        f"[EVAL] Rule '{rule.code}' blocking=True, "
+                        f"skip {remaining_count} remaining rules: {remaining_code_list}"
+                    )
+                break
+
+        # Summary log
+        if result_action_list:
+            logger.info(
+                f"[EVAL] Total {len(result_action_list)} action(s) from {len(triggered_rule_list)} rule(s) "
+                f"for {model}_{slave_id}"
+            )
+        else:
+            logger.warning(
+                f"[EVAL] {len(triggered_rule_list)} rule(s) triggered but no valid actions produced "
+                f"for {model}_{slave_id}"
+            )
+
+        return result_action_list
 
     def _apply_policy_to_action(
         self, condition: ConditionSchema, action: ControlActionSchema, snapshot: dict[str, float]
@@ -126,9 +181,10 @@ class ControlEvaluator:
         """Get condition value based on policy type"""
         if policy.condition_type == ConditionType.THRESHOLD:
             # Single sensor value
-            if not policy.source:
+            if not policy.sources or len(policy.sources) != 1:
+                logger.warning(f"[EVAL] THRESHOLD policy requires exactly 1 source")
                 return None
-            return snapshot.get(policy.source)
+            return snapshot.get(policy.sources[0])
 
         elif policy.condition_type == ConditionType.DIFFERENCE:
             # Difference between two sensors
@@ -146,14 +202,13 @@ class ControlEvaluator:
     def _apply_absolute_linear_policy(
         self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
     ) -> ControlActionSchema | None:
-        # Single temperature value control
-        if not policy.source:
-            logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing source")
+        if not policy.sources or len(policy.sources) != 1:
+            logger.warning(f"[EVAL] ABSOLUTE_LINEAR requires exactly 1 source")
             return None
 
-        temp_value = snapshot.get(policy.source)
+        temp_value = snapshot.get(policy.sources[0])
         if temp_value is None:
-            logger.warning(f"[EVAL] Cannot get temperature value for {policy.source}")
+            logger.warning(f"[EVAL] Cannot get temperature value for {policy.sources[0]}")
             return None
 
         # Validate required fields
@@ -164,7 +219,7 @@ class ControlEvaluator:
         # Calculate target frequency: base_freq + (temp - base_temp) * gain
         target_freq = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
 
-        new_action = action.model_copy()
+        new_action: ControlActionSchema = action.model_copy()
         new_action.value = target_freq
         new_action.type = ControlActionType.SET_FREQUENCY  # Absolute setting
         logger.info(
@@ -181,17 +236,15 @@ class ControlEvaluator:
             logger.warning(f"[EVAL] Cannot get condition value for incremental_linear policy")
             return None
 
-        if condition_value > 0:
-            adjustment = policy.gain_hz_per_unit  # +1.5Hz
-        else:
-            adjustment = -policy.gain_hz_per_unit
+        adjustment = policy.gain_hz_per_unit
 
-        new_action = action.model_copy()
+        new_action: ControlActionSchema = action.model_copy()
         new_action.type = ControlActionType.ADJUST_FREQUENCY  # Incremental adjustment
         new_action.value = adjustment
         logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
         return new_action
 
+    # TODO: Maybe Need to update to support other action types in future
     def _handle_emergency_override(self, action: ControlActionSchema) -> ControlActionSchema | None:
         """Handle emergency override logic: ensure the target can reach 60 Hz if needed.
 
@@ -226,6 +279,7 @@ class ControlEvaluator:
 
         return new_action
 
+    # TODO: Maybe Need to update to support other constraint types in future
     def _get_constraint_max(self, model: str, slave_id: str) -> float | None:
         """Return the max RW_HZ constraint for the given device (instance → model default → None)."""
         if self.constraint_config_schema is None:

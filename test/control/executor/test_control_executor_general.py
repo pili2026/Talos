@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock, Mock
 import pytest
 from schema.control_condition_schema import ControlActionSchema, ControlActionType
 
@@ -129,17 +130,21 @@ class TestControlExecutorGeneral:
     ):
         """Test that tolerance check falls back to direct comparison for non-numeric values using Mock"""
         # Arrange - Use Mock to test non-numeric values since ControlActionModel only accepts numbers
-        from unittest.mock import Mock
 
         action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
         action.slave_id = "2"
         action.type = ControlActionType.WRITE_DO
         action.target = "RW_DO"
-        action.value = "ON"  # String value (only possible with Mock)
+        action.value = "ON"
+        action.priority = 50
+        action.reason = "[UNIT] non-numeric"
+        action.emergency_override = False
 
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
-        mock_device.read_value.return_value = "OFF"  # Different string value
+        mock_device.read_value = AsyncMock(return_value="OFF")  # Different string value
+        mock_device.write_value = AsyncMock()
+        mock_device.register_map = {"RW_DO": {"writable": True}}
 
         # Act
         await control_executor.execute([action])

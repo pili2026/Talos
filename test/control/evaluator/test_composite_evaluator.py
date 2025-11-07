@@ -12,7 +12,6 @@ def create_mock_composite_node(**kwargs):
     # Set default values for all possible attributes
     defaults = {
         "type": None,
-        "source": None,
         "sources": None,
         "operator": None,
         ConditionType.THRESHOLD: None,
@@ -61,7 +60,7 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         composite = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,
             hysteresis=1.0,
@@ -81,7 +80,7 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         composite = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,
             hysteresis=1.0,
@@ -102,14 +101,14 @@ class TestCompositeEvaluatorLogic:
         # Create child conditions using helper function
         true_condition = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 25.0
         )
 
         false_condition = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 15.0
         )
@@ -130,14 +129,14 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         false_condition1 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 15.0
         )
 
         false_condition2 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=25.0,  # 15.0
         )
@@ -157,14 +156,14 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         true_condition1 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 25.0
         )
 
         true_condition2 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn03",
+            sources=["AIn03"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=25.0,  # 30.0
         )
@@ -184,14 +183,14 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         true_condition = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 25.0
         )
 
         false_condition = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 15.0
         )
@@ -211,7 +210,7 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         true_condition = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 25.0
         )
@@ -231,7 +230,7 @@ class TestCompositeEvaluatorLogic:
         # Arrange
         false_condition = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 15.0
         )
@@ -286,7 +285,11 @@ class TestCompositeEvaluatorLogic:
         """Test between operator - value within range"""
         # Arrange
         composite = create_mock_composite_node(
-            type=ConditionType.THRESHOLD, source="AIn01", operator=ConditionOperator.BETWEEN, min=20.0, max=30.0  # 25.0
+            type=ConditionType.THRESHOLD,
+            sources=["AIn01"],
+            operator=ConditionOperator.BETWEEN,
+            min=20.0,
+            max=30.0,  # 25.0
         )
 
         # Act
@@ -301,7 +304,11 @@ class TestCompositeEvaluatorLogic:
         """Test between operator - value outside range"""
         # Arrange
         composite = create_mock_composite_node(
-            type=ConditionType.THRESHOLD, source="AIn01", operator=ConditionOperator.BETWEEN, min=30.0, max=35.0  # 25.0
+            type=ConditionType.THRESHOLD,
+            sources=["AIn01"],
+            operator=ConditionOperator.BETWEEN,
+            min=30.0,
+            max=35.0,  # 25.0
         )
 
         # Act
@@ -317,21 +324,21 @@ class TestCompositeEvaluatorLogic:
         # Arrange: (condition1 OR condition2) AND condition3
         condition1 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn04",
+            sources=["AIn04"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 15.0 (will be false)
         )
 
         condition2 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=20.0,  # 25.0 (will be true)
         )
 
         condition3 = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn03",
+            sources=["AIn03"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=25.0,  # 30.0 (will be true)
         )
@@ -374,7 +381,7 @@ class TestCompositeEvaluatorLogic:
         """Test handling of invalid composite types"""
         # Arrange
         composite = create_mock_composite_node(
-            type="invalid_type", source="AIn01", operator=ConditionOperator.GREATER_THAN, threshold=20.0
+            type="invalid_type", sources=["AIn01"], operator=ConditionOperator.GREATER_THAN, threshold=20.0
         )
 
         # Act
@@ -419,7 +426,7 @@ class TestCompositeEvaluatorReasonSummary:
         # Arrange
         composite = create_mock_composite_node(
             type=ConditionType.THRESHOLD,
-            source="AIn01",
+            sources=["AIn01"],
             operator=ConditionOperator.GREATER_THAN,
             threshold=40.0,
             hysteresis=1.0,
@@ -460,11 +467,11 @@ class TestCompositeEvaluatorReasonSummary:
         """Test reason summary for OR logic"""
         # Arrange
         condition1 = create_mock_composite_node(
-            type=ConditionType.THRESHOLD, source="AIn01", operator=ConditionOperator.GREATER_THAN, threshold=20.0
+            type=ConditionType.THRESHOLD, sources=["AIn01"], operator=ConditionOperator.GREATER_THAN, threshold=20.0
         )
 
         condition2 = create_mock_composite_node(
-            type=ConditionType.THRESHOLD, source="AIn02", operator=ConditionOperator.LESS_THAN, threshold=10.0
+            type=ConditionType.THRESHOLD, sources=["AIn02"], operator=ConditionOperator.LESS_THAN, threshold=10.0
         )
 
         composite = create_mock_composite_node(type=None, any=[condition1, condition2])
@@ -480,11 +487,11 @@ class TestCompositeEvaluatorReasonSummary:
         """Test reason summary for AND logic"""
         # Arrange
         condition1 = create_mock_composite_node(
-            type=ConditionType.THRESHOLD, source="AIn01", operator=ConditionOperator.GREATER_THAN, threshold=20.0
+            type=ConditionType.THRESHOLD, sources=["AIn01"], operator=ConditionOperator.GREATER_THAN, threshold=20.0
         )
 
         condition2 = create_mock_composite_node(
-            type=ConditionType.THRESHOLD, source="AIn02", operator=ConditionOperator.LESS_THAN, threshold=10.0
+            type=ConditionType.THRESHOLD, sources=["AIn02"], operator=ConditionOperator.LESS_THAN, threshold=10.0
         )
 
         composite = create_mock_composite_node(type=None, all=[condition1, condition2])

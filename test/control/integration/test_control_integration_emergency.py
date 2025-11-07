@@ -45,32 +45,34 @@ class TestEmergencyControlIntegration:
     ):
         """Test 1: Emergency overrides constraint max when < 60"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency High Water Temperature Override VFD1
-          code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-          priority: 151
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency High Water Temperature Override VFD1
+                  code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions: 
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+
+        """
 
         config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
@@ -119,22 +121,23 @@ SD400:
       controls:
         - name: Emergency High Water Temperature Override VFD1
           code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-          priority: 151
+          priority: 0
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources: 
+                  - AIn01
                 operator: gt
                 threshold: 32.0
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
+          actions:
+            - model: TECO_VFD
+              slave_id: '1'
+              type: set_frequency
+              target: RW_HZ
+              value: 60
+              emergency_override: true
 """
 
         config_dict = yaml.safe_load(config_yaml)
@@ -173,32 +176,33 @@ SD400:
     async def test_when_emergency_and_no_constraint_then_use_original_value(self, constraint_config_no_limit):
         """Test 3: Emergency uses original value when no constraint"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency High Water Temperature Override VFD1
-          code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-          priority: 151
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency High Water Temperature Override VFD1
+                  code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+        """
 
         config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
@@ -224,32 +228,33 @@ SD400:
     def test_when_normal_temperature_then_no_emergency_action(self, constraint_config_with_limit_50):
         """Test 4: Normal temperature does not trigger emergency"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency High Water Temperature Override VFD1
-          code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-          priority: 151
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency High Water Temperature Override VFD1
+                  code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+        """
 
         config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
@@ -269,32 +274,33 @@ SD400:
     def test_when_exactly_at_threshold_then_no_trigger(self, constraint_config_with_limit_50):
         """Test 5: Temperature exactly at threshold does not trigger (gt, not gte)"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency High Water Temperature Override VFD1
-          code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-          priority: 151
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency High Water Temperature Override VFD1
+                  code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+        """
 
         config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
@@ -318,51 +324,53 @@ SD400:
     def test_when_multiple_emergency_controls_then_highest_priority_wins(self, constraint_config_with_limit_50):
         """Test 6: Highest priority emergency control wins"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency VFD1 Priority 1
-          code: EMERGENCY_VFD1_P1
-          priority: 1
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 55
-            emergency_override: true
-            
-        - name: Emergency VFD1 Priority 0
-          code: EMERGENCY_VFD1_P0
-          priority: 0
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency VFD1 Priority 1
+                  code: EMERGENCY_VFD1_P1
+                  priority: 1
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 55
+                      emergency_override: true
+                    
+                - name: Emergency VFD1 Priority 0
+                  code: EMERGENCY_VFD1_P0
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+        """
 
         config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
@@ -375,8 +383,8 @@ SD400:
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
 
-        # Assert: Should select priority 151
-        assert len(actions) == 1
+        # Assert
+        assert len(actions) == 2
         action = actions[0]
         assert "EMERGENCY_VFD1_P0" in action.reason
         assert "priority=0" in action.reason
@@ -387,49 +395,51 @@ SD400:
     ):
         """Test 7: Emergency control overrides normal control"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Normal High Temperature Control
-          code: NORMAL_HIGH_TEMP
-          priority: 10
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 30.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 45
-            
-        - name: Emergency High Water Temperature Override
-          code: EMERGENCY_HIGH_WATER_TEMP
-          priority: 0
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Normal High Temperature Control
+                  code: NORMAL_HIGH_TEMP
+                  priority: 10
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 30.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 45
+                    
+                - name: Emergency High Water Temperature Override
+                  code: EMERGENCY_HIGH_WATER_TEMP
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
 """
 
         config_dict = yaml.safe_load(config_yaml)
@@ -444,8 +454,8 @@ SD400:
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
 
-        # Assert: Should select emergency (priority 151 > 90)
-        assert len(actions) == 1
+        # Assert
+        assert len(actions) == 2
         action = actions[0]
         assert action.emergency_override is True
         assert "EMERGENCY_HIGH_WATER_TEMP" in action.reason
@@ -459,51 +469,53 @@ SD400:
     async def test_when_two_emergency_controls_for_different_devices(self):
         """Test 8: Multiple emergency controls for different devices"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency VFD1
-          code: EMERGENCY_VFD1
-          priority: 151
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-            
-        - name: Emergency VFD2
-          code: EMERGENCY_VFD2
-          priority: 150
-          composite:
-            any:
-              - type: threshold
-                source: AIn02
-                operator: gt
-                threshold: 34.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '2'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency VFD1
+                  code: EMERGENCY_VFD1
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+                    
+                - name: Emergency VFD2
+                  code: EMERGENCY_VFD2
+                  priority: 1
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn02
+                        operator: gt
+                        threshold: 34.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '2'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+        """
 
         constraint_config = ConstraintConfigSchema(
             **{
@@ -528,7 +540,7 @@ SD400:
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
 
-        # Assert: Should select VFD1 (higher priority 151)
+        # Assert: Should select VFD1 (higher priority 0)
         assert len(actions) == 1
         action = actions[0]
         assert action.slave_id == "1"
@@ -542,32 +554,33 @@ SD400:
     async def test_complete_emergency_flow_end_to_end(self, constraint_config_with_limit_50):
         """Test 9: Complete emergency flow from evaluation to device write"""
         config_yaml = """
-version: "1.0.0"
-SD400:
-  default_controls: []
-  instances:
-    '3':
-      use_default_controls: false
-      controls:
-        - name: Emergency High Water Temperature Override VFD1
-          code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-          priority: 151
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 32.0
-          policy:
-            type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: set_frequency
-            target: RW_HZ
-            value: 60
-            emergency_override: true
-"""
+        version: "1.0.0"
+        SD400:
+          default_controls: []
+          instances:
+            '3':
+              use_default_controls: false
+              controls:
+                - name: Emergency High Water Temperature Override VFD1
+                  code: EMERGENCY_HIGH_WATER_TEMP_VFD1
+                  priority: 0
+                  composite:
+                    any:
+                      - type: threshold
+                        sources: 
+                          - AIn01
+                        operator: gt
+                        threshold: 32.0
+                  policy:
+                    type: discrete_setpoint
+                  actions:
+                    - model: TECO_VFD
+                      slave_id: '1'
+                      type: set_frequency
+                      target: RW_HZ
+                      value: 60
+                      emergency_override: true
+        """
 
         config_dict = yaml.safe_load(config_yaml)
         version = config_dict.pop("version", "1.0.0")
@@ -604,7 +617,7 @@ SD400:
         assert action.target == "RW_HZ"
         assert action.value == 60
         assert "[EMERGENCY] Override constraint 50" in action.reason
-        assert "priority=151" in action.reason
+        assert "priority=0" in action.reason
 
         # Act: Step 2 - Execute
         await executor.execute(actions)

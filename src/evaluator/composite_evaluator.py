@@ -57,9 +57,11 @@ class CompositeEvaluator:
     def build_composite_reason_summary(self, node: CompositeNode) -> str:
         """Output a human-readable summary string (useful for action.reason)."""
         if node.type == ConditionType.THRESHOLD:
+            sensor: str = node.sources[0] if node.sources and len(node.sources) > 0 else "unknown"
+
             if node.operator == ConditionOperator.BETWEEN:
-                return f"threshold({node.source} between {node.min}..{node.max})"
-            return f"threshold({node.source} {node.operator.value.lower()} {node.threshold})"
+                return f"threshold({sensor} between {node.min}..{node.max})"
+            return f"threshold({sensor} {node.operator.value.lower()} {node.threshold})"
 
         if node.type == ConditionType.DIFFERENCE:
             srcs = ",".join(node.sources or [])
@@ -106,10 +108,10 @@ class CompositeEvaluator:
 
     def _evaluate_threshold_leaf(self, node: CompositeNode, get_value: ValueGetter) -> bool:
         """Evaluate whether a threshold-type leaf node is satisfied."""
-        if not node.source:
+        if not node.sources or len(node.sources) != 1:
             return False
 
-        value = get_value(node.source)
+        value = get_value(node.sources[0])
         if value is None or (isinstance(value, float) and math.isnan(value)):
             return False
 
@@ -192,8 +194,14 @@ class CompositeEvaluator:
         if operator == ConditionOperator.GREATER_THAN:
             return threshold is not None and value > threshold
 
+        if operator == ConditionOperator.GREATER_THAN_OR_EQUAL:
+            return threshold is not None and value >= threshold
+
         if operator == ConditionOperator.LESS_THAN:
             return threshold is not None and value < threshold
+
+        if operator == ConditionOperator.LESS_THAN_OR_EQUAL:
+            return threshold is not None and value <= threshold
 
         if operator == ConditionOperator.EQUAL:
             if threshold is None:
@@ -232,15 +240,19 @@ class CompositeEvaluator:
         if hysteresis > 0.0:
             if operator == ConditionOperator.GREATER_THAN and threshold is not None:
                 raw_true = (value >= threshold - hysteresis) if hold else (value > threshold)
+            elif operator == ConditionOperator.GREATER_THAN_OR_EQUAL and threshold is not None:
+                raw_true = (value >= threshold - hysteresis) if hold else (value >= threshold)
             elif operator == ConditionOperator.LESS_THAN and threshold is not None:
                 raw_true = (value <= threshold + hysteresis) if hold else (value < threshold)
+            elif operator == ConditionOperator.LESS_THAN_OR_EQUAL and threshold is not None:
+                raw_true = (value <= threshold + hysteresis) if hold else (value <= threshold)
             elif operator == ConditionOperator.BETWEEN and (min_value is not None) and (max_value is not None):
-                lo = min_value
-                hi = max_value
+                low_value: float = min_value
+                high_value: float = max_value
                 if hold:
-                    raw_true = (lo - hysteresis) <= value <= (hi + hysteresis)
+                    raw_true = (low_value - hysteresis) <= value <= (high_value + hysteresis)
                 else:
-                    raw_true = lo <= value <= hi
+                    raw_true = low_value <= value <= high_value
             elif operator == ConditionOperator.EQUAL and threshold is not None:
                 eps = self.comparison_tolerance or 1e-9
                 raw_true = (abs(value - threshold) <= (eps + hysteresis)) if hold else (abs(value - threshold) <= eps)

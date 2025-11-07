@@ -82,7 +82,7 @@ class TestControlEvaluatorPolicyProcessing:
             **{
                 "type": "absolute_linear",
                 "condition_type": "threshold",
-                "source": "AIn01",
+                "sources": ["AIn01"],
                 "base_freq": 40.0,
                 "base_temp": 25.0,
                 "gain_hz_per_unit": 1.2,
@@ -121,7 +121,7 @@ class TestControlEvaluatorPolicyProcessing:
             **{
                 "type": "absolute_linear",
                 "condition_type": "threshold",
-                "source": "AIn01",
+                "sources": ["AIn01"],
                 "base_freq": 40.0,
                 "base_temp": 25.0,
                 "gain_hz_per_unit": 1.2,
@@ -186,7 +186,7 @@ class TestControlEvaluatorPolicyProcessing:
                 "type": "incremental_linear",
                 "condition_type": "difference",
                 "sources": ["AIn01", "AIn02"],
-                "gain_hz_per_unit": 1.5,
+                "gain_hz_per_unit": -1.5,
             }
         )
         mock_condition.policy = mock_policy
@@ -219,7 +219,7 @@ class TestControlEvaluatorPolicyProcessing:
             **{
                 "type": "absolute_linear",
                 "condition_type": "threshold",
-                "source": "AIn01",
+                "sources": ["AIn01"],
                 "base_freq": 40.0,
                 "base_temp": 25.0,
                 "gain_hz_per_unit": 1.2,
@@ -356,6 +356,7 @@ class TestControlEvaluatorIntegration:
         mock_condition.code = "ABS_TEMP01"
         mock_condition.name = "Environment Temperature Linear Control"
         mock_condition.priority = 90
+        mock_condition.blocking = False
 
         # Setup composite
         mock_composite = Mock()
@@ -371,7 +372,7 @@ class TestControlEvaluatorIntegration:
             **{
                 "type": "absolute_linear",
                 "condition_type": "threshold",
-                "source": "AIn01",
+                "sources": ["AIn01"],
                 "base_freq": 40.0,
                 "base_temp": 25.0,
                 "gain_hz_per_unit": 1.2,
@@ -382,7 +383,7 @@ class TestControlEvaluatorIntegration:
         mock_action = Mock(spec=ControlActionSchema)
         mock_action.model = "TECO_VFD"
         mock_action.slave_id = "2"
-        mock_action.type = "set_frequency"
+        mock_action.type = ControlActionType.SET_FREQUENCY
         mock_action.target = "RW_HZ"
         mock_action.value = None
         mock_action.emergency_override = False
@@ -391,7 +392,7 @@ class TestControlEvaluatorIntegration:
         new_action = Mock(spec=ControlActionSchema)
         new_action.model = "TECO_VFD"
         new_action.slave_id = "2"
-        new_action.type = "set_frequency"
+        new_action.type = ControlActionType.SET_FREQUENCY
         new_action.target = "RW_HZ"
         new_action.value = None  # Will be set by the implementation
         new_action.reason = None
@@ -399,7 +400,7 @@ class TestControlEvaluatorIntegration:
 
         mock_action.model_copy.return_value = new_action
 
-        mock_condition.action = mock_action
+        mock_condition.actions = [mock_action]
 
         # Mock control_config.get_control_list
         control_evaluator.control_config.get_control_list.return_value = [mock_condition]

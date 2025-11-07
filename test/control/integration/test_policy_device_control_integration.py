@@ -50,16 +50,17 @@ SD400:
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:
+                  - AIn01
                 operator: gt
                 threshold: 40.0
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: "1"
-            type: turn_on
-            target: RW_ON_OFF
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: turn_on
+              target: RW_ON_OFF
 
         # Low temperature turns OFF inverter
         - name: "Low Temperature Turn Off Inverter"
@@ -68,16 +69,17 @@ SD400:
           composite:
             any:
               - type: threshold
-                source: AIn01
+                sources:
+                  - AIn01
                 operator: lt
                 threshold: 25.0
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: "1"
-            type: turn_off
-            target: RW_ON_OFF
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: turn_off
+              target: RW_ON_OFF
 """
 
     @pytest.fixture

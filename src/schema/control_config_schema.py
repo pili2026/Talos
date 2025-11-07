@@ -106,7 +106,7 @@ class ControlConfig(BaseModel):
         - instance.controls
         2) Filter out invalid rules (skip with warnings):
         - composite is None (invalid composite)
-        - action is None or action.type is missing
+        - actions is empty or all actions are invalid
         3) Deduplicate by priority (keep only the last one; instance overrides default)
         4) Preserve definition order after dedup
         """
@@ -131,15 +131,40 @@ class ControlConfig(BaseModel):
             rid = rule.code or rule.name or "<unknown>"
             context = f"[{model}_{instance_id}]"
 
+            # Check composite
             if rule.composite is None:
                 logger.warning(f"{context} skip rule '{rid}': missing or null composite")
                 continue
             if rule.composite.invalid:
                 logger.warning(f"{context} skip rule '{rid}': invalid composite structure")
                 continue
-            if rule.action is None or rule.action.type is None:
-                logger.error(f"{context} skip rule '{rid}': missing action.type")
+
+            # Check actions
+            if not rule.actions:
+                logger.error(f"{context} skip rule '{rid}': no actions defined")
                 continue
+
+            # Check if at least one action is valid (has type)
+            valid_action_count = 0
+            invalid_action_indices = []
+            for idx, action in enumerate(rule.actions):
+                if action is None or action.type is None:
+                    invalid_action_indices.append(idx)
+                else:
+                    valid_action_count += 1
+
+            if valid_action_count == 0:
+                logger.error(f"{context} skip rule '{rid}': all {len(rule.actions)} actions are invalid (missing type)")
+                continue
+
+            # Log warning if some actions are invalid (but keep the rule)
+            if invalid_action_indices:
+                logger.warning(
+                    f"{context} rule '{rid}': {len(invalid_action_indices)} invalid actions at indices {invalid_action_indices} "
+                    f"(will be skipped during execution)"
+                )
+
+            # Check policy
             if rule.policy and rule.policy.invalid:
                 logger.warning(f"{context} skip rule '{rid}': invalid policy configuration")
                 continue

@@ -2,14 +2,17 @@ import pytest
 import logging
 from unittest.mock import Mock
 from evaluator.control_evaluator import ControlEvaluator
+from model.enum.condition_enum import ControlActionType, ControlPolicyType
 from schema.control_condition_schema import ControlActionSchema, ConditionSchema
 
 
 class TestControlEvaluatorPriorityHandling:
     """Test priority-based condition selection in ControlEvaluator"""
 
-    def test_when_multiple_conditions_match_then_selects_highest_priority(self, control_evaluator: ControlEvaluator):
-        """Test that highest priority condition is selected when multiple conditions match"""
+    def test_when_multiple_conditions_match_then_executes_all_in_priority_order(
+        self, control_evaluator: ControlEvaluator
+    ):
+        """Test that all matching conditions are executed in priority order (cumulative mode)"""
         # Arrange
         low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 90)
         medium_priority_condition = self._create_mock_condition("MED_TEMP", "Medium Temperature", 70)
@@ -27,14 +30,21 @@ class TestControlEvaluatorPriorityHandling:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert
-        assert len(result) == 1
-        result_action = result[0]
-        assert "HIGH_TEMP" in result_action.reason
-        assert "priority=50" in result_action.reason
+        # Assert - All 3 conditions should produce actions (cumulative mode)
+        assert len(result) == 3
 
-    def test_when_conditions_have_same_priority_then_selects_first_matching(self, control_evaluator: ControlEvaluator):
-        """Test that first condition is selected when multiple conditions have the same priority"""
+        # Check priority order
+        assert "HIGH_TEMP" in result[0].reason
+        assert "priority=50" in result[0].reason
+        assert "MED_TEMP" in result[1].reason
+        assert "priority=70" in result[1].reason
+        assert "LOW_TEMP" in result[2].reason
+        assert "priority=90" in result[2].reason
+
+    def test_when_conditions_have_same_priority_then_executes_in_definition_order(
+        self, control_evaluator: ControlEvaluator
+    ):
+        """Test that conditions with same priority execute in definition order"""
         # Arrange
         first_condition = self._create_mock_condition("COND_A", "Condition A", 80)
         second_condition = self._create_mock_condition("COND_B", "Condition B", 80)  # Same priority
@@ -52,16 +62,14 @@ class TestControlEvaluatorPriorityHandling:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert: Should select the first condition with highest priority
-        assert len(result) == 1
-        result_action = result[0]
-        assert "COND_A" in result_action.reason
-        assert "priority=80" in result_action.reason
+        # Assert: Should execute all 3 conditions in order
+        assert len(result) == 3
+        assert "COND_A" in result[0].reason
+        assert "COND_B" in result[1].reason
+        assert "COND_C" in result[2].reason
 
-    def test_when_only_lower_priority_conditions_match_then_selects_highest_available(
-        self, control_evaluator: ControlEvaluator
-    ):
-        """Test that highest available priority is selected when high priority conditions don't match"""
+    def test_when_only_some_conditions_match_then_executes_only_matching(self, control_evaluator: ControlEvaluator):
+        """Test that only matching conditions produce actions"""
         # Arrange
         low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 90)
         medium_priority_condition = self._create_mock_condition("MED_TEMP", "Medium Temperature", 60)
@@ -70,9 +78,8 @@ class TestControlEvaluatorPriorityHandling:
         conditions = [low_priority_condition, medium_priority_condition, high_priority_condition]
         control_evaluator.control_config.get_control_list.return_value = conditions
 
-        # Mock composite evaluator - only low and medium priority match, high priority doesn't
+        # Mock composite evaluator - only low and medium priority match
         def mock_evaluate_composite(composite, get_value):
-            # Determine which condition this is by checking the composite mock
             if composite == high_priority_condition.composite:
                 return False  # High priority doesn't match
             else:
@@ -86,14 +93,15 @@ class TestControlEvaluatorPriorityHandling:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert: Should select medium priority (60) since high priority (90) doesn't match
-        assert len(result) == 1
-        result_action = result[0]
-        assert "MED_TEMP" in result_action.reason
-        assert "priority=60" in result_action.reason
+        # Assert: Should have 2 actions (medium and low priority)
+        assert len(result) == 2
+        assert "MED_TEMP" in result[0].reason
+        assert "priority=60" in result[0].reason
+        assert "LOW_TEMP" in result[1].reason
+        assert "priority=90" in result[1].reason
 
-    def test_when_priority_order_mixed_then_still_selects_highest(self, control_evaluator: ControlEvaluator):
-        """Test that highest priority is selected regardless of order in condition list"""
+    def test_when_priority_order_mixed_then_sorts_by_priority(self, control_evaluator: ControlEvaluator):
+        """Test that conditions are sorted by priority regardless of definition order"""
         # Arrange - conditions in non-priority order
         high_priority_condition = self._create_mock_condition("HIGH_TEMP", "High Temperature", 10)
         low_priority_condition = self._create_mock_condition("LOW_TEMP", "Low Temperature", 95)
@@ -112,11 +120,14 @@ class TestControlEvaluatorPriorityHandling:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert
-        assert len(result) == 1
-        result_action = result[0]
-        assert "HIGH_TEMP" in result_action.reason
-        assert "priority=10" in result_action.reason
+        # Assert - Should execute in priority order (10, 50, 95)
+        assert len(result) == 3
+        assert "HIGH_TEMP" in result[0].reason
+        assert "priority=10" in result[0].reason
+        assert "MED_TEMP" in result[1].reason
+        assert "priority=50" in result[1].reason
+        assert "LOW_TEMP" in result[2].reason
+        assert "priority=95" in result[2].reason
 
     def test_when_no_conditions_match_then_returns_empty_list(self, control_evaluator: ControlEvaluator):
         """Test that empty list is returned when no conditions match composite evaluation"""
@@ -159,7 +170,7 @@ class TestControlEvaluatorPriorityHandling:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert: Should select valid condition even though invalid has higher priority
+        # Assert: Should execute valid condition
         assert len(result) == 1
         result_action = result[0]
         assert "VALID" in result_action.reason
@@ -190,17 +201,17 @@ class TestControlEvaluatorPriorityHandling:
         result_action = result[0]
         assert "VALID" in result_action.reason
 
-    def test_when_selected_condition_has_missing_action_fields_then_returns_empty_list(
+    def test_when_selected_condition_has_missing_action_fields_then_skips_action(
         self, control_evaluator: ControlEvaluator, caplog
     ):
-        """Test that conditions with missing action model/slave_id are skipped"""
+        """Test that actions with missing model/slave_id are skipped"""
         # Arrange
         caplog.set_level(logging.WARNING)
 
         condition = self._create_mock_condition("TEST", "Test Condition", 80)
         # Make action missing required fields
-        condition.action.model = ""  # Missing model
-        condition.action.slave_id = ""  # Missing slave_id
+        condition.actions[0].model = ""  # ← 改成 actions[0]
+        condition.actions[0].slave_id = ""  # ← 改成 actions[0]
 
         conditions = [condition]
         control_evaluator.control_config.get_control_list.return_value = conditions
@@ -216,8 +227,8 @@ class TestControlEvaluatorPriorityHandling:
         assert len(result) == 0
         assert "missing action fields" in caplog.text
 
-    def test_when_policy_processing_fails_then_returns_empty_list(self, control_evaluator: ControlEvaluator, caplog):
-        """Test that conditions with policy processing failure return empty list"""
+    def test_when_policy_processing_fails_then_skips_action(self, control_evaluator: ControlEvaluator, caplog):
+        """Test that actions with policy processing failure are skipped"""
         # Arrange
         caplog.set_level(logging.WARNING)
 
@@ -240,10 +251,10 @@ class TestControlEvaluatorPriorityHandling:
         assert len(result) == 0
         assert "policy processing failure" in caplog.text
 
-    def test_when_mixed_matching_and_non_matching_conditions_then_selects_highest_matching(
+    def test_when_mixed_matching_and_non_matching_conditions_then_executes_only_matching(
         self, control_evaluator: ControlEvaluator
     ):
-        """Test complex scenario with mix of matching/non-matching conditions at different priorities"""
+        """Test complex scenario with mix of matching/non-matching conditions"""
         # Arrange
         non_matching_high = self._create_mock_condition("HIGH_NO_MATCH", "High No Match", 10)
         matching_medium = self._create_mock_condition("MED_MATCH", "Medium Match", 65)
@@ -268,11 +279,12 @@ class TestControlEvaluatorPriorityHandling:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert: Should select matching_medium (priority 60) since higher priorities don't match
-        assert len(result) == 1
-        result_action = result[0]
-        assert "MED_MATCH" in result_action.reason
-        assert "priority=65" in result_action.reason
+        # Assert: Should execute 2 actions (matching_medium and matching_low)
+        assert len(result) == 2
+        assert "MED_MATCH" in result[0].reason
+        assert "priority=65" in result[0].reason
+        assert "LOW_MATCH" in result[1].reason
+        assert "priority=100" in result[1].reason
 
     # Helper method to create mock conditions
     def _create_mock_condition(self, code: str, name: str, priority: int) -> Mock:
@@ -281,6 +293,7 @@ class TestControlEvaluatorPriorityHandling:
         condition.code = code
         condition.name = name
         condition.priority = priority
+        condition.blocking = False  # ← 新增 blocking 欄位
 
         # Mock composite
         condition.composite = Mock()
@@ -288,18 +301,18 @@ class TestControlEvaluatorPriorityHandling:
 
         # Mock policy
         condition.policy = Mock()
-        condition.policy.type = "discrete_setpoint"
+        condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
 
-        # Mock action
-        condition.action = Mock(spec=ControlActionSchema)
-        condition.action.model = "TECO_VFD"
-        condition.action.slave_id = "2"
-        condition.action.type = "set_frequency"
-        condition.action.target = "RW_HZ"
-        condition.action.value = 50.0
-        condition.action.emergency_override = False
+        mock_action = Mock(spec=ControlActionSchema)
+        mock_action.model = "TECO_VFD"
+        mock_action.slave_id = "2"
+        mock_action.type = ControlActionType.SET_FREQUENCY
+        mock_action.target = "RW_HZ"
+        mock_action.value = 50.0
+        mock_action.emergency_override = False
+        mock_action.model_copy.return_value = mock_action  # Return self for simplicity
 
-        condition.action.model_copy.return_value = condition.action  # Return self for simplicity
+        condition.actions = [mock_action]  # ← 改成 list
 
         return condition
 
@@ -350,21 +363,22 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         condition.code = "Threshold"
         condition.name = "Single Condition"
         condition.priority = 75
+        condition.blocking = False
         condition.composite = Mock()
         condition.composite.invalid = False
         condition.policy = Mock()
-        condition.policy.type = "discrete_setpoint"
-        condition.emergency_override = False
+        condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
 
-        condition.action = Mock(spec=ControlActionSchema)
-        condition.action.model = "TECO_VFD"
-        condition.action.slave_id = "2"
-        condition.action.type = "set_frequency"
-        condition.action.target = "RW_HZ"
-        condition.action.value = 50.0
-        condition.action.emergency_override = False
+        mock_action = Mock(spec=ControlActionSchema)
+        mock_action.model = "TECO_VFD"
+        mock_action.slave_id = "2"
+        mock_action.type = ControlActionType.SET_FREQUENCY
+        mock_action.target = "RW_HZ"
+        mock_action.value = 50.0
+        mock_action.emergency_override = False
+        mock_action.model_copy.return_value = mock_action
 
-        condition.action.model_copy.return_value = condition.action
+        condition.actions = [mock_action]
 
         conditions = [condition]
         control_evaluator.control_config.get_control_list.return_value = conditions
@@ -390,38 +404,41 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         none_priority_condition.code = "NONE_PRI"
         none_priority_condition.name = "None Priority"
         none_priority_condition.priority = None  # None priority
+        none_priority_condition.blocking = False
         none_priority_condition.composite = Mock()
         none_priority_condition.composite.invalid = False
-
         none_priority_condition.policy = Mock()
-        none_priority_condition.policy.type = "discrete_setpoint"
+        none_priority_condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
 
-        none_priority_condition.action = Mock(spec=ControlActionSchema)
-        none_priority_condition.action.model = "TECO_VFD"
-        none_priority_condition.action.slave_id = "2"
-        none_priority_condition.action.type = "set_frequency"
-        none_priority_condition.action.value = 30.0
-        none_priority_condition.action.emergency_override = False
+        mock_action1 = Mock(spec=ControlActionSchema)
+        mock_action1.model = "TECO_VFD"
+        mock_action1.slave_id = "2"
+        mock_action1.type = ControlActionType.SET_FREQUENCY
+        mock_action1.value = 30.0
+        mock_action1.emergency_override = False
+        mock_action1.model_copy.return_value = mock_action1
 
-        none_priority_condition.action.model_copy.return_value = none_priority_condition.action
+        none_priority_condition.actions = [mock_action1]
 
         normal_condition = Mock(spec=ConditionSchema)
         normal_condition.code = "NORMAL"
         normal_condition.name = "Normal Condition"
         normal_condition.priority = 50
+        normal_condition.blocking = False
         normal_condition.composite = Mock()
         normal_condition.composite.invalid = False
         normal_condition.policy = Mock()
-        normal_condition.policy.type = "discrete_setpoint"
+        normal_condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
 
-        normal_condition.action = Mock(spec=ControlActionSchema)
-        normal_condition.action.model = "TECO_VFD"
-        normal_condition.action.slave_id = "2"
-        normal_condition.action.type = "set_frequency"
-        normal_condition.action.value = 40.0
-        normal_condition.action.emergency_override = False
+        mock_action2 = Mock(spec=ControlActionSchema)
+        mock_action2.model = "TECO_VFD"
+        mock_action2.slave_id = "2"
+        mock_action2.type = ControlActionType.SET_FREQUENCY
+        mock_action2.value = 40.0
+        mock_action2.emergency_override = False
+        mock_action2.model_copy.return_value = mock_action2
 
-        normal_condition.action.model_copy.return_value = normal_condition.action
+        normal_condition.actions = [mock_action2]
 
         conditions = [none_priority_condition, normal_condition]
         control_evaluator.control_config.get_control_list.return_value = conditions
@@ -434,8 +451,6 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
-        # Assert: Should select the condition with numeric priority (50) over None priority
-        assert len(result) == 1
-        result_action = result[0]
-        assert "NORMAL" in result_action.reason
-        assert "priority=50" in result_action.reason
+        # Assert: Should execute both (cumulative mode)
+        # None priority will be treated as 0 (highest) in sorting
+        assert len(result) == 2

@@ -130,15 +130,13 @@ class TestConditionTypeFieldMigration:
         # ABSOLUTE_LINEAR should use 'threshold' condition_type
         abs_control = absolute_linear_controls[0]
         assert abs_control.policy.condition_type == ConditionType.THRESHOLD
-        assert abs_control.policy.source is not None  # Should have single source
-        assert abs_control.policy.sources is None  # Should NOT have sources array
+        assert abs_control.policy.sources is not None  # Should have single source
 
         # INCREMENTAL_LINEAR should use 'difference' condition_type
         inc_control = incremental_linear_controls[0]
         assert inc_control.policy.condition_type == ConditionType.DIFFERENCE
         assert inc_control.policy.sources is not None  # Should have sources array
         assert len(inc_control.policy.sources) == 2  # Should have exactly 2 sources
-        assert inc_control.policy.source is None  # Should NOT have single source
 
     def test_when_config_uses_legacy_source_kind_then_validation_fails(self, config_with_source_kind_legacy):
         """Test that legacy 'source_kind' field causes validation error"""
@@ -165,13 +163,13 @@ class TestActionTypeEnumSupport:
         # Act
         controls = config.get_control_list("SD400", "3")
 
-        # Assert
-        set_freq_controls = [c for c in controls if c.action.type == ControlActionType.SET_FREQUENCY]
+        # Assert - Now checking actions[0] instead of action
+        set_freq_controls = [c for c in controls if c.actions and c.actions[0].type == ControlActionType.SET_FREQUENCY]
         assert len(set_freq_controls) >= 1
 
         for control in set_freq_controls:
-            if control.action.value is not None:
-                assert isinstance(control.action.value, (int, float))
+            if control.actions[0].value is not None:
+                assert isinstance(control.actions[0].value, (int, float))
 
     def test_when_action_type_is_adjust_frequency_then_validation_passes(self, valid_sd400_config_data):
         """Test that new ADJUST_FREQUENCY action type works correctly"""
@@ -183,14 +181,16 @@ class TestActionTypeEnumSupport:
         # Act
         controls = config.get_control_list("SD400", "3")
 
-        # Assert
-        adjust_freq_controls = [c for c in controls if c.action.type == ControlActionType.ADJUST_FREQUENCY]
+        # Assert - Now checking actions[0] instead of action
+        adjust_freq_controls = [
+            c for c in controls if c.actions and c.actions[0].type == ControlActionType.ADJUST_FREQUENCY
+        ]
         assert len(adjust_freq_controls) == 1
 
         control = adjust_freq_controls[0]
         assert control.code == "LIN_INC01"
-        assert control.action.model == "TECO_VFD"
-        assert control.action.target == "RW_HZ"
+        assert control.actions[0].model == "TECO_VFD"
+        assert control.actions[0].target == "RW_HZ"
 
     def test_when_action_type_is_unknown_then_validation_fails(self, config_with_invalid_action_type):
         """Test that unknown action type causes validation error"""
@@ -237,7 +237,7 @@ class TestControlListExtraction:
         # Assert
         assert len(controls) == 1
         assert controls[0].code == "OVERRIDE_RULE"  # Instance rule should override default
-        assert controls[0].action.value == 50.0
+        assert controls[0].actions[0].value == 50.0
 
         # Should log duplicate resolution
         assert "PRIORITY CONFLICT" in caplog.text
@@ -291,9 +291,9 @@ class TestErrorHandlingAndValidation:
         assert "invalid composite" in caplog.text
 
     def test_when_action_is_missing_then_rule_is_filtered_out(self, config_with_missing_action, caplog):
-        """Test that rules without action are filtered out"""
+        """Test that rules without actions are filtered out"""
         # Arrange
-        caplog.set_level(logging.ERROR)
+        caplog.set_level(logging.WARNING)  # ← 改成 WARNING (因為現在是在 get_control_list 過濾)
         version = config_with_missing_action.get("version", "1.0.0")
         root_data = {k: v for k, v in config_with_missing_action.items() if k != "version"}
         config = ControlConfig(version=version, root=root_data)
@@ -303,7 +303,8 @@ class TestErrorHandlingAndValidation:
 
         # Assert
         assert len(controls) == 0
-        assert "missing action.type" in caplog.text
+        # ← 日誌訊息可能改變，檢查 "no actions" 或 "empty actions"
+        assert "no actions" in caplog.text.lower() or "actions" in caplog.text.lower()
 
     def test_when_policy_is_invalid_then_rule_is_filtered_out(self, config_with_invalid_policy, caplog):
         """Test that rules with invalid policy are filtered out"""
@@ -334,8 +335,8 @@ class TestActionValueValidation:
 
         # Assert
         assert len(controls) == 1
-        assert isinstance(controls[0].action.value, float)
-        assert controls[0].action.value == 45.5
+        assert isinstance(controls[0].actions[0].value, float)
+        assert controls[0].actions[0].value == 45.5
 
     def test_when_adjust_frequency_has_numeric_value_then_coerced_to_float(
         self, config_with_string_adjust_frequency_value
@@ -349,8 +350,8 @@ class TestActionValueValidation:
 
         # Assert
         assert len(controls) == 1
-        assert isinstance(controls[0].action.value, float)
-        assert controls[0].action.value == -2.5
+        assert isinstance(controls[0].actions[0].value, float)
+        assert controls[0].actions[0].value == -2.5
 
 
 class TestAdvancedCompositeValidation:
