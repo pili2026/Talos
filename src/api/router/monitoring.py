@@ -1,7 +1,5 @@
 """
-Real-Time Monitoring Router
-
-Provides WebSocket endpoints for real-time device monitoring.
+Real-time monitoring router providing WebSocket endpoints.
 Supports both single-device and multi-device monitoring.
 """
 
@@ -15,59 +13,9 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from api.repository.config_repository import ConfigRepository
-from api.repository.modbus_repository import ModbusRepository
 from api.service.parameter_service import ParameterService
 from api.util.connect_manager import ConnectionManager
 
-router = APIRouter()
-logger = logging.getLogger(__name__)
-
-
-# ===== ConnectionManager =====
-
-
-manager = ConnectionManager()
-
-
-# ===== Helper Functions =====
-
-
-def get_asyncapi_path() -> Path:
-    """Get the absolute path to the asyncapi file."""
-    current_file = Path(__file__)
-    project_root = current_file.parent.parent.parent.parent
-
-    # Try both .yml and .yaml
-    for ext in [".yml", ".yaml"]:
-        path = project_root / "doc" / f"asyncapi{ext}"
-        if path.exists():
-            logger.info(f" Found asyncapi file at: {path}")
-            return path
-
-    logger.error(" asyncapi file not found")
-    return None
-
-
-"""
-Real-Time Monitoring Router
-
-Provides WebSocket endpoints for real-time device monitoring.
-Supports both single-device and multi-device monitoring.
-"""
-
-import asyncio
-import logging
-from datetime import datetime
-from pathlib import Path
-
-import yaml
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, Response
-
-from api.repository.config_repository import ConfigRepository
-from api.repository.modbus_repository import ModbusRepository
-from api.service.parameter_service import ParameterService
-from api.util.connect_manager import ConnectionManager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -382,9 +330,14 @@ async def monitor_single_device(
     """
     await manager.connect(websocket)
 
-    modbus_repo = ModbusRepository()
     config_repo = ConfigRepository()
-    service = ParameterService(modbus_repo, config_repo)
+    async_device_manager = getattr(websocket.app.state, "async_device_manager", None)
+    if async_device_manager is None:
+        await websocket.send_json({"type": "error", "message": "AsyncDeviceManager is not available"})
+        await websocket.close(code=1011)
+        return
+
+    service = ParameterService(async_device_manager, config_repo)
 
     # Parse the list of parameters to monitor
     if parameters:
@@ -582,9 +535,14 @@ async def monitor_multiple_devices(
         await websocket.close()
         return
 
-    modbus_repo = ModbusRepository()
     config_repo = ConfigRepository()
-    service = ParameterService(modbus_repo, config_repo)
+    async_device_manager = getattr(websocket.app.state, "async_device_manager", None)
+    if async_device_manager is None:
+        await websocket.send_json({"type": "error", "message": "AsyncDeviceManager is not available"})
+        await websocket.close(code=1011)
+        return
+
+    service = ParameterService(async_device_manager, config_repo)
 
     param_list = [p.strip() for p in parameters.split(",")] if parameters else None
 

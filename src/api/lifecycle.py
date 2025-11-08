@@ -1,62 +1,62 @@
-"""
-Application Lifecycle Management
-
-Handles FastAPI startup and shutdown events.
-Initializes and cleans up shared resources.
-"""
+"""Startup and shutdown hooks for the FastAPI application."""
 
 import logging
+import os
+from pathlib import Path
+from fastapi import FastAPI
 
 from api.repository.config_repository import ConfigRepository
-from api.repository.modbus_repository import ModbusRepository
+from device_manager import AsyncDeviceManager
+from schema.constraint_schema import ConstraintConfigSchema
+from util.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
 
-async def startup_event():
-    """
-    Application startup event
-
-    Initialization steps:
-    - Load configuration files
-    - Create Modbus connection pool
-    - Verify device availability
-    """
+async def startup_event(app: FastAPI) -> None:
     logger.info("Starting Talos API Service...")
 
     try:
-        # Initialize configuration (Note: using synchronous method)
+        # 1. Load configs
         config_repo = ConfigRepository()
         config_repo.initialize_sync()
         logger.info("Configuration loaded successfully")
 
-        # Initialize Modbus connections
-        modbus_repo = ModbusRepository()
-        await modbus_repo.initialize()
-        logger.info("Modbus connections initialized")
+        # 2. Resolve config paths (支援環境變數覆蓋)
+        base_path = Path(__file__).parent.parent.parent / "res"
+        instance_config_path = Path(os.getenv("TALOS_INSTANCE_CONFIG", base_path / "device_instance_config.yml"))
+        modbus_device_path = Path(os.getenv("TALOS_MODBUS_CONFIG", base_path / "modbus_device.yml"))
 
-        logger.info("Talos API Service started successfully")
-    except Exception as e:
-        logger.error(f"Failed to start API service: {e}")
+        logger.info(f"Loading instance config from: {instance_config_path}")
+        logger.info(f"Loading modbus config from: {modbus_device_path}")
+
+        # 3. Initialize AsyncDeviceManager
+        constraint_config = ConfigManager.load_yaml_file(str(instance_config_path))
+        constraint_schema = ConstraintConfigSchema(**constraint_config)
+
+        async_device_manager = AsyncDeviceManager(str(modbus_device_path), constraint_schema)
+        await async_device_manager.init()
+
+        app.state.async_device_manager = async_device_manager
+        logger.info("AsyncDeviceManager initialized successfully")
+
+    except Exception as exc:
+        logger.error(f"Failed to start API service: {exc}", exc_info=True)
         raise
 
 
-async def shutdown_event():
-    """
-    Application shutdown event
+async def shutdown_event(app: FastAPI) -> None:
+    """Clean up shared services before the API application stops."""
 
-    Cleanup steps:
-    - Close Modbus connections
-    - Release resources
-    """
     logger.info("Shutting down Talos API Service...")
 
-    try:
-        # Close Modbus connections
-        modbus_repo = ModbusRepository()
-        await modbus_repo.cleanup()
-        logger.info("Modbus connections closed")
+    device_manager: AsyncDeviceManager | None = getattr(app.state, "async_device_manager", None)
+    if not device_manager:
+        logger.info("No AsyncDeviceManager instance found during shutdown")
+        return
 
-        logger.info("Talos API Service stopped successfully")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
+    try:
+        await device_manager.shutdown()
+        logger.info("AsyncDeviceManager shutdown completed")
+    except Exception as exc:
+        logger.error(f"Error during AsyncDeviceManager shutdown: {exc}")

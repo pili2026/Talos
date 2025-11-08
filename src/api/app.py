@@ -18,7 +18,7 @@ if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from api.lifecycle import shutdown_event, startup_event
 from api.middleware.error_handler import add_error_handlers
@@ -38,11 +38,11 @@ setup_logging(log_level="INFO")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management"""
-    # Startup
-    await startup_event()
-    yield
-    # Shutdown
-    await shutdown_event()
+    await startup_event(app)
+    try:
+        yield
+    finally:
+        await shutdown_event(app)
 
 
 def create_application() -> FastAPI:
@@ -91,24 +91,22 @@ def create_application() -> FastAPI:
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-        # Catch-all route: 所有非 API 路徑都返回 index.html
-        # 這支援 Vue Router 的 history mode
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
             """
-            Serve frontend for all non-API routes
-            Supports Vue Router history mode
+            Serve frontend for all non-API routes.
+            Supports Vue Router history mode.
             """
-            # If it's an API path, do not handle (let FastAPI return 404)
+            # If it's an API path, raise 404 to let FastAPI handle it
             if full_path.startswith("api/"):
-                return {"error": "Not found"}
+                raise HTTPException(status_code=404, detail="API endpoint not found")
 
-            # Return index.html
+            # Return index.html for all other paths (Vue Router)
             index_file = static_dir / "index.html"
             if index_file.exists():
                 return FileResponse(index_file)
             else:
-                return {"error": "Frontend not found"}
+                raise HTTPException(status_code=404, detail="Frontend not found")
 
     else:
         logger.warning(f"Warning: Static directory not found at {static_dir}")

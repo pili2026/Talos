@@ -1,3 +1,4 @@
+import inspect
 import logging
 import os
 from typing import Any
@@ -156,3 +157,54 @@ class AsyncDeviceManager:
     def _is_frequency_within_constraints(self, device: AsyncGenericModbusDevice, frequency: float) -> bool:
         """Check whether the frequency is within the device’s constraint range"""
         return device.constraints.allow("RW_HZ", frequency)
+
+    async def shutdown(self) -> None:
+        """Close all underlying Modbus clients and clear cached devices."""
+
+        for client in self.client_dict.values():
+            try:
+                result = client.close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.warning(f"Failed to close Modbus client: {exc}")
+
+        self.client_dict.clear()
+        self.device_list.clear()
+
+    async def test_device_connection(self, device_id: str) -> bool:
+        """
+        Test if a device is online by attempting to read a register.
+
+        Args:
+            device_id: Device identifier in format "MODEL_SLAVEID"
+
+        Returns:
+            bool: True if device is online, False otherwise
+        """
+        try:
+            model, slave_id_str = device_id.rsplit("_", 1)
+            slave_id = int(slave_id_str)
+        except ValueError:
+            logger.error(f"Invalid device_id format: {device_id}")
+            return False
+
+        device = self.get_device_by_model_and_slave_id(model, slave_id)
+        if not device:
+            logger.warning(f"Device {device_id} not found in device manager")
+            return False
+
+        try:
+            if not device.register_map:
+                return False
+
+            first_param = next(iter(device.register_map.keys()))
+            value = await device.read_value(first_param)
+
+            from model.device_constant import DEFAULT_MISSING_VALUE
+
+            return value != DEFAULT_MISSING_VALUE
+
+        except Exception as exc:
+            logger.error(f"Connection test failed for {device_id}: {exc}")
+            return False

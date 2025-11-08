@@ -6,7 +6,7 @@ Provides efficient concurrent processing.
 
 Design principles:
 - Automatically adapts to different device models
-- Gracefully handles parameters that don’t exist
+- Gracefully handles parameters that don't exist
 - Distinguishes between skipped (expected) and failed (error)
 - Provides detailed operational feedback
 """
@@ -17,7 +17,7 @@ from typing import Any, Set
 
 from fastapi import APIRouter, Depends
 
-from api.dependency import get_parameter_service
+from api.dependency import get_async_device_manager, get_parameter_service
 from api.model.requests import (
     BatchReadAllRequest,
     BatchReadDevicesRequest,
@@ -27,8 +27,9 @@ from api.model.requests import (
 )
 from api.model.responses import ResponseStatus
 from api.repository.config_repository import ConfigRepository
-from api.repository.modbus_repository import ModbusRepository
 from api.service.parameter_service import ParameterService
+
+from device_manager import AsyncDeviceManager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -43,7 +44,9 @@ logger = logging.getLogger(__name__)
     description="Read specified parameters from multiple devices; automatically filters out parameters not present on each device.",
 )
 async def batch_read_devices(
-    request: BatchReadDevicesRequest, service: ParameterService = Depends(get_parameter_service)
+    request: BatchReadDevicesRequest,
+    service: ParameterService = Depends(get_parameter_service),
+    device_manager: AsyncDeviceManager = Depends(get_async_device_manager),
 ) -> dict[str, Any]:
     """
     Batch read parameters from multiple devices.
@@ -56,7 +59,6 @@ async def batch_read_devices(
     - Intelligently detects offline devices
     """
     config_repo = ConfigRepository()
-    modbus_repo = ModbusRepository()
 
     # Track devices known to be offline
     offline_devices: Set[str] = set()
@@ -68,7 +70,7 @@ async def batch_read_devices(
             parameters=request.parameters,
             service=service,
             config_repo=config_repo,
-            modbus_repo=modbus_repo,
+            device_manager=device_manager,
             offline_devices=offline_devices,
         )
         for device_id in request.device_ids
@@ -239,7 +241,9 @@ async def batch_write_multiple(
     summary="Batch validate device connectivity",
     description="Quickly check the connection status of multiple devices.",
 )
-async def batch_validate_devices(request: BatchValidateRequest) -> dict[str, Any]:
+async def batch_validate_devices(
+    request: BatchValidateRequest, device_manager: AsyncDeviceManager = Depends(get_async_device_manager)
+) -> dict[str, Any]:
     """
     Batch validate device connectivity.
 
@@ -248,10 +252,9 @@ async def batch_validate_devices(request: BatchValidateRequest) -> dict[str, Any
     - Applicable to all device models
     - Quickly diagnoses connectivity issues
     """
-    modbus_repo = ModbusRepository()
 
     # Concurrently check all devices
-    tasks = [_check_device_connection(device_id, modbus_repo) for device_id in request.device_ids]
+    tasks = [_check_device_connection(device_id, device_manager) for device_id in request.device_ids]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Aggregate results
@@ -340,8 +343,8 @@ async def _read_single_device(
     parameters: list[str],
     service: ParameterService,
     config_repo: ConfigRepository,
-    modbus_repo: ModbusRepository,
     offline_devices: Set[str],
+    device_manager: AsyncDeviceManager,
 ) -> tuple[str, dict[str, Any]]:
     """
     Read specified parameters from a single device.
@@ -401,7 +404,7 @@ async def _read_single_device(
                 logger.warning(f"[BATCH READ] First parameter read failed for {device_id}, checking connectivity...")
 
                 # Quick connectivity test
-                is_online = await modbus_repo.test_connection(device_id)
+                is_online = await device_manager.test_device_connection(device_id)
 
                 if not is_online:
                     logger.error(f"[BATCH READ] Device {device_id} is offline, skipping remaining parameters")
@@ -543,7 +546,7 @@ async def _execute_single_write(
         }
 
 
-async def _check_device_connection(device_id: str, modbus_repo: ModbusRepository) -> tuple[str, bool]:
+async def _check_device_connection(device_id: str, device_manager: AsyncDeviceManager) -> tuple[str, bool]:
     """
     Check the connection status of a single device.
 
@@ -554,7 +557,7 @@ async def _check_device_connection(device_id: str, modbus_repo: ModbusRepository
     Returns:
         tuple: (device_id, is_connected)
     """
-    is_connected = await modbus_repo.test_connection(device_id, use_cache=False)
+    is_connected = await device_manager.test_device_connection(device_id)
     return device_id, is_connected
 
 

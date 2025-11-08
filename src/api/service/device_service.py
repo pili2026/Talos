@@ -12,7 +12,7 @@ from typing import Any
 from api.model.enums import DeviceConnectionStatus
 from api.model.responses import DeviceInfo
 from api.repository.config_repository import ConfigRepository
-from api.repository.modbus_repository import ModbusRepository
+from device_manager import AsyncDeviceManager
 
 
 class DeviceService:
@@ -25,15 +25,8 @@ class DeviceService:
     - Validate device existence
     """
 
-    def __init__(self, modbus_repo: ModbusRepository, config_repo: ConfigRepository):
-        """
-        Initialize the device service.
-
-        Args:
-            modbus_repo: Data access layer for Modbus operations.
-            config_repo: Data access layer for configuration management.
-        """
-        self._modbus_repo = modbus_repo
+    def __init__(self, device_manager: AsyncDeviceManager, config_repo: ConfigRepository):
+        self._device_manager = device_manager
         self._config_repo = config_repo
 
     async def get_all_devices(self) -> list[DeviceInfo]:
@@ -80,7 +73,7 @@ class DeviceService:
             DeviceConnectionStatus: Connection status.
         """
         try:
-            is_connected = await self._modbus_repo.test_connection(device_id)
+            is_connected = await self._device_manager.test_device_connection(device_id)
             return DeviceConnectionStatus.ONLINE if is_connected else DeviceConnectionStatus.OFFLINE
         except Exception:
             return DeviceConnectionStatus.ERROR
