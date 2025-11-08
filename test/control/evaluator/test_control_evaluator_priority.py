@@ -410,12 +410,26 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         none_priority_condition.policy = Mock()
         none_priority_condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
 
-        mock_action1 = Mock(spec=ControlActionSchema)
+        mock_action1 = Mock(
+            spec_set=[
+                "model",
+                "slave_id",
+                "type",
+                "value",
+                "emergency_override",
+                "model_copy",
+                "target",
+                "priority",
+                "reason",
+            ]
+        )
+
         mock_action1.model = "TECO_VFD"
         mock_action1.slave_id = "2"
         mock_action1.type = ControlActionType.SET_FREQUENCY
         mock_action1.value = 30.0
         mock_action1.emergency_override = False
+        mock_action1.target = "RW_HZ"
         mock_action1.model_copy.return_value = mock_action1
 
         none_priority_condition.actions = [mock_action1]
@@ -430,12 +444,26 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         normal_condition.policy = Mock()
         normal_condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
 
-        mock_action2 = Mock(spec=ControlActionSchema)
+        mock_action2 = Mock(
+            spec_set=[
+                "model",
+                "slave_id",
+                "type",
+                "value",
+                "emergency_override",
+                "model_copy",
+                "target",
+                "priority",
+                "reason",
+            ]
+        )
+
         mock_action2.model = "TECO_VFD"
         mock_action2.slave_id = "2"
         mock_action2.type = ControlActionType.SET_FREQUENCY
         mock_action2.value = 40.0
         mock_action2.emergency_override = False
+        mock_action2.target = "RW_HZ"
         mock_action2.model_copy.return_value = mock_action2
 
         normal_condition.actions = [mock_action2]

@@ -30,10 +30,10 @@ class ControlEvaluator:
         Evaluate control conditions and return all matching actions in priority order.
 
         Execution Mode: Cumulative with Priority Protection
-        - Collects all triggered rules
-        - Executes actions from all rules in priority order (lower number = higher priority)
-        - Higher priority actions protect their writes from being overwritten by lower priority actions
-        - Supports blocking: if a rule has blocking=True, stops processing remaining rules
+        - Collects all triggered rules.
+        - Executes actions from all rules in priority order (lower number = higher priority).
+        - Higher priority actions protect their writes from being overwritten by lower priority ones.
+        - Supports blocking: if a rule has blocking=True, stops processing remaining rules.
         """
         condition_list: list[ConditionSchema] = self.control_config.get_control_list(model, slave_id)
 
@@ -52,14 +52,13 @@ class ControlEvaluator:
         if not triggered_rule_list:
             return []
 
-        # Log matched rules
-        matched_code_list: list[str] = [r.code for r in triggered_rule_list]
-        logger.info(f"[EVAL] Matched {len(triggered_rule_list)} rules for {model}_{slave_id}: {matched_code_list}")
-
         # Step 2: Sort by priority (lower number = higher priority)
         triggered_rule_list.sort(
             key=lambda r: (r.priority is None, r.priority if r.priority is not None else float("inf"))
         )
+
+        # Pretty-print matched rules summary
+        self._pretty_log_matched_rules(model, slave_id, triggered_rule_list, snapshot)
 
         # Step 3: Process each rule and collect actions
         result_action_list: list[ControlActionSchema] = []
@@ -75,10 +74,8 @@ class ControlEvaluator:
             except Exception:
                 composite_summary = "composite"
 
-            # Process each action in this rule
             rule_actions_processed = 0
             for action in rule.actions:
-                # Skip invalid actions
                 if not action.model or not action.slave_id or action.type is None:
                     logger.warning(
                         f"[EVAL] Skip action in rule '{rule.code}' (p={rule.priority}) "
@@ -101,7 +98,6 @@ class ControlEvaluator:
                     )
                     continue
 
-                # Attach priority to action (for Executor to use)
                 processed_action.priority = rule.priority
 
                 # Build reason string
@@ -109,26 +105,24 @@ class ControlEvaluator:
                 base_reason = f"[{rule.code}] {rule.name} | {composite_summary} | priority={rule.priority}"
 
                 if action.emergency_override and processed_action.reason:
-                    # Emergency info at front (most important)
                     processed_action.reason = f"{processed_action.reason} | {base_reason} | {action_desc}"
                 else:
-                    # Normal situation
                     processed_action.reason = f"{base_reason} | {action_desc}"
 
                 result_action_list.append(processed_action)
                 rule_actions_processed += 1
 
-            # Log rule execution
+            # Rule-level execution log
             if rule_actions_processed > 0:
                 logger.info(
-                    f"[EVAL] Execute '{rule.code}' (priority={rule.priority}): " f"{rule_actions_processed} action(s)"
+                    f"[EVAL] Execute '{rule.code}' (priority={rule.priority}): {rule_actions_processed} action(s)"
                 )
             else:
                 logger.warning(
                     f"[EVAL] Rule '{rule.code}' (priority={rule.priority}) triggered but produced no valid actions"
                 )
 
-            # Check blocking
+            # Blocking rule handling
             if rule.blocking:
                 remaining_count: int = len(triggered_rule_list) - (triggered_rule_list.index(rule) + 1)
                 if remaining_count > 0:
@@ -315,3 +309,80 @@ class ControlEvaluator:
         except Exception as e:
             logger.warning(f"[EMERGENCY] Failed to get RW_HZ max for {model}_{slave_id}: {e}")
             return None
+
+    def _pretty_line(self, is_last: bool, text: str) -> str:
+        """Return ASCII tree-style indentation line (no symbols or emojis)."""
+        prefix = " └─" if is_last else " ├─"
+        return f"{prefix} {text}"
+
+    def _pretty_log_matched_rules(
+        self,
+        model: str,
+        slave_id: str,
+        matched_rules: list[ConditionSchema],
+        snapshot: dict[str, float],
+    ) -> None:
+        """
+        Print a human-readable summary for all matched rules.
+        - No emojis or special characters.
+        - Lists Rule / Priority / Status / Source summary / Action summary.
+        """
+        try:
+            number_of_total_rule: int = len(self.control_config.get_control_list(model, slave_id))
+        except Exception:
+            number_of_total_rule = None
+
+        total_rules_str = f"{number_of_total_rule}" if number_of_total_rule is not None else "?"
+        logger.info(f"[EVAL][{model}_{slave_id}] Matched {len(matched_rules)} / {total_rules_str} rules")
+
+        for idx, rule in enumerate(matched_rules):
+            is_last = idx == len(matched_rules) - 1
+            rule_head = f"Rule: {rule.code:<28} | priority={rule.priority if rule.priority is not None else '-':<3} | status=TRIGGERED"
+            logger.info(self._pretty_line(is_last, rule_head))
+
+            # Build condition summary
+            try:
+                comp_summary = (
+                    self.composite_evaluator.build_composite_reason_summary(rule.composite)
+                    if rule.composite
+                    else "composite"
+                )
+            except Exception:
+                comp_summary = "composite"
+
+            # Attempt to include measurement values if available
+            policy: PolicyConfig | None = rule.policy
+            if policy and policy.condition_type:
+                if policy.condition_type == ConditionType.THRESHOLD and policy.sources and len(policy.sources) == 1:
+                    src = policy.sources[0]
+                    mv = snapshot.get(src)
+                    cond_line = f"Source: {src} = {mv if mv is not None else 'NA'} | {comp_summary}"
+                elif policy.condition_type == ConditionType.DIFFERENCE and policy.sources and len(policy.sources) == 2:
+                    s1, s2 = policy.sources
+                    v1, v2 = snapshot.get(s1), snapshot.get(s2)
+                    if (v1 is not None) and (v2 is not None):
+                        dt = v1 - v2
+                        cond_line = f"Sources: {s1}={v1}, {s2}={v2} -> Δ={dt} | {comp_summary}"
+                    else:
+                        cond_line = f"Sources: {s1}={v1}, {s2}={v2} | {comp_summary}"
+                else:
+                    cond_line = f"Condition: {comp_summary}"
+            else:
+                cond_line = f"Condition: {comp_summary}"
+
+            logger.info(" │   " + cond_line)
+
+            # List all actions for the rule
+            if not rule.actions:
+                logger.info(" │   Action: (none)")
+            else:
+                for action in rule.actions:
+                    a_model = action.model or "-"
+                    a_sid = action.slave_id or "-"
+                    a_type = action.type.value if action.type else "-"
+                    a_target = action.target or "-"
+                    a_value = action.value if action.value is not None else "-"
+                    logger.info(f" │   Action: {a_model}_{a_sid}:{a_type} target={a_target} value={a_value}")
+
+            if not is_last:
+                logger.info(" │")

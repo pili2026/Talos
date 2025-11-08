@@ -1,328 +1,272 @@
-# Control Priority Reference:
-#  0–9   : Emergency Control (critical)
-#  10–49 : High Priority (safety / key systems)
-#  50–99 : Normal Control (routine optimization)
-#  100+  : Low Priority (background)
+version: "0.1.5.0"
 
-version: 1.0.0
+# YUXIN Field
+# Sensor device: SD400 slave_id 8 (IOGroup_2)
+# AIn01: Pin 1 - 壓差
+# AIn02: Pin 2 - 冰水出水溫度 (Chilled Water Supply)
+# AIn03: Pin 3 - 冰水回水溫度 (Chilled Water Return)
+# AIn04: Pin 4 - 冷卻水入水溫度 (Cooling Water Inlet)
+# AIn05: Pin 5 - 冷卻水出水溫度 (Cooling Water Outlet)
+# AIn07: Pin 7 - 濕球溫度 (Wet Bulb Temperature)
+
 SD400:
-  default_controls: 
-    # VFD1 Emergency Control - Monitor AIn01 sensor
-    - name: Emergency High Water Temperature Override VFD1
-      code: EMERGENCY_HIGH_WATER_TEMP_VFD1
-      priority: 0
-      composite:
-        any:
-          - type: threshold
-            source: AIn01
-            operator: gt
-            threshold: 32.0
-            hysteresis: 2.0  # Only when the temperature drops to 30°C will it be released
-            debounce_sec: 2.0
-      policy:
-        type: discrete_setpoint
-      action:
-        model: TECO_VFD
-        slave_id: '1'
-        type: set_frequency
-        target: RW_HZ
-        value: 60
-        emergency_override: true
-        
-    # VFD2 Emergency Control - Monitor AIn02 sensor
-    - name: Emergency High Water Temperature Override VFD2
-      code: EMERGENCY_HIGH_WATER_TEMP_VFD2
-      priority: 1
-      composite:
-        any:
-          - type: threshold
-            source: AIn02
-            operator: gt
-            threshold: 34.0
-            hysteresis: 2.0  # Only when the temperature drops to 32°C will it be released
-            debounce_sec: 2.0
-      policy:
-        type: discrete_setpoint
-      action:
-        model: TECO_VFD
-        slave_id: '2'
-        type: set_frequency
-        target: RW_HZ
-        value: 60
-        emergency_override: true
-
+  default_controls: []
   instances:
-    "2":
-      use_default_controls: true
+    "8":
+      use_default_controls: false
       controls:
         # ========================================
-        # Section 1: Large Temperature Difference - Emergency Adjustment (Highest Priority)
+        # Priority 0: Emergency - Below 24°C shutdown both fans
         # ========================================
-        - name: "Large Temperature Difference - Emergency Adjustment"
-          code: "TEMP_DIFF_LARGE"
-          priority: 0  # Highest priority (smaller number = higher priority)
+        - name: "Emergency Low Temperature Fan Shutdown"
+          code: "FAN_EMERGENCY_OFF"
+          priority: 0
+          blocking: true
           composite:
             any:
-              - type: difference
-                sources:
-                  - AIn01  # Supply water temperature
-                  - AIn02  # Return water temperature
-                operator: gt
-                threshold: 8.0  # Trigger when ΔT > 8°C
-                abs: false
-                hysteresis: 1.5  # Enter at 8.0°C, exit at 6.5°C (prevent frequent switching)
-                debounce_sec: 3.0  # Must persist for 3 seconds (fast response but avoids noise)
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources:
-              - AIn01
-              - AIn02
-            gain_hz_per_unit: 5.0  # Large step size: ±5Hz per adjustment
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
-
-        # ========================================
-        # Section 2: Moderate Temperature Difference - Standard Adjustment
-        # ========================================
-        - name: "Moderate Temperature Difference - Standard Adjustment"
-          code: "TEMP_DIFF_MODERATE"
-          priority: 30  # Medium priority
-          composite:
-            any:
-              - type: difference
-                sources:
-                  - AIn01
-                  - AIn02
-                operator: gt
-                threshold: 4.0  # Trigger when ΔT > 4°C
-                abs: false
-                hysteresis: 0.8  # Enter at 4.0°C, exit at 3.2°C
-                debounce_sec: 10.0  # Must persist for 10 seconds (stable control)
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources:
-              - AIn01
-              - AIn02
-            gain_hz_per_unit: 2.0  # Medium step size: ±2Hz per adjustment
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
-
-        # ========================================
-        # Section 3: Small Temperature Difference - Fine Tuning
-        # ========================================
-        - name: "Small Temperature Difference - Fine Tuning"
-          code: "TEMP_DIFF_SMALL"
-          priority: 50  # Lower priority
-          composite:
-            any:
-              - type: difference
-                sources:
-                  - AIn01
-                  - AIn02
-                operator: gt
-                threshold: 1.5  # Trigger when ΔT > 1.5°C
-                abs: false
-                hysteresis: 0.3  # Enter at 1.5°C, exit at 1.2°C
-                debounce_sec: 20.0  # Must persist for 20 seconds (avoid over-adjustment)
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources:
-              - AIn01
-              - AIn02
-            gain_hz_per_unit: 0.5  # Small step size: ±0.5Hz per adjustment
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
-
-        # ========================================
-        # Optional: Negative Temperature Difference Handling (Frequency Reduction)
-        # ========================================
-        - name: "Negative Temperature Difference - Reduce Frequency"
-          code: "TEMP_DIFF_NEGATIVE"
-          priority: 60
-          composite:
-            any:
-              - type: difference
-                sources:
-                  - AIn01
-                  - AIn02
+              - type: threshold
+                sources: [AIn04]
                 operator: lt
-                threshold: -2.0  # Trigger when ΔT < -2°C (return water is warmer than supply)
-                abs: false
-                hysteresis: 0.5
-                debounce_sec: 30.0  # Longer confirmation time (frequency reduction should be cautious)
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources:
-              - AIn01
-              - AIn02
-            gain_hz_per_unit: 1.0  # Negative ΔT will produce negative adjustment automatically
-          action:
-            model: TECO_VFD
-            slave_id: "2"
-            type: adjust_frequency
-            target: RW_HZ
-
-    '3':
-      use_default_controls: true  # Enable default_controls
-      controls:
-        - name: High Temperature Set Frequency
-          code: HIGH_TEMP_FREQ
-          priority: 13
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 40
-                hysteresis: 1
-                debounce_sec: 15
-              - type: threshold
-                source: AIn03
-                operator: between
-                min: 3
-                max: 5
-                hysteresis: 0.2
+                threshold: 24.0
+                hysteresis: 1.0
+                debounce_sec: 10.0
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '2'
-            type: set_frequency
-            target: RW_HZ
-            value: 45
-            
-        - name: High Temperature Turn On DOut01
-          code: HIGH_TEMP_DO01_ON
-          priority: 12
+          actions:
+            - model: TECO_VFD
+              slave_id: "5"
+              type: turn_off
+              target: RW_ON_OFF
+            - model: TECO_VFD
+              slave_id: "6"
+              type: turn_off
+              target: RW_ON_OFF
+
+        # ========================================
+        # Priority 1: Chilled Water Pump Temperature Difference Control (4°C)
+        # ========================================
+        - name: "Chilled Water Pump Increase Frequency"
+          code: "CHWP_TEMP_DIFF_INC"
+          priority: 10
           composite:
             any:
-              - type: threshold
-                source: AIn01
+              - type: difference
+                sources: [AIn03, AIn02]
                 operator: gt
-                threshold: 40
-          action:
-            model: IMA_C
-            slave_id: '5'
-            type: write_do
-            target: DOut01
-            value: 1
-            
-        - name: Low Temperature Turn Off DOut02
-          code: LOW_TEMP_DO02_OFF
-          priority: 11
+                threshold: 4.0
+                abs: false
+                hysteresis: 0.3
+                debounce_sec: 5.0
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources: [AIn03, AIn02]
+            gain_hz_per_unit: 2.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "4"
+              type: adjust_frequency
+              target: RW_HZ
+
+        - name: "Chilled Water Pump Decrease Frequency"
+          code: "CHWP_TEMP_DIFF_DEC"
+          priority: 10
           composite:
             any:
-              - type: threshold
-                source: AIn01
+              - type: difference
+                sources: [AIn03, AIn02]
                 operator: lt
-                threshold: 25
-          action:
-            model: IMA_C
-            slave_id: '5'
-            type: write_do
-            target: DOut02
-            value: 0
-            
-        - name: Low Temperature Turn Off Inverter
-          code: LOW_TEMP_VFD_OFF
+                threshold: 4.0
+                abs: false
+                hysteresis: 0.3
+                debounce_sec: 5.0
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources: [AIn03, AIn02]
+            gain_hz_per_unit: -2.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "4"
+              type: adjust_frequency
+              target: RW_HZ
+
+        # ========================================
+        # Priority 1: Cooling Water Pump Temperature Difference Control (2°C)
+        # ========================================
+        - name: "Cooling Water Pump Increase Frequency"
+          code: "CWP_TEMP_DIFF_INC"
+          priority: 10
+          composite:
+            any:
+              - type: difference
+                sources: [AIn05, AIn04]
+                operator: gt
+                threshold: 2.0
+                abs: false
+                hysteresis: 0.3
+                debounce_sec: 5.0
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources: [AIn05, AIn04]
+            gain_hz_per_unit: 2.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "3"
+              type: adjust_frequency
+              target: RW_HZ
+
+        - name: "Cooling Water Pump Decrease Frequency"
+          code: "CWP_TEMP_DIFF_DEC"
+          priority: 10
+          composite:
+            any:
+              - type: difference
+                sources: [AIn05, AIn04]
+                operator: lt
+                threshold: 2.0
+                abs: false
+                hysteresis: 0.3
+                debounce_sec: 5.0
+          policy:
+            type: incremental_linear
+            condition_type: difference
+            sources: [AIn05, AIn04]
+            gain_hz_per_unit: -2.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "3"
+              type: adjust_frequency
+              target: RW_HZ
+
+        # ========================================
+        # Priority 1: Fan 1 - Turn on at 27°C (只開啟，不設頻率)
+        # ========================================
+        - name: "Fan 1 Turn On at 27C"
+          code: "FAN1_ON_27C"
           priority: 10
           composite:
             any:
               - type: threshold
-                source: AIn01
-                operator: lt
-                threshold: 25
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: turn_off
-            target: RW_ON_OFF
-            
-        - name: HIGH Temperature Turn On Inverter
-          code: HIGH_TEMP_VFD_ON
-          priority: 14
-          composite:
-            any:
-              - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 40
-                hysteresis: 1
-                debounce_sec: 0.5
+                sources: [AIn04]
+                operator: gte
+                threshold: 27.0
+                hysteresis: 0.5
+                debounce_sec: 5.0
           policy:
             type: discrete_setpoint
-          action:
-            model: TECO_VFD
-            slave_id: '1'
-            type: turn_on
-            target: RW_ON_OFF
-            
-        - name: Environment Temperature Linear Control
-          code: LIN_ABS01
-          priority: 12
+          actions:
+            - model: TECO_VFD
+              slave_id: "5"
+              type: turn_on
+              target: RW_ON_OFF
+
+        # ========================================
+        # Priority 2: Fan 2 - Turn on at 28°C (只開啟，不設頻率)
+        # ========================================
+        - name: "Fan 2 Turn On at 28C"
+          code: "FAN2_ON_28C"
+          priority: 20
           composite:
             any:
               - type: threshold
-                source: AIn01
-                operator: gt
-                threshold: 25
-                abs: false
+                sources: [AIn04]
+                operator: gte
+                threshold: 28.0
+                hysteresis: 0.5
+                debounce_sec: 5.0
           policy:
-            # base_freq + (temp_value - base_temp) * gain_hz_per_unit
-            type: absolute_linear
-            condition_type: threshold
-            source: AIn01
-            base_freq: 40
-            base_temp: 30
-            gain_hz_per_unit: 3.3
-          action:
-            model: TECO_VFD
-            slave_id: '2'
-            type: set_frequency
-            target: RW_HZ
-            
-        - name: Supply-Return Temperature Difference Control
-          code: LIN_INC01
-          priority: 11
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "6"
+              type: turn_on
+              target: RW_ON_OFF
+
+        # ========================================
+        # Priority 2: Fan 2 - Turn off between 27-28°C
+        # ========================================
+        - name: "Fan 2 Turn Off Between 27-28C"
+          code: "FAN2_OFF_27_28C"
+          priority: 20
           composite:
             any:
-              - type: difference
-                sources:
-                  - AIn01
-                  - AIn02
-                operator: gt
-                threshold: 4
-                abs: false
-              - type: difference
-                sources:
-                  - AIn01
-                  - AIn02
+              - type: threshold
+                sources: [AIn04]
+                operator: between
+                min: 27.0
+                max: 28.0
+                hysteresis: 0.5
+                debounce_sec: 3.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "6"
+              type: turn_off
+              target: RW_ON_OFF
+
+        # ========================================
+        # Priority 3: Both fans set to 35Hz when temp < 30°C
+        # ========================================
+        - name: "Fans Set 35Hz Below 30C"
+          code: "FANS_35HZ_BELOW_30C"
+          priority: 30
+          composite:
+            any:
+              - type: threshold
+                sources: [AIn04]
                 operator: lt
-                threshold: -4
+                threshold: 30.0
+                hysteresis: 0.5
+                debounce_sec: 5.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "5"
+              type: set_frequency
+              target: RW_HZ
+              value: 35
+            - model: TECO_VFD
+              slave_id: "6"
+              type: set_frequency
+              target: RW_HZ
+              value: 35
+
+        # ========================================
+        # Priority 3: Both fans adjust frequency when temp >= 30°C AND approach >= 3°C
+        # ========================================
+        - name: "Fans Adjust Frequency Above 30C with Approach Check"
+          code: "FANS_ADJUST_FREQUENCY_ABOVE_30C"
+          priority: 30
+          composite:
+            all:
+              - type: threshold
+                sources: [AIn04]
+                operator: gte
+                threshold: 30.0
+                hysteresis: 0.5
+                debounce_sec: 5.0
+              - type: difference
+                sources: [AIn04, AIn07]
+                operator: gte
+                threshold: 3.0
                 abs: false
+                hysteresis: 0.3
+                debounce_sec: 5.0
           policy:
             type: incremental_linear
-            condition_type: difference
-            sources:
-              - AIn01
-              - AIn02
-            gain_hz_per_unit: 1.5
-            # TODO: diff is huge, step is more
-          action:
-            model: TECO_VFD
-            slave_id: '2'
-            type: adjust_frequency
-            target: RW_HZ
+            condition_type: threshold
+            sources: [AIn04]
+            gain_hz_per_unit: 2.0
+          actions:
+            - model: TECO_VFD
+              slave_id: "5"
+              type: adjust_frequency
+              target: RW_HZ
+            - model: TECO_VFD
+              slave_id: "6"
+              type: adjust_frequency
+              target: RW_HZ
