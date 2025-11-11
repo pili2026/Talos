@@ -1,9 +1,10 @@
-from sender.legacy.snapshot_converters import (  # convert_flow_meter,
+from sender.legacy.snapshot_converters import (
     convert_ai_module_snapshot,
     convert_di_module_snapshot,
     convert_flow_meter,
     convert_inverter_snapshot,
     convert_power_meter_snapshot,
+    convert_sensor_snapshot,
 )
 
 CONVERTER_MAP = {
@@ -12,4 +13,5 @@ CONVERTER_MAP = {
     "inverter": convert_inverter_snapshot,
     "flow_meter": convert_flow_meter,
     "power_meter": convert_power_meter_snapshot,
+    "sensor": convert_sensor_snapshot,
 }

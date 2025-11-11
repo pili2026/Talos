@@ -104,6 +104,15 @@ def convert_snapshot_to_legacy_payload(
                 model=model,
             )
 
+        # Special handling for sensor: needs model for routing to specific converter
+        if device_type == "sensor":
+            return converter_fn(
+                gateway_id=gateway_id,
+                slave_id=slave_id,
+                snapshot=values,
+                model=model,
+            )
+
         # Default: standard 3-argument call
         return converter_fn(gateway_id, slave_id, values)
 
