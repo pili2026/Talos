@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from sender.legacy.converter_registry import CONVERTER_MAP
 from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
@@ -344,3 +345,23 @@ class TestParameterPassingPatterns:
 
         # Inverter uses standard 3-arg pattern
         assert len(result) == 1
+
+    def test_sensor_model_dissolved_oxygen_converter(self, mock_device_manager):
+        """Sensor type uses DO750 converter for dissolved oxygen sensors."""
+        snapshot = {
+            "type": "sensor",
+            "model": "DO750",
+            "slave_id": "12",
+            "values": {
+                "O2_PCT": "12.345",
+                "TEMP_C": "23.987",
+            },
+        }
+
+        result = convert_snapshot_to_legacy_payload(
+            gateway_id="GW123456789AB", snapshot=snapshot, device_manager=mock_device_manager
+        )
+
+        assert len(result) == 1
+        payload = result[0]["Data"]
+        assert payload == {"oxygen_pct": 12.35, "temperature_c": 23.99}

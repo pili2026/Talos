@@ -1,6 +1,6 @@
 model: SUTO_FLOW
 register_type: holding
-type: io_module
+type: sensor
 log_mode: decoded
 
 description: >
@@ -10,7 +10,7 @@ description: >
   - Flow direction (-1: reverse, 1: forward)
 
 register_map:
-  FLOW_VALUE:          { offset: 6,    type: flow,       unit: "m³/h",   readable: true, format: float32, formula: [0, 1.0, 0] }
-  FLOW_CONSUMPTION:    { offset: 8,    type: counter,    readable: true, format: uint32,  description: "Forward total flow (m³)" }
-  FLOW_REVCONSUMPTION: { offset: 14,   type: counter,    readable: true, format: uint32,  description: "Reverse total flow (m³)" }
-  FLOW_DIRECTION:      { offset: 42,   type: direction,  readable: true, format: int16,   description: "-1 = reverse, 1 = forward" }
+  FLOW_VALUE:          { offset: 6, type: flow, unit: "m³/h", readable: true, format: f32_be, formula: [0, 1.0, 0] }
+  FLOW_CONSUMPTION:    { offset: 8, type: counter, readable: true, format: u32_le, description: "Forward total flow (m³)" }
+  FLOW_REVCONSUMPTION: { offset: 14, type: counter, readable: true, format: u32_le, description: "Reverse total flow (m³)" }
+  FLOW_DIRECTION:      { offset: 42, type: direction, readable: true, format: i16, description: "-1 = reverse, 1 = forward" }

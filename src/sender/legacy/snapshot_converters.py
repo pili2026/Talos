@@ -1,3 +1,5 @@
+# FIXME Need to Refactor
+
 import logging
 import re
 
@@ -323,3 +325,58 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     device_id: str = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
 
     return [{"DeviceID": device_id, "Data": mapped}]
+
+
+def convert_dissolved_oxygen_snapshot(gateway_id: str, slave_id: str | int, values: dict[str, str]) -> list[dict]:
+    """
+    Convert dissolved oxygen sensor snapshot to legacy format.
+
+    The sensor provides:
+    - O2_PCT: Dissolved oxygen concentration (% vol)
+    - TEMP_C: Process temperature (°C)
+
+    Args:
+        gateway_id: Gateway identifier
+        slave_id: Device slave ID
+        values: Device snapshot containing O2_PCT and TEMP_C
+
+    Returns:
+        List containing single legacy format record with SO equipment type
+    """
+
+    policy: DeviceIdPolicy = get_policy()
+    device_id: str = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SO)
+    # TODO: Wait to confirmation
+    data = {
+        "oxygen_pct": round(to_float(values.get("O2_PCT")), 2),
+        "temperature_c": round(to_float(values.get("TEMP_C")), 2),
+    }
+
+    return [{"DeviceID": device_id, "Data": data}]
+
+
+def convert_sensor_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str], model: str) -> list[dict]:
+    """
+    Dispatcher function for sensor-type devices.
+
+    Routes to specific converter based on device model:
+    - SUTO_FLOW: Flow meter sensor
+    - DO750: Dissolved oxygen sensor
+
+    Args:
+
+        gateway_id: Gateway identifier
+        slave_id: Device slave ID
+        snapshot: Device snapshot values
+        model: Device model name for routing
+
+    Returns:
+        List of legacy format records from the appropriate converter
+    """
+
+    if model == "SUTO_FLOW":
+        return convert_flow_meter(gateway_id, slave_id, snapshot)
+    if model == "DO750":
+        return convert_dissolved_oxygen_snapshot(gateway_id, slave_id, snapshot)
+    logger.warning(f"[LegacyFormat] Unsupported sensor model: {model}")
+    return []

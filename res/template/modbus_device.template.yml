@@ -61,3 +61,9 @@ devices:
     model_file: driver/dae_pm210.yml
     <<: *shared_config
     slave_id: 11
+
+  - model: DO750
+    type: sensor
+    model_file: driver/do750.yml
+    <<: *shared_config
+    slave_id: 12 

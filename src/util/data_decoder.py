@@ -1,21 +1,11 @@
-from enum import StrEnum
 from typing import Union
 
 from pymodbus.client.mixin import ModbusClientMixin
 
-
-class DataFormat(StrEnum):
-    """Supported Modbus data formats with explicit endianness."""
-
-    U16 = "u16"
-    I16 = "i16"
-    U32_LE = "u32_le"
-    U32_BE = "u32_be"
-    F32_LE = "f32_le"
-    F32_BE = "f32_be"
+from model.enum.decode_format import DecodeFormat
 
 
-def decode_modbus_registers(raw: list[int], fmt: Union[DataFormat, str]) -> float | int:
+def decode_modbus_registers(raw: list[int], fmt: Union[DecodeFormat, str]) -> float | int:
     """
     Decode a list of 16-bit Modbus registers into a numeric value according to the given format.
 
@@ -24,42 +14,64 @@ def decode_modbus_registers(raw: list[int], fmt: Union[DataFormat, str]) -> floa
         - i16             → 16-bit signed integer
         - u32_le / u32_be → 32-bit unsigned integer (explicit word order)
         - f32_le / f32_be → 32-bit float (explicit word order)
+        - f32_be_swap     → 32-bit float with word-swap (BADC byte order)
 
     Notes:
         * Word order = sequence of 16-bit registers (not internal byte order)
         * 'little' means the low word comes first (e.g., DAE_PM210 uses u32_le)
+        * 'f32_be_swap' swaps words before big-endian decode (DO750 O2 format)
     """
-    f = fmt.value if isinstance(fmt, DataFormat) else str(fmt).lower()
+    # Normalize to enum
+    if isinstance(fmt, str):
+        fmt_enum = DecodeFormat.from_string(fmt)
+        if fmt_enum is None:
+            return raw[0] if raw else 0
+        fmt: DecodeFormat = fmt_enum
 
-    # ---------- 32-bit Unsigned Integer ----------
-    if f in ("u32", "u32_le", "uint32"):
-        return ModbusClientMixin.convert_from_registers(
-            raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT32
-        )
-    if f == "u32_be":
-        return ModbusClientMixin.convert_from_registers(
-            raw, word_order="big", data_type=ModbusClientMixin.DATATYPE.UINT32
-        )
+    # Decode using match-case
+    match fmt:
+        # ===== 32-bit Unsigned Integer =====
+        case DecodeFormat.U32 | DecodeFormat.U32_LE:
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT32
+            )
 
-    # ---------- 32-bit Float ----------
-    if f in ("f32", "f32_be", "float32"):
-        return ModbusClientMixin.convert_from_registers(
-            raw, word_order="big", data_type=ModbusClientMixin.DATATYPE.FLOAT32
-        )
-    if f == "f32_le":
-        return ModbusClientMixin.convert_from_registers(
-            raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.FLOAT32
-        )
+        case DecodeFormat.U32_BE:
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="big", data_type=ModbusClientMixin.DATATYPE.UINT32
+            )
 
-    # ---------- 16-bit Integers ----------
-    if f == "i16":
-        return ModbusClientMixin.convert_from_registers(
-            raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.INT16
-        )
-    if f == "u16":
-        return ModbusClientMixin.convert_from_registers(
-            raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT16
-        )
+        # ===== 32-bit Float =====
+        case DecodeFormat.F32 | DecodeFormat.F32_BE:
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="big", data_type=ModbusClientMixin.DATATYPE.FLOAT32
+            )
 
-    # ---------- Fallback ----------
-    return raw[0]
+        case DecodeFormat.F32_LE:
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.FLOAT32
+            )
+
+        case DecodeFormat.F32_BE_SWAP:
+            # DO750 O2 format: word-swap then big-endian
+            if len(raw) < 2:
+                return 0.0
+            swapped = [raw[1], raw[0]]
+            return ModbusClientMixin.convert_from_registers(
+                swapped, word_order="big", data_type=ModbusClientMixin.DATATYPE.FLOAT32
+            )
+
+        # ===== 16-bit Integers =====
+        case DecodeFormat.I16:
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.INT16
+            )
+
+        case DecodeFormat.U16:
+            return ModbusClientMixin.convert_from_registers(
+                raw, word_order="little", data_type=ModbusClientMixin.DATATYPE.UINT16
+            )
+
+        # ===== Fallback =====
+        case _:
+            return raw[0] if raw else 0

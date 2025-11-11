@@ -1,11 +1,8 @@
+# FIXME Need to Refactor
 import logging
 
 from device_manager import AsyncDeviceManager
-from model.device_constant import (
-    DEFAULT_MISSING_VALUE,
-    INVERTER_OFFLINE_PROBE_KEYS,
-    INVERTER_STATUS_OFFLINE_CODE,
-)
+from model.device_constant import DEFAULT_MISSING_VALUE, INVERTER_OFFLINE_PROBE_KEYS, INVERTER_STATUS_OFFLINE_CODE
 from sender.legacy.converter_registry import CONVERTER_MAP
 
 logger = logging.getLogger("LegacyFormatAdapter")
@@ -97,6 +94,14 @@ def convert_snapshot_to_legacy_payload(
 
         # Special handling for DI module: needs model for DOut mapping
         if device_type == "di_module":
+            return converter_fn(
+                gateway_id=gateway_id,
+                slave_id=slave_id,
+                snapshot=values,
+                model=model,
+            )
+
+        if device_type == "sensor":
             return converter_fn(
                 gateway_id=gateway_id,
                 slave_id=slave_id,

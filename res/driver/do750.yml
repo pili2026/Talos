@@ -1,0 +1,29 @@
+model: DO750
+register_type: holding
+type: sensor
+
+description: >
+  DO750 Dissolved Oxygen Sensor with Hamilton VisiWater electrode.
+  - O2 concentration: word-swap float32 format (BADC)
+  - Temperature: standard big-endian float32 (ABCD)
+
+register_map:
+  O2_PCT:
+    offset: 0
+    format: f32_be_swap
+    type: DissolvedOxygen
+    unit: "%vol"
+    readable: true
+    writable: false
+    precision: 2
+    description: "Dissolved oxygen concentration"
+    
+  TEMP_C:
+    offset: 4
+    format: f32_be
+    type: Thermometer
+    unit: "°C"
+    readable: true
+    writable: false
+    precision: 2
+    description: "Process temperature"

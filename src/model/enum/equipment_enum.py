@@ -15,3 +15,4 @@ class EquipmentType(StrEnum):
     SP = "SP"  # Pressure Gauge
     ST = "ST"  # Thermometer
     SF = "SF"  # Flowmeter
+    SO = "SO"  # Dissolved Oxygen Sensor

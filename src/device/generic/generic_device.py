@@ -5,9 +5,9 @@ from device.generic.constraints_policy import ConstraintPolicy
 from device.generic.hooks import HookManager
 from device.generic.modbus_bus import ModbusBus
 from device.generic.scales import ScaleService
-from util.value_decoder import ValueDecoder
 from model.device_constant import DEFAULT_MISSING_VALUE, HI_SHIFT, MD_SHIFT, REG_RW_ON_OFF
-from util.data_decoder import DataFormat
+from util.data_decoder import DecodeFormat
+from util.value_decoder import ValueDecoder
 
 
 class AsyncGenericModbusDevice:
@@ -162,6 +162,11 @@ class AsyncGenericModbusDevice:
             factor = await self._resolve_dynamic_scale(scale_from)
             value = self.decoder.apply_scale(value, factor)
 
+        # 6) value precision
+        precision: int = config.get("precision")
+        if precision:
+            value = round(value, config["precision"])
+
         return value
 
     async def write_value(self, name: str, value: int | float):
@@ -283,7 +288,7 @@ class AsyncGenericModbusDevice:
             return (hi << HI_SHIFT) | (md << MD_SHIFT) | lo
 
         # --- normal path: determine word count by format ---
-        fmt = reg_config.get("format", DataFormat.U16)
+        fmt = reg_config.get("format", DecodeFormat.U16)
         word_count: int = AsyncGenericModbusDevice._required_word_count(fmt)
 
         try:
@@ -394,13 +399,30 @@ class AsyncGenericModbusDevice:
         return new_bus
 
     @staticmethod
-    def _required_word_count(fmt: str | DataFormat) -> int:
+    def _required_word_count(fmt: str | DecodeFormat) -> int:
         """
         Return number of 16-bit Modbus registers required for the given data format.
         - 1 word: u16 / i16
-        - 2 words: u32 (le/be), f32 (le/be)
+        - 2 words: u32 (le/be), f32 (le/be/swap variants)
         """
-        f = fmt.value if isinstance(fmt, DataFormat) else str(fmt).lower()
-        if f in {"u32", "u32_le", "u32_be", "f32", "float32", "f32_le", "f32_be"}:
-            return 2
-        return 1
+        # Normalize to enum
+        if isinstance(fmt, str):
+            try:
+                fmt = DecodeFormat(fmt.lower())
+            except ValueError:
+                return 1  # Unknown format, assume 1 word
+
+        # Match-case for word count
+        match fmt:
+            case (
+                DecodeFormat.U32
+                | DecodeFormat.U32_LE
+                | DecodeFormat.U32_BE
+                | DecodeFormat.F32
+                | DecodeFormat.F32_LE
+                | DecodeFormat.F32_BE
+                | DecodeFormat.F32_BE_SWAP
+            ):
+                return 2
+            case _:
+                return 1
