@@ -1,20 +1,169 @@
 model: SD500
 register_type: holding
+type: di_module
+
+description: >
+  SD500 Digital Input Module (16-channel)
+  - All 16 DI channels share register 0.
+  - Each bit (0-15) represents one input channel state (0=OFF, 1=ON).
+
 register_map:
-  # All 16 DI channels are read from register 0, using bits 0-15 for extraction.
-  DIn01: { offset: 0, bit: 0, readable: true }
-  DIn02: { offset: 0, bit: 1, readable: true }
-  DIn03: { offset: 0, bit: 2, readable: true }
-  DIn04: { offset: 0, bit: 3, readable: true }
-  DIn05: { offset: 0, bit: 4, readable: true }
-  DIn06: { offset: 0, bit: 5, readable: true }
-  DIn07: { offset: 0, bit: 6, readable: true }
-  DIn08: { offset: 0, bit: 7, readable: true }
-  DIn09: { offset: 0, bit: 8, readable: true }
-  DIn10: { offset: 0, bit: 9, readable: true }
-  DIn11: { offset: 0, bit: 10, readable: true }
-  DIn12: { offset: 0, bit: 11, readable: true }
-  DIn13: { offset: 0, bit: 12, readable: true }
-  DIn14: { offset: 0, bit: 13, readable: true }
-  DIn15: { offset: 0, bit: 14, readable: true }
-  DIn16: { offset: 0, bit: 15, readable: true }
+  DIn01:
+    offset: 0
+    bit: 0
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 01"
+
+  DIn02:
+    offset: 0
+    bit: 1
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 02"
+
+  DIn03:
+    offset: 0
+    bit: 2
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 03"
+
+  DIn04:
+    offset: 0
+    bit: 3
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 04"
+
+  DIn05:
+    offset: 0
+    bit: 4
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 05"
+
+  DIn06:
+    offset: 0
+    bit: 5
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 06"
+
+  DIn07:
+    offset: 0
+    bit: 6
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 07"
+
+  DIn08:
+    offset: 0
+    bit: 7
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 08"
+
+  DIn09:
+    offset: 0
+    bit: 8
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 09"
+
+  DIn10:
+    offset: 0
+    bit: 9
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 10"
+
+  DIn11:
+    offset: 0
+    bit: 10
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 11"
+
+  DIn12:
+    offset: 0
+    bit: 11
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 12"
+
+  DIn13:
+    offset: 0
+    bit: 12
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 13"
+
+  DIn14:
+    offset: 0
+    bit: 13
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 14"
+
+  DIn15:
+    offset: 0
+    bit: 14
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 15"
+
+  DIn16:
+    offset: 0
+    bit: 15
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 16"

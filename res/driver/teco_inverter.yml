@@ -1,16 +1,119 @@
 model: TECO_VFD
 register_type: holding
+type: inverter
+
+description: >
+  TECO Variable Frequency Drive (VFD)
+  - Provides electrical measurements, operating frequency, and control registers.
+  - Control commands (RW_*) allow read/write access for setpoints and on/off control.
 
 register_map:
-  KWH:        { offset: 3139, scale: 0.1,  readable: true }
-  VOLTAGE:    { offset: 3091, scale: 0.1,  readable: true }
-  CURRENT:    { offset: 3090, scale: 0.1,  readable: true }
-  KW:         { offset: 3093, scale: 0.1,  readable: true }
-  HZ:         { offset: 9508, scale: 0.01, readable: true }
-  ERROR:      { offset: 9505, scale: 1,     readable: true }
-  ALERT:      { offset: 9512, scale: 1,     readable: true }
-  INVSTATUS:  { offset: 9504, scale: 1,     readable: true }
+  KWH:
+    offset: 3139
+    scale: 0.1
+    type: energy
+    unit: "kWh"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Cumulative energy consumption"
 
-  RW_HZ:      { offset: 9474, scale: 0.01,  readable: true, writable: true }
-  RW_ON_OFF:  { offset: 9473, scale: 1,     readable: true, writable: true }
-  RW_RESET:   { offset: 9473, scale: 1,                     writable: true }
+  VOLTAGE:
+    offset: 3091
+    scale: 0.1
+    type: voltage
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Output voltage"
+
+  CURRENT:
+    offset: 3090
+    scale: 0.1
+    type: current
+    unit: "A"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Output current"
+
+  KW:
+    offset: 3093
+    scale: 0.1
+    type: power
+    unit: "kW"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Active power"
+
+  HZ:
+    offset: 9508
+    scale: 0.01
+    type: frequency
+    unit: "Hz"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Output frequency"
+
+  ERROR:
+    offset: 9505
+    scale: 1
+    type: error_code
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Error code register"
+
+  ALERT:
+    offset: 9512
+    scale: 1
+    type: alert_flag
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Alert status bits"
+
+  INVSTATUS:
+    offset: 9504
+    scale: 1
+    type: status
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Inverter status word"
+
+  RW_HZ:
+    offset: 9474
+    scale: 0.01
+    type: set_frequency
+    unit: "Hz"
+    precision: 2
+    readable: true
+    writable: true
+    description: "Target frequency setpoint"
+
+  RW_ON_OFF:
+    offset: 9473
+    scale: 1
+    type: on_off
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: true
+    description: "Run/Stop control bit (1=Run, 0=Stop)"
+
+  RW_RESET:
+    offset: 9473
+    scale: 1
+    type: reset
+    unit: "-"
+    precision: 0
+    readable: false
+    writable: true
+    description: "Fault reset command"

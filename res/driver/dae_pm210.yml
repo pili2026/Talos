@@ -1,31 +1,201 @@
 model: DAE_PM210
 register_type: holding
+type: power_meter
+
+description: >
+  DAE PM210 Power Meter
+  - 3-phase energy meter providing voltage, current, power, and energy data.
+  - Includes PT/CT ratio configuration registers for scaling.
+  - All values are raw readings (before applying PT/CT).
+
 register_map:
   # ========== Energy ==========
-  Kwh:   { offset: 48, readable: true, format: u32_le, scale: 0.01 }
-  Kvarh: { offset: 50, readable: true, format: u32_le, scale: 0.01 }
-  
+  Kwh:
+    offset: 48
+    format: u32_le
+    scale: 0.01
+    type: energy_active
+    unit: "kWh"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Active energy consumption"
+
+  Kvarh:
+    offset: 50
+    format: u32_le
+    scale: 0.01
+    type: energy_reactive
+    unit: "kvarh"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Reactive energy consumption"
+
   # ========== Voltages (raw, not apply PT) ==========
-  Phase_A_Voltage: { offset: 20, readable: true, format: u16, scale: 0.1 }
-  Phase_B_Voltage: { offset: 22, readable: true, format: u16, scale: 0.1 }
-  Phase_C_Voltage: { offset: 24, readable: true, format: u16, scale: 0.1 }
-  Line_AB_Voltage: { offset: 26, readable: true, format: u16, scale: 0.1 }
-  Line_BC_Voltage: { offset: 28, readable: true, format: u16, scale: 0.1 }
-  Line_CA_Voltage: { offset: 30, readable: true, format: u16, scale: 0.1 }
-  
+  Phase_A_Voltage:
+    offset: 20
+    format: u16
+    scale: 0.1
+    type: voltage
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Phase A voltage (raw, unscaled)"
+
+  Phase_B_Voltage:
+    offset: 22
+    format: u16
+    scale: 0.1
+    type: voltage
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Phase B voltage (raw, unscaled)"
+
+  Phase_C_Voltage:
+    offset: 24
+    format: u16
+    scale: 0.1
+    type: voltage
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Phase C voltage (raw, unscaled)"
+
+  Line_AB_Voltage:
+    offset: 26
+    format: u16
+    scale: 0.1
+    type: voltage_line
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Line voltage between Phase A and B"
+
+  Line_BC_Voltage:
+    offset: 28
+    format: u16
+    scale: 0.1
+    type: voltage_line
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Line voltage between Phase B and C"
+
+  Line_CA_Voltage:
+    offset: 30
+    format: u16
+    scale: 0.1
+    type: voltage_line
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Line voltage between Phase C and A"
+
   # ========== Currents (raw, not apply CT) ==========
-  Phase_A_Current: { offset: 32, readable: true, format: u16, scale: 0.001 }
-  Phase_B_Current: { offset: 34, readable: true, format: u16, scale: 0.001 }
-  Phase_C_Current: { offset: 36, readable: true, format: u16, scale: 0.001 }
-  
+  Phase_A_Current:
+    offset: 32
+    format: u16
+    scale: 0.001
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Phase A current (raw, unscaled)"
+
+  Phase_B_Current:
+    offset: 34
+    format: u16
+    scale: 0.001
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Phase B current (raw, unscaled)"
+
+  Phase_C_Current:
+    offset: 36
+    format: u16
+    scale: 0.001
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Phase C current (raw, unscaled)"
+
   # ========== Power Factor ==========
-  AveragePowerFactor: { offset: 46, readable: true, format: u16, scale: 0.001 }
-  
+  AveragePowerFactor:
+    offset: 46
+    format: u16
+    scale: 0.001
+    type: power_factor
+    unit: "-"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Average power factor"
+
   # ========== Power (raw, not apply PT×CT) ==========
-  Kw:   { offset: 102, readable: true, format: u32_le, scale: 0.001 }
-  Kva:  { offset: 110, readable: true, format: u32_le, scale: 0.001 }
-  Kvar: { offset: 118, readable: true, format: u32_le, scale: 0.001 }
-  
+  Kw:
+    offset: 102
+    format: u32_le
+    scale: 0.001
+    type: power_active
+    unit: "kW"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Active power (raw, unscaled)"
+
+  Kva:
+    offset: 110
+    format: u32_le
+    scale: 0.001
+    type: power_apparent
+    unit: "kVA"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Apparent power (raw, unscaled)"
+
+  Kvar:
+    offset: 118
+    format: u32_le
+    scale: 0.001
+    type: power_reactive
+    unit: "kvar"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Reactive power (raw, unscaled)"
+
   # ========== PT/CT Ratio ==========
-  PT_Ratio_Raw_x100: { offset: 133, readable: true, writable: true, format: u16 }
-  CT_Ratio:          { offset: 134, readable: true, writable: true, format: u16 }
+  PT_Ratio_Raw_x100:
+    offset: 133
+    format: u16
+    type: pt_ratio
+    unit: "x100"
+    precision: 0
+    readable: true
+    writable: true
+    description: "PT ratio (raw value ×100)"
+
+  CT_Ratio:
+    offset: 134
+    format: u16
+    type: ct_ratio
+    unit: "x1"
+    precision: 0
+    readable: true
+    writable: true
+    description: "CT ratio"

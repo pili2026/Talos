@@ -1,5 +1,11 @@
 model: IMA_C
 register_type: holding
+type: io_module
+
+description: >
+  IMA-C I/O Controller Module
+  - Provides 4 digital inputs and 2 digital outputs.
+  - Supports bit-level on/off control via on_off_binding targets.
 
 capabilities:
   supports_on_off: false
@@ -10,12 +16,72 @@ capabilities:
     write_mode: "bit"
 
 register_map:
-  DIn01:       { offset: 2, bit: 0, readable: true }
-  DIn02:       { offset: 2, bit: 1, readable: true }
-  DIn03:       { offset: 2, bit: 2, readable: true }
-  DIn04:       { offset: 2, bit: 3, readable: true }
+  DIn01:
+    offset: 2
+    bit: 0
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 01"
 
-  DOut01:      { offset: 3, bit: 0, readable: true, writable: true }
-  DOut02:      { offset: 3, bit: 1, readable: true, writable: true }
+  DIn02:
+    offset: 2
+    bit: 1
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 02"
 
-  ByPass:      { offset: 4, readable: true }
+  DIn03:
+    offset: 2
+    bit: 2
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 03"
+
+  DIn04:
+    offset: 2
+    bit: 3
+    type: digital_input
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Digital Input 04"
+
+  DOut01:
+    offset: 3
+    bit: 0
+    type: digital_output
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: true
+    description: "Digital Output 01 (controllable)"
+
+  DOut02:
+    offset: 3
+    bit: 1
+    type: digital_output
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: true
+    description: "Digital Output 02 (controllable)"
+
+  ByPass:
+    offset: 4
+    scale: 1
+    type: status
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Bypass status indicator"

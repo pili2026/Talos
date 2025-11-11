@@ -1,71 +1,256 @@
 model: ADTEK_CPM10
 register_type: holding
+type: power_meter
+
+description: >
+  ADTEK CPM-10 Three-Phase Power Meter
+  - Provides energy, voltage, current, and power measurements with dynamic scaling.
+  - Energy registers are 48-bit (three 16-bit words, big-endian HI|MD|LO).
+  - Supports configurable PT/CT ratios and auto-scaling through index tables.
+  - Includes write hooks for dynamic scale refresh and mode-based KWh scaling.
 
 register_map:
-  # --- Energy (3-word big-endian raw words) ---
-  Kwh_W1_HI:     { offset: 0,  readable: true, format: u16 }
-  Kwh_W2_MD:     { offset: 1,  readable: true, format: u16 }
-  Kwh_W3_LO:     { offset: 2,  readable: true, format: u16 }
+  # ========== Energy (48-bit composed raw words) ==========
+  Kwh_W1_HI:
+    offset: 0
+    format: u16
+    readable: true
+    writable: false
+    description: "Active energy (high word)"
 
-  Kvarh_W1_HI:   { offset: 3,  readable: true, format: u16 }
-  Kvarh_W2_MD:   { offset: 4,  readable: true, format: u16 }
-  Kvarh_W3_LO:   { offset: 5,  readable: true, format: u16 }
+  Kwh_W2_MD:
+    offset: 1
+    format: u16
+    readable: true
+    writable: false
+    description: "Active energy (middle word)"
 
-  # --- Averages (raw × index scale) ---
-  AverageVoltage:      { offset: 6,  readable: true, format: u16, scale_from: voltage_index }
-  AverageCurrent:      { offset: 7,  readable: true, format: u16, scale_from: current_index }
+  Kwh_W3_LO:
+    offset: 2
+    format: u16
+    readable: true
+    writable: false
+    description: "Active energy (low word)"
 
-  # --- Instant Power Family (signed; × energy_index scale) ---
-  Kw:                  { offset: 9,  readable: true, format: i16, scale_from: energy_index }
-  Kvar:                { offset: 10, readable: true, format: i16, scale_from: energy_index }
-  Kva:                 { offset: 11, readable: true, format: i16, scale_from: energy_index }
+  Kvarh_W1_HI:
+    offset: 3
+    format: u16
+    readable: true
+    writable: false
+    description: "Reactive energy (high word)"
 
-  # --- Power Factor (signed × 0.001) ---
-  AveragePowerFactor:  { offset: 12, readable: true, format: i16, scale: 0.001 }
+  Kvarh_W2_MD:
+    offset: 4
+    format: u16
+    readable: true
+    writable: false
+    description: "Reactive energy (middle word)"
 
-  # --- Phase Currents (raw × current_index) ---
-  Phase_A_Current:     { offset: 16, readable: true, format: u16, scale_from: current_index }
-  Phase_B_Current:     { offset: 17, readable: true, format: u16, scale_from: current_index }
-  Phase_C_Current:     { offset: 18, readable: true, format: u16, scale_from: current_index }
+  Kvarh_W3_LO:
+    offset: 5
+    format: u16
+    readable: true
+    writable: false
+    description: "Reactive energy (low word)"
 
-  # --- Scale Index Registers ---
-  SCALE_CurrentIndex:  { offset: 31, readable: true, format: u16 }  # a_table idx
-  SCALE_VoltageIndex:  { offset: 32, readable: true, format: u16 }  # v_table idx
-  SCALE_EnergyIndex:   { offset: 33, readable: true, format: u16 }  # k_table idx
+  # ========== Averages (scaled by index) ==========
+  AverageVoltage:
+    offset: 6
+    format: u16
+    scale_from: voltage_index
+    type: voltage
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Average phase voltage (scaled by voltage index)"
 
-  # --- Config Registers (writing them will later trigger scale refresh) ---
-  CFG_WiringMethod:    { offset: 34, readable: true, writable: true, format: u16 }
-  CFG_PT_1st_Unit:     { offset: 35, readable: true, writable: true, format: u16 }
-  CFG_PT_1st:          { offset: 36, readable: true, writable: true, format: u16 }
-  CFG_PT_2nd:          { offset: 37, readable: true, writable: true, format: u16 }
-  CFG_CT_1st:          { offset: 38, readable: true, writable: true, format: u16 }
+  AverageCurrent:
+    offset: 7
+    format: u16
+    scale_from: current_index
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Average current (scaled by current index)"
 
-  # --- Pre-combined energy outputs (more user-friendly for upper layers) ---
+  # ========== Instant Power ==========
+  Kw:
+    offset: 9
+    format: i16
+    scale_from: energy_index
+    type: power_active
+    unit: "kW"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Active power (scaled by energy index)"
+
+  Kvar:
+    offset: 10
+    format: i16
+    scale_from: energy_index
+    type: power_reactive
+    unit: "kvar"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Reactive power (scaled by energy index)"
+
+  Kva:
+    offset: 11
+    format: i16
+    scale_from: energy_index
+    type: power_apparent
+    unit: "kVA"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Apparent power (scaled by energy index)"
+
+  # ========== Power Factor ==========
+  AveragePowerFactor:
+    offset: 12
+    format: i16
+    scale: 0.001
+    type: power_factor
+    unit: "-"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Average power factor (signed ×0.001)"
+
+  # ========== Phase Currents ==========
+  Phase_A_Current:
+    offset: 16
+    format: u16
+    scale_from: current_index
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Phase A current (scaled by current index)"
+
+  Phase_B_Current:
+    offset: 17
+    format: u16
+    scale_from: current_index
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Phase B current (scaled by current index)"
+
+  Phase_C_Current:
+    offset: 18
+    format: u16
+    scale_from: current_index
+    type: current
+    unit: "A"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Phase C current (scaled by current index)"
+
+  # ========== Scale Index Registers ==========
+  SCALE_CurrentIndex:
+    offset: 31
+    format: u16
+    readable: true
+    writable: false
+    description: "Current scale table index (a_table)"
+
+  SCALE_VoltageIndex:
+    offset: 32
+    format: u16
+    readable: true
+    writable: false
+    description: "Voltage scale table index (v_table)"
+
+  SCALE_EnergyIndex:
+    offset: 33
+    format: u16
+    readable: true
+    writable: false
+    description: "Energy scale table index (k_table)"
+
+  # ========== Config Registers ==========
+  CFG_WiringMethod:
+    offset: 34
+    format: u16
+    readable: true
+    writable: true
+    description: "Wiring method configuration"
+
+  CFG_PT_1st_Unit:
+    offset: 35
+    format: u16
+    readable: true
+    writable: true
+    description: "Primary PT unit selection"
+
+  CFG_PT_1st:
+    offset: 36
+    format: u16
+    readable: true
+    writable: true
+    description: "Primary PT ratio"
+
+  CFG_PT_2nd:
+    offset: 37
+    format: u16
+    readable: true
+    writable: true
+    description: "Secondary PT ratio"
+
+  CFG_CT_1st:
+    offset: 38
+    format: u16
+    readable: true
+    writable: true
+    description: "CT ratio"
+
+  # ========== Pre-combined energy outputs ==========
   Kwh_SUM:
     readable: true
-    composed_of: ["Kwh_W1_HI", "Kwh_W2_MD", "Kwh_W3_LO"]  # three u16 raw words
-    compose_format: u48_be                                 # HI|MD|LO → 48-bit
-    scale_from: kwh_scale                                  # KWh-specific: auto or fixed(0.01)
+    composed_of: ["Kwh_W1_HI", "Kwh_W2_MD", "Kwh_W3_LO"]
+    compose_format: u48_be
+    scale_from: kwh_scale
+    type: energy_active
+    unit: "kWh"
+    precision: 2
+    writable: false
+    description: "Combined 48-bit active energy total"
 
   Kvarh_SUM:
     readable: true
     composed_of: ["Kvarh_W1_HI", "Kvarh_W2_MD", "Kvarh_W3_LO"]
     compose_format: u48_be
-    scale_from: energy_index                               # Always based on reg33 table ×0.001
+    scale_from: energy_index
+    type: energy_reactive
+    unit: "kvarh"
+    precision: 2
+    writable: false
+    description: "Combined 48-bit reactive energy total"
 
-# --- Scale lookup tables (static) ---
+# ========== Scale lookup tables ==========
 tables:
   current_table: [0.001, 0.010, 0.1]
   voltage_table: [0.1, 1.0, 10.0, 100.0]
-  energy_table:  [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
-  energy_post_multiplier: 0.001   # From legacy driver: ×0.001
+  energy_table: [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
+  energy_post_multiplier: 0.001  # From legacy driver: ×0.001
 
+# ========== Write hooks (refresh dynamic scales) ==========
 write_hooks:
-  - registers: [ "CFG_WiringMethod", "CFG_PT_1st_Unit", "CFG_PT_1st", "CFG_PT_2nd", "CFG_CT_1st" ]
-    invalidate: [ "scales.current", "scales.voltage", "scales.energy_auto", "scales.kwh" ]
+  - registers: ["CFG_WiringMethod", "CFG_PT_1st_Unit", "CFG_PT_1st", "CFG_PT_2nd", "CFG_CT_1st"]
+    invalidate: ["scales.current", "scales.voltage", "scales.energy_auto", "scales.kwh"]
 
-# --- Modes (KWh-specific, support MV and non-MV) ---
+# ========== KWh Mode Settings ==========
 modes:
   kwh:
     mode: auto        # Non-MV mode: auto, MV mode: fixed.
-    fixed_scale: 0.01 # MV instances change mode to fixed to apply 0.01
+    fixed_scale: 0.01 # MV instances use fixed scale 0.01

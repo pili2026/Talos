@@ -4,13 +4,49 @@ type: sensor
 log_mode: decoded
 
 description: >
-  Simulates a flowmeter device supporting:
-  - Instantaneous flow rate (float32)
-  - Forward/reverse cumulative flow (uint32)
-  - Flow direction (-1: reverse, 1: forward)
+  SUTO_FLOW Flowmeter Device
+  - Provides instantaneous flow rate and cumulative totals.
+  - Forward and reverse flow totals are stored as uint32 (LE).
+  - Flow direction is indicated by a signed 16-bit integer (-1 = reverse, 1 = forward).
 
 register_map:
-  FLOW_VALUE:          { offset: 6, type: flow, unit: "m³/h", readable: true, format: f32_be, formula: [0, 1.0, 0] }
-  FLOW_CONSUMPTION:    { offset: 8, type: counter, readable: true, format: u32_le, description: "Forward total flow (m³)" }
-  FLOW_REVCONSUMPTION: { offset: 14, type: counter, readable: true, format: u32_le, description: "Reverse total flow (m³)" }
-  FLOW_DIRECTION:      { offset: 42, type: direction, readable: true, format: i16, description: "-1 = reverse, 1 = forward" }
+  FLOW_VALUE:
+    offset: 6
+    format: f32_be
+    type: flow
+    unit: "m³/h"
+    precision: 2
+    formula: [0, 1.0, 0]
+    readable: true
+    writable: false
+    description: "Instantaneous flow rate"
+
+  FLOW_CONSUMPTION:
+    offset: 8
+    format: u32_le
+    type: counter
+    unit: "m³"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Forward total flow"
+
+  FLOW_REVCONSUMPTION:
+    offset: 14
+    format: u32_le
+    type: counter
+    unit: "m³"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Reverse total flow"
+
+  FLOW_DIRECTION:
+    offset: 42
+    format: i16
+    type: direction
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Flow direction (-1 = reverse, 1 = forward)"

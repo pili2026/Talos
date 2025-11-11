@@ -1,20 +1,180 @@
 model: SD400
 register_type: holding
+type: ai_module
 
 register_map:
-  AIn01: { offset: 0, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn02: { offset: 1, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn03: { offset: 2, format: i16, formula: [0, 0.0009765625, 0], type: pressure, readable: true }
-  AIn04: { offset: 3, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn05: { offset: 4, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn06: { offset: 5, format: i16, formula: [0, 0.0009765625, 0], type: pressure, readable: true }
-  AIn07: { offset: 6, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn08: { offset: 7, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn09: { offset: 8, format: i16, formula: [0, 0.0009765625, 0], type: pressure, readable: true }
-  AIn10: { offset: 9, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn11: { offset: 10, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn12: { offset: 11, format: i16, formula: [0, 0.0009765625, 0], type: pressure, readable: true }
-  AIn13: { offset: 12, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn14: { offset: 13, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
-  AIn15: { offset: 14, format: i16, formula: [0, 0.0009765625, 0], type: pressure, readable: true }
-  AIn16: { offset: 15, format: i16, formula: [0, 0.0122070312, 0], type: thermometer, readable: true }
+  AIn01:
+    offset: 0
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 01 - Temperature"
+
+  AIn02:
+    offset: 1
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 02 - Temperature"
+
+  AIn03:
+    offset: 2
+    format: i16
+    formula: [0, 0.0009765625, 0]
+    type: pressure
+    unit: "bar"     # kPa/bar
+    precision: 3
+    readable: true
+    writable: false
+    description: "Analog Input 03 - Pressure"
+
+  AIn04:
+    offset: 3
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 04 - Temperature"
+
+  AIn05:
+    offset: 4
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 05 - Temperature"
+
+  AIn06:
+    offset: 5
+    format: i16
+    formula: [0, 0.0009765625, 0]
+    type: pressure
+    unit: "bar"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Analog Input 06 - Pressure"
+
+  AIn07:
+    offset: 6
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 07 - Temperature"
+
+  AIn08:
+    offset: 7
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 08 - Temperature"
+
+  AIn09:
+    offset: 8
+    format: i16
+    formula: [0, 0.0009765625, 0]
+    type: pressure
+    unit: "bar"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Analog Input 09 - Pressure"
+
+  AIn10:
+    offset: 9
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 10 - Temperature"
+
+  AIn11:
+    offset: 10
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 11 - Temperature"
+
+  AIn12:
+    offset: 11
+    format: i16
+    formula: [0, 0.0009765625, 0]
+    type: pressure
+    unit: "bar"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Analog Input 12 - Pressure"
+
+  AIn13:
+    offset: 12
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 13 - Temperature"
+
+  AIn14:
+    offset: 13
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 14 - Temperature"
+
+  AIn15:
+    offset: 14
+    format: i16
+    formula: [0, 0.0009765625, 0]
+    type: pressure
+    unit: "bar"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Analog Input 15 - Pressure"
+
+  AIn16:
+    offset: 15
+    format: i16
+    formula: [0, 0.0122070312, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Analog Input 16 - Temperature"

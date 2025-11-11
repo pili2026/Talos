@@ -1,16 +1,122 @@
 model: LITEON_EVO6800
 register_type: holding
+type: inverter
+
+description: >
+  LiteOn EVO6800 Variable Frequency Drive (VFD)
+  - Provides real-time measurements and control registers.
+  - Supports combined 32-bit energy counter (KWH).
+  - Control registers (RW_*) allow frequency setpoint, on/off, and reset operations.
 
 register_map:
-  KWH:         { offset: 7688, scale: 0.1,  combine_high: 7689, combine_scale: 1000.0, readable: true }
-  VOLTAGE:     { offset: 9253, scale: 0.1, readable: true }
-  CURRENT:     { offset: 9252, scale: 0.01, readable: true }
-  KW:          { offset: 7431, scale: 0.001, readable: true }
-  HZ:          { offset: 9251, scale: 0.01, readable: true }
-  ERROR:       { offset: 9256, readable: true }
-  ALERT:       { offset: 9255, readable: true }
-  INVSTATUS:   { offset: 9249, readable: true }
+  KWH:
+    offset: 7688
+    combine_high: 7689
+    scale: 0.1
+    combine_scale: 1000.0
+    type: energy
+    unit: "kWh"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Cumulative energy consumption (combined high/low registers)"
 
-  RW_HZ:       { offset: 9218, scale: 0.01, readable: true, writable: true }
-  RW_ON_OFF:   { offset: 9217, readable: true, writable: true }
-  RW_RESET:    { offset: 9217, writable: true }
+  VOLTAGE:
+    offset: 9253
+    scale: 0.1
+    type: voltage
+    unit: "V"
+    precision: 1
+    readable: true
+    writable: false
+    description: "Output voltage"
+
+  CURRENT:
+    offset: 9252
+    scale: 0.01
+    type: current
+    unit: "A"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Output current"
+
+  KW:
+    offset: 7431
+    scale: 0.001
+    type: power
+    unit: "kW"
+    precision: 3
+    readable: true
+    writable: false
+    description: "Active power"
+
+  HZ:
+    offset: 9251
+    scale: 0.01
+    type: frequency
+    unit: "Hz"
+    precision: 2
+    readable: true
+    writable: false
+    description: "Output frequency"
+
+  ERROR:
+    offset: 9256
+    scale: 1
+    type: error_code
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Error code register"
+
+  ALERT:
+    offset: 9255
+    scale: 1
+    type: alert_flag
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Alert status bits"
+
+  INVSTATUS:
+    offset: 9249
+    scale: 1
+    type: status
+    unit: "-"
+    precision: 0
+    readable: true
+    writable: false
+    description: "Inverter status word"
+
+  RW_HZ:
+    offset: 9218
+    scale: 0.01
+    type: set_frequency
+    unit: "Hz"
+    precision: 2
+    readable: true
+    writable: true
+    description: "Target frequency setpoint"
+
+  RW_ON_OFF:
+    offset: 9217
+    scale: 1
+    type: on_off
+    unit: "bool"
+    precision: 0
+    readable: true
+    writable: true
+    description: "Run/Stop control bit (1=Run, 0=Stop)"
+
+  RW_RESET:
+    offset: 9217
+    scale: 1
+    type: reset
+    unit: "-"
+    precision: 0
+    readable: false
+    writable: true
+    description: "Fault reset command"
