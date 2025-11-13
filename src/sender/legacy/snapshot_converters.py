@@ -2,12 +2,13 @@
 
 import logging
 import re
+from typing import Any
 
 from model.device_constant import POWER_METER_FIELDS
 from model.enum.equipment_enum import EquipmentType
 from util.converter_invstatus import compute_legacy_invstatus_code, to_int_or_none, u16_to_bit_flags, u16_to_hex
 from util.device_id_policy import DeviceIdPolicy, get_policy
-from util.value_util import to_float, to_int
+from util.value_util import apply_decimal_places, combine_32bit_be, to_float, to_int
 
 _COMMON_FIELDS = [k for k, v in POWER_METER_FIELDS.items() if v["common"]]
 
@@ -380,3 +381,50 @@ def convert_sensor_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, 
         return convert_dissolved_oxygen_snapshot(gateway_id, slave_id, snapshot)
     logger.warning(f"[LegacyFormat] Unsupported sensor model: {model}")
     return []
+
+
+def convert_panel_meter_snapshot(
+    gateway_id: str,
+    slave_id: str | int,
+    values: dict[str, Any],
+) -> list[dict]:
+    """
+    Converter for GTA-A26-A panel meter (40063~40068 only).
+
+    Register layout (Big Endian):
+        40063 (003E): MAX.D - High word
+        40064 (003F): MAX.D - Low word
+        40065 (0040): DEMAND - High word
+        40066 (0041): DEMAND - Low word
+        40067 (0042): RATE - High word
+        40068 (0043): RATE - Low word
+
+    Combines HI/LO word pairs into 32-bit unsigned values using Big Endian order.
+    """
+    # Combine 32-bit values using Big Endian
+    maxd_32: int | None = combine_32bit_be(to_int(values.get("MAXD_HI")), to_int(values.get("MAXD_LO")))
+    demand_32: int | None = combine_32bit_be(to_int(values.get("DEMAND_HI")), to_int(values.get("DEMAND_LO")))
+    rate_32: int | None = combine_32bit_be(to_int(values.get("RATE_HI")), to_int(values.get("RATE_LO")))
+
+    # Build output data
+    data: dict[str, Any] = {}
+    if maxd_32 is not None:
+        data["MAXD"] = maxd_32
+    if demand_32 is not None:
+        data["DEMAND"] = demand_32
+    if rate_32 is not None:
+        data["RATE"] = rate_32
+
+    if not data:
+        return []
+
+    # Build DeviceID
+    policy: DeviceIdPolicy = get_policy()
+    device_id: str = policy.build_device_id(
+        gateway_id=gateway_id,
+        slave_id=slave_id,
+        idx=0,
+        eq_suffix="",  # NOTE: Pending...
+    )
+
+    return [{"DeviceID": device_id, "Data": data}]

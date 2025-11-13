@@ -67,3 +67,9 @@ devices:
     model_file: driver/do750.yml
     <<: *shared_config
     slave_id: 12 
+
+  - model: GTA_A26A
+    type: panel_meter
+    model_file: driver/gta_a26a.yml
+    <<: *shared_config
+    slave_id: 13
