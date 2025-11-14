@@ -1,6 +1,9 @@
 import logging
 from typing import Any
 
+from pymodbus.client import AsyncModbusSerialClient
+
+from device.generic.computed_field_processor import ComputedFieldProcessor
 from device.generic.constraints_policy import ConstraintPolicy
 from device.generic.hooks import HookManager
 from device.generic.modbus_bus import ModbusBus
@@ -14,7 +17,7 @@ class AsyncGenericModbusDevice:
     def __init__(
         self,
         model: str,
-        client,
+        client: AsyncModbusSerialClient,
         slave_id: int | str,
         register_type: str,
         register_map: dict,
@@ -37,7 +40,7 @@ class AsyncGenericModbusDevice:
         slave_id = (
             int(self.slave_id) if isinstance(self.slave_id, str) and self.slave_id.isdigit() else int(self.slave_id)
         )
-        self.bus = ModbusBus(client, slave_id, register_type)
+        self.bus = ModbusBus(client=client, slave_id=slave_id, register_type=register_type)
 
         # Create bus cache for different register types
         # This allows pins to override register_type at pin-level
@@ -55,6 +58,12 @@ class AsyncGenericModbusDevice:
         self.hooks = HookManager(hook_list=hook_list, logger=self.logger, scale_service=self.scales)
 
         self.decoder = ValueDecoder()
+
+        self.computed_processor = ComputedFieldProcessor(register_map)
+        if self.computed_processor.has_computed_fields():
+            self.logger.info(
+                f"[{self.model}] Computed fields enabled: {list(self.computed_processor.computed_fields.keys())}"
+            )
 
     @property
     def pin_type_map(self) -> dict[str, str]:
@@ -89,6 +98,9 @@ class AsyncGenericModbusDevice:
             except Exception as e:
                 self.logger.warning(f"Failed to read {name}: {e}; set -1")
                 result[name] = DEFAULT_MISSING_VALUE
+
+        # 3) Process computed fields (if any)
+        result = self.computed_processor.compute(result)
 
         return result
 

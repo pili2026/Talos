@@ -8,7 +8,8 @@ from model.device_constant import POWER_METER_FIELDS
 from model.enum.equipment_enum import EquipmentType
 from util.converter_invstatus import compute_legacy_invstatus_code, to_int_or_none, u16_to_bit_flags, u16_to_hex
 from util.device_id_policy import DeviceIdPolicy, get_policy
-from util.value_util import apply_decimal_places, combine_32bit_be, to_float, to_int
+from util.register_formula import combine_32bit_be
+from util.value_util import to_float, to_int
 
 _COMMON_FIELDS = [k for k, v in POWER_METER_FIELDS.items() if v["common"]]
 

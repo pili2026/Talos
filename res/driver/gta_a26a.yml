@@ -1,52 +1,73 @@
 model: GTA_A26A
 register_type: holding
 type: panel_meter
-
 description: >
   GTA-A26-A Digital Panel Meter (4-20mA / RS-485 Modbus RTU).
   - Register addresses range 40001~40xxx (Holding Registers).
   - MAX.D, DEMAND, RATE use 32-bit format (high word + low word).
 
 register_map:
-  # ========== Max Discharge / Demand / Rate (high & low words) ==========
+  # ========== Physical Registers (HI/LO words) ==========
   MAXD_HI:
-    offset: 62        # 40063
+    offset: 62  # 40063
     format: u16
     readable: true
-    writable: true     # R/W per manual
-    description: "MAX.D Maximum discharge display value, high word (0~99999)"
-
+    writable: true
+    description: "MAX.D Maximum discharge display value, high word"
+  
   MAXD_LO:
-    offset: 63        # 40064
+    offset: 63  # 40064
     format: u16
     readable: true
-    writable: true     # R/W per manual
-    description: "MAX.D Maximum discharge display value, low word (0~99999)"
-
+    writable: true
+    description: "MAX.D Maximum discharge display value, low word"
+  
   DEMAND_HI:
-    offset: 64        # 40065
+    offset: 64  # 40065
     format: u16
     readable: true
-    writable: false    # Manual: DEMAND is read-only
-    description: "DEMAND discharge display value, high word (0~99999)"
-
+    writable: false
+    description: "DEMAND discharge display value, high word"
+  
   DEMAND_LO:
-    offset: 65        # 40066
+    offset: 65  # 40066
     format: u16
     readable: true
     writable: false
-    description: "DEMAND discharge display value, low word (0~99999)"
-
+    description: "DEMAND discharge display value, low word"
+  
   RATE_HI:
-    offset: 66        # 40067
-    format: u16
-    readable: true
-    writable: false    # Manual: RATE is read-only
-    description: "RATE instantaneous flow display value, high word (0~99999)"
-
-  RATE_LO:
-    offset: 67        # 40068
+    offset: 66  # 40067
     format: u16
     readable: true
     writable: false
-    description: "RATE instantaneous flow display value, low word (0~99999)"
+    description: "RATE instantaneous flow display value, high word"
+  
+  RATE_LO:
+    offset: 67  # 40068
+    format: u16
+    readable: true
+    writable: false
+    description: "RATE instantaneous flow display value, low word"
+  
+  # ========== Computed Fields (32-bit combined values) ==========
+  MAXD:
+    type: computed
+    formula: combine_32bit_be
+    inputs: [MAXD_HI, MAXD_LO]
+    output_format: u32
+    description: "Combined 32-bit MAX.D value (0~99999)"
+  
+  DEMAND:
+    type: computed
+    formula: combine_32bit_be
+    inputs: [DEMAND_HI, DEMAND_LO]
+    output_format: u32
+    description: "Combined 32-bit DEMAND value (0~99999)"
+  
+  RATE:
+    type: computed
+    formula: combine_32bit_be
+    inputs: [RATE_HI, RATE_LO]
+    output_format: u32
+    description: "Combined 32-bit RATE value (0~99999)"

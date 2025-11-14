@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
 from device_manager import AsyncDeviceManager
 from evaluator.constraint_evaluator import ConstraintEvaluator
@@ -66,7 +67,7 @@ class AsyncDeviceMonitor:
             self.logger.warning(f"[{device_id}] No config found, skipping.")
             return
 
-        pretty_map = {k: f"{v:.3f}" for k, v in snapshot.items()}
+        pretty_map: dict[Any, str] = {k: f"{v:.3f}" if v is not None else "None" for k, v in snapshot.items()}
         self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
 
         payload = {

@@ -188,7 +188,7 @@ register_map:
     precision: 0
     readable: true
     writable: true
-    description: "PT ratio (raw value ×100)"
+    description: "PT ratio (raw value x100)"
 
   CT_Ratio:
     offset: 134
