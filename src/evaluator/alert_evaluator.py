@@ -1,6 +1,7 @@
 import logging
 
 from alert_config import AlertConfig
+from model.enum.alert_enum import AlertSeverity
 from model.enum.condition_enum import ConditionOperator
 from schema.alert_schema import AlertConditionModel
 
@@ -28,8 +29,8 @@ class AlertEvaluator:
                 else:
                     logger.info(f"[{device_id}] No alert configured. Skipped.")
 
-    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str]]:
-        result_list: list[tuple[str, str]] = []
+    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str, AlertSeverity]]:
+        result_list: list[tuple[str, str, AlertSeverity]] = []
 
         try:
             # Safely split a device_id string into model and slave_id parts.
@@ -68,6 +69,6 @@ class AlertEvaluator:
                     f"[{alert.severity}] {alert.name}: "
                     f"{alert.source}={pin_value:.2f} violates {alert.condition} {alert.threshold}"
                 )
-                result_list.append((alert.code, msg))
+                result_list.append((alert.code, msg, alert.severity))
 
         return result_list
