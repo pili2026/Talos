@@ -59,7 +59,7 @@ class EmailNotifier(BaseNotifier):
         ).replace("cid:logo_cid", f"cid:{logo_cid}")
 
         msg = EmailMessage()
-        msg["Subject"] = f"[{alert.level.name}] Alert from {alert.model}"
+        msg["Subject"] = f"[{alert.level.name}] Alert from {alert.model}_{alert.slave_id}: {alert.alert_code}"
         msg["From"] = self.from_addr
         msg["To"] = ", ".join(self.to_addrs)
         msg.set_content("This is an HTML email. Please use an HTML-capable email client.")

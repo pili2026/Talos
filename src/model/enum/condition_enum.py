@@ -22,6 +22,7 @@ class ConditionOperator(StrEnum):
     LESS_THAN_OR_EQUAL = "lte"
     EQUAL = "eq"
     BETWEEN = "between"
+    NOT_EQUAL = "neq"
 
 
 class ControlCompositeType(StrEnum):

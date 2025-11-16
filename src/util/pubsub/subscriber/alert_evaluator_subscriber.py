@@ -3,6 +3,7 @@ from datetime import datetime
 
 from evaluator.alert_evaluator import AlertEvaluator
 from model.enum.alert_enum import AlertSeverity
+from model.enum.alert_state_enum import AlertState
 from schema.alert_schema import AlertMessageModel
 from util.pubsub.base import PubSub
 from util.pubsub.pubsub_topic import PubSubTopic
@@ -23,27 +24,36 @@ class AlertEvaluatorSubscriber:
                 snapshot: dict = message["values"]
 
                 device_id = f"{model}_{slave_id}"
-                alert_list: list[tuple[str, str, AlertSeverity]] = self.evaluator.evaluate(
+                alert_list: list[tuple[str, str, AlertSeverity, str]] = self.evaluator.evaluate(
                     device_id=device_id, snapshot=snapshot
                 )
 
-                for alert_code, alert_msg, severity in alert_list:
+                for alert_code, alert_msg, severity, notification_type in alert_list:
+
+                    if notification_type == AlertState.RESOLVED.name:
+                        final_severity = AlertSeverity.RESOLVED
+                    else:
+                        final_severity = severity
+
                     alert = AlertMessageModel(
                         model=model,
                         slave_id=slave_id,
-                        level=severity,
+                        level=final_severity,
                         message=alert_msg,
                         alert_code=alert_code,
                         timestamp=datetime.now(TIMEZONE_INFO),
                     )
 
-                    match severity:
-                        case AlertSeverity.CRITICAL | AlertSeverity.ERROR:
-                            self.logger.error(f"[ALERT] [{device_id}] {alert_msg}")
-                        case AlertSeverity.WARNING:
-                            self.logger.warning(f"[ALERT] [{device_id}] {alert_msg}")
-                        case AlertSeverity.INFO:
-                            self.logger.info(f"[ALERT] [{device_id}] {alert_msg}")
+                    if notification_type == AlertState.TRIGGERED.name:
+                        match severity:
+                            case AlertSeverity.CRITICAL | AlertSeverity.ERROR:
+                                self.logger.error(f"[ALERT] [{device_id}] {alert_msg}")
+                            case AlertSeverity.WARNING:
+                                self.logger.warning(f"[ALERT] [{device_id}] {alert_msg}")
+                            case AlertSeverity.INFO:
+                                self.logger.info(f"[ALERT] [{device_id}] {alert_msg}")
+                    elif notification_type == AlertState.RESOLVED.name:
+                        self.logger.info(f"[RESOLVED] [{device_id}] {alert_msg}")
 
                     await self.pubsub.publish(PubSubTopic.ALERT_WARNING, alert)
 

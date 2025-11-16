@@ -6,3 +6,4 @@ class AlertSeverity(StrEnum):
     WARNING = "WARNING"
     ERROR = "ERROR"
     CRITICAL = "CRITICAL"
+    RESOLVED = "RESOLVED"

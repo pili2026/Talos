@@ -1,7 +1,9 @@
 import logging
 
 from alert_config import AlertConfig
+from evaluator.alert_state_manager import AlertStateManager
 from model.enum.alert_enum import AlertSeverity
+from model.enum.alert_state_enum import AlertState
 from model.enum.condition_enum import ConditionOperator
 from schema.alert_schema import AlertConditionModel
 
@@ -29,8 +31,10 @@ class AlertEvaluator:
                 else:
                     logger.info(f"[{device_id}] No alert configured. Skipped.")
 
-    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str, AlertSeverity]]:
-        result_list: list[tuple[str, str, AlertSeverity]] = []
+        self.state_manager = AlertStateManager()
+
+    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str, AlertSeverity, str]]:
+        result_list: list[tuple[str, str, AlertSeverity, str]] = []
 
         try:
             # Safely split a device_id string into model and slave_id parts.
@@ -52,7 +56,7 @@ class AlertEvaluator:
                 continue
 
             pin_value = snapshot[alert.source]
-            triggered = False
+            triggered: bool = False
 
             match alert.condition:
                 case ConditionOperator.GREATER_THAN:
@@ -61,14 +65,39 @@ class AlertEvaluator:
                     triggered = pin_value < alert.threshold
                 case ConditionOperator.EQUAL:
                     triggered = pin_value == alert.threshold
+                case ConditionOperator.GREATER_THAN_OR_EQUAL:
+                    triggered = pin_value >= alert.threshold
+                case ConditionOperator.LESS_THAN_OR_EQUAL:
+                    triggered = pin_value <= alert.threshold
+                case ConditionOperator.NOT_EQUAL:
+                    triggered = pin_value != alert.threshold
                 case _:
                     logger.warning(f"[{device_id}] Unknown operator: {alert.condition}")
+                    continue
 
-            if triggered:
-                msg = (
-                    f"[{alert.severity}] {alert.name}: "
-                    f"{alert.source}={pin_value:.2f} violates {alert.condition} {alert.threshold}"
-                )
-                result_list.append((alert.code, msg, alert.severity))
+            should_notify, notification_type = self.state_manager.should_notify(
+                device_id=device_id,
+                alert_code=alert.code,
+                is_triggered=triggered,
+                severity=alert.severity,
+                current_value=pin_value,
+            )
+
+            if should_notify:
+                if notification_type == AlertState.TRIGGERED.name:
+                    msg = (
+                        f"[{alert.severity}] {alert.name}: "
+                        f"{alert.source}={pin_value:.2f} violates {alert.condition} {alert.threshold}"
+                    )
+                elif notification_type == AlertState.RESOLVED.name:
+                    msg = (
+                        f"[RESOLVED] {alert.name}: "
+                        f"{alert.source}={pin_value:.2f} returned to normal (threshold: {alert.threshold})"
+                    )
+                else:
+                    logger.warning(f"[{device_id}] Unknown notification_type: {notification_type}")
+                    continue  # Should not happen
+
+                result_list.append((alert.code, msg, alert.severity, notification_type))
 
         return result_list
