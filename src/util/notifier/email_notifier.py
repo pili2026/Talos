@@ -14,9 +14,8 @@ from util.time_util import TIMEZONE_INFO
 
 
 class EmailNotifier(BaseNotifier):
-    def __init__(self, config_path: str, threshold_sec: float = 60.0):
+    def __init__(self, config_path: str):
         self.logger = logging.getLogger("EmailNotifier")
-        self.threshold_sec = threshold_sec
         self.last_sent: dict[tuple[str, str], float] = defaultdict(lambda: 0.0)
 
         email_cfg: dict = ConfigManager.load_yaml_file(config_path)
@@ -31,14 +30,6 @@ class EmailNotifier(BaseNotifier):
         self.to_addrs = email_cfg["TO_ADDRESSES"]
 
     async def send(self, alert: AlertMessageModel):
-        key = (alert.model, alert.message)
-        datetime_now: float = datetime.now(TIMEZONE_INFO).timestamp()
-
-        if datetime_now - self.last_sent[key] < self.threshold_sec:
-            self.logger.info(f"[EMAIL] Skip Duplicate Alert Notification: [{alert.model}] {alert.message}")
-            return
-
-        self.last_sent[key] = datetime_now
         self.logger.info(f"[EMAIL] Send Email: [{alert.level}] {alert.model} - {alert.message}")
 
         loop = asyncio.get_event_loop()
@@ -59,27 +50,22 @@ class EmailNotifier(BaseNotifier):
         ).replace("cid:logo_cid", f"cid:{logo_cid}")
 
         msg = EmailMessage()
-        msg["Subject"] = f"[{alert.level.name}] Alert from {alert.model}_{alert.slave_id}: {alert.alert_code}"
+        msg["Subject"] = f"[{alert.level.name}] {alert.model}_{alert.slave_id}: {alert.alert_code}"
         msg["From"] = self.from_addr
         msg["To"] = ", ".join(self.to_addrs)
         msg.set_content("This is an HTML email. Please use an HTML-capable email client.")
-        msg.add_alternative(rendered_html, subtype="html")  # HTML part
+        msg.add_alternative(rendered_html, subtype="html")
+
+        with open(self.logo_path, "rb") as img:
+            img_data = img.read()
+            img_type = mimetypes.guess_type(self.logo_path)[0] or "image/png"
+            msg.get_payload()[1].add_related(img_data, maintype="image", subtype=img_type.split("/")[1], cid=logo_cid)
 
         try:
-            with open(self.logo_path, "rb") as img:
-                img_data: bytes = img.read()
-                mime_type: str = mimetypes.guess_type(self.logo_path)[0] or "application/octet-stream"
-                maintype, subtype = mime_type.split("/")
-                html_part = msg.get_payload()[1]
-                html_part.add_related(img_data, maintype=maintype, subtype=subtype, cid=logo_cid)
-        except Exception as e:
-            self.logger.warning(f"Logo image not attached: {e}")
-
-        try:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            with smtplib.SMTP(self.smtp_host, int(self.smtp_port)) as server:
                 server.starttls()
                 server.login(self.username, self.password)
                 server.send_message(msg)
-                self.logger.info("HTML email sent successfully.")
+            self.logger.info(f"[EMAIL] Successfully sent email for alert: {alert.alert_code}")
         except Exception as e:
-            self.logger.error(f"Failed to send email: {e}")
+            self.logger.error(f"[EMAIL] Failed to send email: {e}")
