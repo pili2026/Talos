@@ -108,3 +108,23 @@ class BatchReadAllRequest(BaseModel):
     """Batch read-all-parameters request"""
 
     device_ids: list[str] = Field(..., min_items=1, max_items=50, example=["LITEON_EVO6800_1", "SD400_3"])
+
+
+class WiFiConnectRequest(BaseModel):
+    """
+    Request model for connecting to a WiFi network.
+
+    Attributes:
+        ssid: Network SSID to connect to.
+        password: Network password (optional for open networks).
+    """
+
+    ssid: str = Field(..., min_length=1, max_length=32, example="MyWiFiNetwork")
+    password: str | None = Field(None, min_length=8, max_length=63, example="mypassword123")
+
+    @field_validator("ssid")
+    def validate_ssid(cls, v: str) -> str:
+        """Validate SSID format."""
+        if not v.strip():
+            raise ValueError("SSID cannot be empty")
+        return v.strip()

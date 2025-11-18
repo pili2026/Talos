@@ -38,7 +38,9 @@ async def startup_event(app: FastAPI) -> None:
         await async_device_manager.init()
 
         app.state.async_device_manager = async_device_manager
+        app.state.constraint_schema = constraint_schema
         logger.info("AsyncDeviceManager initialized successfully")
+        logger.info("ConstraintConfigSchema stored successfully")
 
     except Exception as exc:
         logger.error(f"Failed to start API service: {exc}", exc_info=True)
