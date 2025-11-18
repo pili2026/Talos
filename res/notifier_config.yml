@@ -1,0 +1,51 @@
+# Global notification strategy
+strategy:
+  mode: "severity_based"   
+  # Severity routing rules
+  routing:
+    CRITICAL:
+      mode: "broadcast"  # Broadcast to all platforms
+      notifiers: ["sms", "telegram", "email"]
+      min_success: 2  # At least 2 must succeed
+    
+    ERROR:
+      mode: "broadcast"  # Broadcast to all platforms
+      notifiers: ["telegram", "email"]
+      min_success: 1  # At least 1 must succeed
+    
+    WARNING:
+      mode: "fallback"  # Fallback mode（Save Energy）
+      notifiers: ["telegram"]
+      # When all fail, send email as last resort
+    
+    INFO:
+      mode: "single"  # Single notifier
+      notifiers: ["email"]
+    
+    RESOLVED:
+      mode: "broadcast"
+      notifiers: ["telegram", "email"]
+
+# Notifier configurations
+notifiers:
+  sms:
+    enabled: true
+    priority: 1
+    phone_numbers: ["+886912345678"]
+  
+  telegram:
+    enabled: true
+    priority: 2
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    chat_id: ${TELEGRAM_CHAT_ID}
+  
+  email:
+    enabled: true
+    priority: 3
+    config_path: "./res/mail_config.yml"
+
+# Retry settings
+retry:
+  max_attempts: 3
+  backoff_base_sec: 1.0
+  backoff_multiplier: 2.0

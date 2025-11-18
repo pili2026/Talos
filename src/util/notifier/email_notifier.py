@@ -2,7 +2,6 @@ import asyncio
 import logging
 import mimetypes
 import smtplib
-from collections import defaultdict
 from datetime import datetime
 from email.message import EmailMessage
 from email.utils import make_msgid
@@ -14,14 +13,14 @@ from util.time_util import TIMEZONE_INFO
 
 
 class EmailNotifier(BaseNotifier):
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, priority: int = 3, enabled: bool = True):
+        super().__init__(priority=priority, enabled=enabled)
         self.logger = logging.getLogger("EmailNotifier")
-        self.last_sent: dict[tuple[str, str], float] = defaultdict(lambda: 0.0)
 
         email_cfg: dict = ConfigManager.load_yaml_file(config_path)
         self.smtp_host = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_HOST"])
         self.smtp_port = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_PORT"])
-        self.template_path = ConfigManager.parse_env_var_with_default(email_cfg.get("EMAIL_TEMPLATE_PATH"))
+        self.template_path = ConfigManager.parse_env_var_with_default(email_cfg["EMAIL_TEMPLATE_PATH"])
         self.username = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_USERNAME"])
         self.password = ConfigManager.parse_env_var_with_default(email_cfg["SMTP_PASSWORD"])
         self.from_addr = ConfigManager.parse_env_var_with_default(email_cfg["EMAIL_FROM"])
@@ -29,11 +28,21 @@ class EmailNotifier(BaseNotifier):
 
         self.to_addrs = email_cfg["TO_ADDRESSES"]
 
-    async def send(self, alert: AlertMessageModel):
+    async def send(self, alert: AlertMessageModel) -> bool:
+        if not self.enabled:
+            self.logger.debug("[EMAIL] Email notifier is disabled, skipping")
+            return False
+
         self.logger.info(f"[EMAIL] Send Email: [{alert.level}] {alert.model} - {alert.message}")
 
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._send_email_sync, alert)
+        try:
+            loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._send_email_sync, alert)
+            self.logger.info(f"[EMAIL] Successfully sent: {alert.alert_code}")
+            return True
+        except Exception as e:
+            self.logger.error(f"[EMAIL] Failed to send: {e}")
+            return False
 
     def _send_email_sync(self, alert: AlertMessageModel):
         with open(self.template_path, "r", encoding="utf-8") as f:
