@@ -9,21 +9,24 @@ Responsibilities:
 
 import logging
 from pathlib import Path
+
 from dotenv import load_dotenv
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
 from api.lifecycle import shutdown_event, startup_event
 from api.middleware.error_handler import add_error_handlers
 from api.middleware.logging_middleware import LoggingMiddleware
-from api.router import batch, devices, health, monitoring, parameters
+from api.router import batch, constraints, devices, health, monitoring, parameters, wifi
 from api.util.logging_config import setup_logging
 
 logger = logging.getLogger("TalosAPI")
@@ -78,6 +81,8 @@ def create_application() -> FastAPI:
     app.include_router(health.router, prefix="/api", tags=["Health"])
     app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
     app.include_router(parameters.router, prefix="/api/parameters", tags=["Parameters"])
+    app.include_router(constraints.router, prefix="/api/constraints", tags=["Constraints"])
+    app.include_router(wifi.router, prefix="/api/wifi", tags=["WiFi"])
     app.include_router(batch.router, prefix="/api/batch", tags=["Batch Operations"])
     app.include_router(monitoring.router, prefix="/api/monitoring", tags=["Monitoring"])
 
@@ -86,7 +91,7 @@ def create_application() -> FastAPI:
 
     # Ensure static directory exists
     if static_dir.exists():
-        # Mount /assets 路徑（FE JS、CSS etc.）
+        # Mount /assets Path（FE JS、CSS etc.）
         assets_dir = static_dir / "assets"
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")

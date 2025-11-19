@@ -124,3 +124,90 @@ class DeviceListResponse(BaseResponse):
 
     devices: list[DeviceInfo]
     total_count: int
+
+
+class ConstraintInfo(BaseModel):
+    """
+    Constraint information for a parameter.
+
+    Attributes:
+        parameter_name: Parameter name (e.g., 'RW_HZ').
+        min: Minimum allowed value.
+        max: Maximum allowed value.
+
+    """
+
+    parameter_name: str
+    min: float | None = None
+    max: float | None = None
+
+
+class DeviceConstraintResponse(BaseResponse):
+    """
+    Response model for device constraints.
+
+    Attributes:
+        device_id: Device identifier (model_slaveId).
+        model: Device model name.
+        slave_id: Slave ID.
+        constraints: Dictionary of parameter constraints.
+        has_custom_constraints: Whether the device has custom instance-level constraints.
+
+    """
+
+    device_id: str
+    model: str
+    slave_id: str
+    constraints: dict[str, ConstraintInfo]
+    has_custom_constraints: bool = False
+
+
+class WiFiNetwork(BaseModel):
+    """
+    WiFi network information.
+
+    Attributes:
+
+        ssid: Network SSID.
+        signal_strength: Signal strength (0-100).
+        security: Security type (e.g., WPA2, Open).
+        in_use: Whether this is the currently connected network.
+        bssid: MAC address of the access point.
+    """
+
+    ssid: str
+    signal_strength: int = Field(..., ge=0, le=100)
+    security: str
+    in_use: bool = False
+    bssid: str | None = None
+
+
+class WiFiListResponse(BaseResponse):
+    """
+    Response model for WiFi network list.
+
+    Attributes:
+        networks: List of available WiFi networks.
+        total_count: Total number of networks found.
+        current_ssid: Currently connected network SSID.
+
+    """
+
+    networks: list[WiFiNetwork]
+    total_count: int
+    current_ssid: str | None = None
+
+
+class WiFiConnectionResponse(BaseResponse):
+    """
+    Response model for WiFi connection operation.
+
+    Attributes:
+        ssid: Target network SSID.
+        connected: Whether connection was successful.
+        ip_address: Assigned IP address if connected.
+    """
+
+    ssid: str
+    connected: bool
+    ip_address: str | None = None

@@ -3,6 +3,7 @@
 import logging
 import os
 from pathlib import Path
+
 from fastapi import FastAPI
 
 from api.repository.config_repository import ConfigRepository
@@ -22,7 +23,7 @@ async def startup_event(app: FastAPI) -> None:
         config_repo.initialize_sync()
         logger.info("Configuration loaded successfully")
 
-        # 2. Resolve config paths (支援環境變數覆蓋)
+        # 2. Resolve config paths (Support env vars)
         base_path = Path(__file__).parent.parent.parent / "res"
         instance_config_path = Path(os.getenv("TALOS_INSTANCE_CONFIG", base_path / "device_instance_config.yml"))
         modbus_device_path = Path(os.getenv("TALOS_MODBUS_CONFIG", base_path / "modbus_device.yml"))
@@ -38,7 +39,10 @@ async def startup_event(app: FastAPI) -> None:
         await async_device_manager.init()
 
         app.state.async_device_manager = async_device_manager
+        app.state.constraint_schema = constraint_schema
+
         logger.info("AsyncDeviceManager initialized successfully")
+        logger.info("ConstraintConfigSchema stored successfully")
 
     except Exception as exc:
         logger.error(f"Failed to start API service: {exc}", exc_info=True)
