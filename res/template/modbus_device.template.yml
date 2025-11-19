@@ -73,3 +73,9 @@ devices:
     model_file: driver/gta_a26a.yml
     <<: *shared_config
     slave_id: 13
+
+  - model: JY_DAM0016D
+    type: di_module
+    model_file: driver/jy_dam0016d.yml
+    <<: *shared_config
+    slave_id: 14
