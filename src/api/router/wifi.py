@@ -69,21 +69,40 @@ async def disconnect_wifi(service: WiFiService = Depends(get_wifi_service)) -> d
 
 @router.get(
     "/status",
-    summary="Get WiFi connection status",
-    description="Get the current WiFi connection status and connected network information",
+    summary="Get network connection status",
+    description="Get the current WiFi and Ethernet connection status with IP addresses",
 )
 async def get_wifi_status(service: WiFiService = Depends(get_wifi_service)) -> dict:
     """
-    Get current WiFi connection status.
+    Get current network connection status (WiFi and Ethernet).
 
     Returns:
-        dict: Current connection status information.
+        dict: Current connection status information including:
+            - wifi: WiFi connection details (connected, ssid, ip_address)
+            - ethernet: Ethernet connection details (connected, device, ip_address)
+            - connection_type: Primary connection type (wifi/ethernet/none)
     """
     current_ssid = service._get_current_ssid()
-    current_ip = service._get_current_ip()
+    wifi_ip = service._get_current_ip()
+    ethernet_status = service._get_ethernet_status()
+
+    # Determine primary connection type
+    connection_type = "none"
+    if current_ssid:
+        connection_type = "wifi"
+    elif ethernet_status["connected"]:
+        connection_type = "ethernet"
 
     return {
-        "connected": current_ssid is not None,
-        "ssid": current_ssid,
-        "ip_address": current_ip,
+        "wifi": {
+            "connected": current_ssid is not None,
+            "ssid": current_ssid,
+            "ip_address": wifi_ip,
+        },
+        "ethernet": {
+            "connected": ethernet_status["connected"],
+            "device": ethernet_status["device"],
+            "ip_address": ethernet_status["ip_address"],
+        },
+        "connection_type": connection_type,
     }

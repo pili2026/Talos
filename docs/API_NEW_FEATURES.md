@@ -158,19 +158,66 @@ POST /api/wifi/disconnect
 }
 ```
 
-#### 2.4 查詢 WiFi 連線狀態
+#### 2.4 查詢網路連線狀態
 ```http
 GET /api/wifi/status
 ```
 
-**回應範例：**
+**回應範例（WiFi 連線）：**
 ```json
 {
-  "connected": true,
-  "ssid": "MyWiFiNetwork",
-  "ip_address": "192.168.1.100"
+  "wifi": {
+    "connected": true,
+    "ssid": "MyWiFiNetwork",
+    "ip_address": "192.168.1.100"
+  },
+  "ethernet": {
+    "connected": false,
+    "device": null,
+    "ip_address": null
+  },
+  "connection_type": "wifi"
 }
 ```
+
+**回應範例（有線網路連線）：**
+```json
+{
+  "wifi": {
+    "connected": false,
+    "ssid": null,
+    "ip_address": null
+  },
+  "ethernet": {
+    "connected": true,
+    "device": "eth0",
+    "ip_address": "192.168.6.89"
+  },
+  "connection_type": "ethernet"
+}
+```
+
+**回應範例（同時連線）：**
+```json
+{
+  "wifi": {
+    "connected": true,
+    "ssid": "MyWiFiNetwork",
+    "ip_address": "192.168.1.100"
+  },
+  "ethernet": {
+    "connected": true,
+    "device": "eth0",
+    "ip_address": "192.168.6.89"
+  },
+  "connection_type": "wifi"
+}
+```
+
+**說明：**
+- `connection_type` 優先順序：wifi > ethernet > none
+- 當兩者都連線時，優先顯示 WiFi 為主要連線類型
+- 此 API 可以同時查看 WiFi 和有線網路的狀態
 
 ---
 
@@ -243,7 +290,8 @@ curl -X POST http://localhost:8000/api/wifi/disconnect
 1. 設定頁面提供 WiFi 網路列表
 2. 顯示當前連線狀態和信號強度
 3. 提供網路切換界面
-4. 顯示連線後的 IP 地址
+4. 同時顯示 WiFi 和有線網路的狀態
+5. 根據 connection_type 顯示主要連線類型標籤（WiFi 圖示或有線網路圖示）
 
 ### 範例前端代碼 (Vue/React)
 ```javascript
@@ -269,6 +317,23 @@ async function connectWiFi(ssid, password) {
     body: JSON.stringify({ ssid, password })
   });
   const data = await response.json();
+  return data;
+}
+
+// 獲取網路狀態（包含 WiFi 和有線網路）
+async function getNetworkStatus() {
+  const response = await fetch('/api/wifi/status');
+  const data = await response.json();
+
+  // 根據 connection_type 顯示不同的 UI
+  if (data.connection_type === 'wifi') {
+    console.log(`WiFi 連線: ${data.wifi.ssid} (${data.wifi.ip_address})`);
+  } else if (data.connection_type === 'ethernet') {
+    console.log(`有線網路連線: ${data.ethernet.ip_address}`);
+  } else {
+    console.log('無網路連線');
+  }
+
   return data;
 }
 ```

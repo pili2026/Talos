@@ -312,14 +312,19 @@ class WiFiService:
 
     def _get_current_ip(self) -> str | None:
         """
-        Get the current IP address of the WiFi interface.
+        Get the current IP address of the WiFi interface only.
 
         Returns:
             str | None: IP address or None if not available.
         """
         try:
+            # Get WiFi device name first
+            wifi_device = self._get_wifi_device()
+            if not wifi_device:
+                return None
+
             result = subprocess.run(
-                ["nmcli", "-g", "IP4.ADDRESS", "device", "show"],
+                ["nmcli", "-g", "IP4.ADDRESS", "device", "show", wifi_device],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -332,5 +337,85 @@ class WiFiService:
                     return match.group(1)
             return None
         except Exception as e:
-            logger.error(f"Error getting current IP: {e}")
+            logger.error(f"Error getting current WiFi IP: {e}")
             return None
+
+    def _get_wifi_device(self) -> str | None:
+        """
+        Get the WiFi device name (e.g., wlan0, wlp2s0).
+
+        Returns:
+            str | None: WiFi device name or None if not found.
+        """
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE", "device"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    parts = line.split(":")
+                    if len(parts) == 2 and parts[1] == "wifi":
+                        return parts[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting WiFi device: {e}")
+            return None
+
+    def _get_ethernet_status(self) -> dict[str, Any]:
+        """
+        Get ethernet connection status and IP address.
+
+        Returns:
+            dict: Ethernet status information.
+        """
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            ethernet_connected = False
+            ethernet_device = None
+            ethernet_ip = None
+
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    parts = line.split(":")
+                    if len(parts) == 3 and parts[1] == "ethernet":
+                        ethernet_device = parts[0]
+                        ethernet_connected = parts[2] == "connected"
+                        break
+
+            # Get IP if ethernet is connected
+            if ethernet_connected and ethernet_device:
+                ip_result = subprocess.run(
+                    ["nmcli", "-g", "IP4.ADDRESS", "device", "show", ethernet_device],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+
+                if ip_result.returncode == 0:
+                    match = re.search(r"(\d+\.\d+\.\d+\.\d+)", ip_result.stdout)
+                    if match:
+                        ethernet_ip = match.group(1)
+
+            return {
+                "connected": ethernet_connected,
+                "device": ethernet_device,
+                "ip_address": ethernet_ip,
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting ethernet status: {e}")
+            return {
+                "connected": False,
+                "device": None,
+                "ip_address": None,
+            }
