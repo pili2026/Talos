@@ -12,10 +12,10 @@ import yaml
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
+from api.model.responses import ParameterValue
 from api.repository.config_repository import ConfigRepository
 from api.service.parameter_service import ParameterService
 from api.util.connect_manager import ConnectionManager
-
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,8 +27,6 @@ manager = ConnectionManager()
 
 
 # ===== Helper Functions =====
-
-
 def get_asyncapi_path() -> Path | None:
     """Get the absolute path to the asyncapi file."""
     current_file = Path(__file__)
@@ -46,8 +44,6 @@ def get_asyncapi_path() -> Path | None:
 
 
 # ===== HTTP Endpoints =====
-
-
 @router.get(
     "/status",
     summary="Monitoring service status",
@@ -367,11 +363,13 @@ async def monitor_single_device(
             """Continuous monitoring task."""
             while True:
                 try:
-                    param_values = await service.read_multiple_parameters(device_id, param_list)
+                    param_value_list: list[ParameterValue] = await service.read_multiple_parameters(
+                        device_id, param_list
+                    )
 
                     data = {}
                     errors = []
-                    for param_value in param_values:
+                    for param_value in param_value_list:
                         if param_value.is_valid:
                             data[param_value.name] = {"value": param_value.value, "unit": param_value.unit}
                         else:

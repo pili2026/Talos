@@ -10,6 +10,8 @@ from api.repository.config_repository import ConfigRepository
 from device.generic.generic_device import AsyncGenericModbusDevice
 from device_manager import AsyncDeviceManager
 from model.device_constant import DEFAULT_MISSING_VALUE
+from schema.constraint_schema import ConstraintConfig
+from util.value_util import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +87,7 @@ class ParameterService:
     async def read_multiple_parameters(self, device_id: str, parameters: list[str]) -> list[ParameterValue]:
         """Read a batch of parameters from the shared device manager."""
 
-        device = self._get_device(device_id)
+        device: AsyncGenericModbusDevice | None = self._get_device(device_id)
         if not device:
             return [
                 ParameterValue(
@@ -131,8 +133,8 @@ class ParameterService:
                 )
                 continue
 
-            value = snapshot.get(normalized, DEFAULT_MISSING_VALUE)
-            param_cfg = device.register_map.get(normalized, {})
+            value: float | int = snapshot.get(normalized, DEFAULT_MISSING_VALUE)
+            param_config: dict = device.register_map.get(normalized, {})
 
             if value == DEFAULT_MISSING_VALUE:
                 results.append(
@@ -146,11 +148,11 @@ class ParameterService:
                 )
                 continue
 
-            unit = param_cfg.get("unit") or param_cfg.get("units")
+            unit = param_config.get("unit") or param_config.get("units")
             results.append(
                 ParameterValue(
                     name=normalized,
-                    value=float(value),
+                    value=safe_float(value),
                     unit=unit,
                     type=self._resolve_parameter_type(device, normalized),
                     is_valid=True,
@@ -254,7 +256,7 @@ class ParameterService:
         return ParameterType.READ_WRITE if self._is_writable(param_cfg) else ParameterType.READ_ONLY
 
     @staticmethod
-    def _constraint_allows(constraint, value: float) -> bool:
+    def _constraint_allows(constraint: ConstraintConfig, value: float) -> bool:
         if constraint is None:
             return True
         min_val = constraint.min if constraint.min is not None else float("-inf")

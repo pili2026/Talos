@@ -74,8 +74,8 @@ devices:
     <<: *shared_config
     slave_id: 13
 
-  - model: JY_DAM0016D
+  - model: JY_DAM0816D
     type: di_module
-    model_file: driver/jy_dam0016d.yml
+    model_file: driver/jy_dam0816d.yml
     <<: *shared_config
     slave_id: 14

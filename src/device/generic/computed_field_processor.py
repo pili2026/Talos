@@ -111,5 +111,4 @@ class ComputedFieldProcessor:
         params = spec.get("params", {})
         if params:
             return formula_func(*input_values, **params)
-        else:
-            return formula_func(*input_values)
+        return formula_func(*input_values)

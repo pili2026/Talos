@@ -51,3 +51,10 @@ def apply_decimal_places(
         return float(raw_value) / (10**decimal_places_int)
     except Exception:
         return None
+
+
+def safe_float(v, default=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default

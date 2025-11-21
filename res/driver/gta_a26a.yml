@@ -4,70 +4,147 @@ type: panel_meter
 description: >
   GTA-A26-A Digital Panel Meter (4-20mA / RS-485 Modbus RTU).
   - Register addresses range 40001~40xxx (Holding Registers).
+  - TOTALIZE uses 4-word 64-bit format.
   - MAX.D, DEMAND, RATE use 32-bit format (high word + low word).
 
 register_map:
+  # ========== Computed Fields (scaled, with decimal point) ==========
+  TOTALIZE:
+    type: computed
+    formula: combine_64bit_4word_with_dp
+    inputs: [TOTALIZE_W3, TOTALIZE_W2, TOTALIZE_W1, TOTALIZE_W0, DPT]
+    output_format: float
+    description: "TOTALIZE with decimal point (DPT) applied"
+
+  RATE:
+    type: computed
+    formula: combine_32bit_be_with_dp
+    inputs: [RATE_HI, RATE_LO, DPR]
+    output_format: float
+    description: "RATE with decimal point (DPR) applied"
+
+  MAXD:
+    type: computed
+    formula: combine_32bit_be_with_dp
+    inputs: [MAXD_HI, MAXD_LO, DPR]
+    output_format: float
+    description: "MAX.D with decimal point (DPR) applied"
+
+  DEMAND:
+    type: computed
+    formula: combine_32bit_be_with_dp
+    inputs: [DEMAND_HI, DEMAND_LO, DPR]
+    output_format: float
+    description: "DEMAND with decimal point (DPR) applied"
+
+  # ========== Settings / Decimal point ==========
+  DPR:
+    offset: 18  # 40019
+    format: u16
+    readable: true
+    writable: true
+    description: "Instantaneous decimal point position (0~4 digits)"
+
+  DPT:
+    offset: 19  # 40020
+    format: u16
+    readable: true
+    writable: true
+    description: "Totalized decimal point position (0~9 digits)"
+
+  # ========== Computed Fields (raw combined values) ==========
+  TOTALIZE_RAW:
+    type: computed
+    formula: combine_64bit_4word
+    inputs: [TOTALIZE_W3, TOTALIZE_W2, TOTALIZE_W1, TOTALIZE_W0]
+    output_format: u64
+    description: "Raw 64-bit accumulated TOTALIZE value (no decimal point applied)"
+
+  MAXD_RAW:
+    type: computed
+    formula: combine_32bit_be
+    inputs: [MAXD_HI, MAXD_LO]
+    output_format: u32
+    description: "Raw 32-bit MAX.D value (0~99999, no decimal point applied)"
+
+  DEMAND_RAW:
+    type: computed
+    formula: combine_32bit_be
+    inputs: [DEMAND_HI, DEMAND_LO]
+    output_format: u32
+    description: "Raw 32-bit DEMAND value (0~99999, no decimal point applied)"
+
+  RATE_RAW:
+    type: computed
+    formula: combine_32bit_be
+    inputs: [RATE_HI, RATE_LO]
+    output_format: u32
+    description: "Raw 32-bit RATE value (0~99999, no decimal point applied)"
+
   # ========== Physical Registers (HI/LO words) ==========
+  TOTALIZE_W3:
+    offset: 58  # 40059
+    format: u16
+    readable: true
+    writable: true
+    description: "TOTALIZE accumulated value, highest word"
+
+  TOTALIZE_W2:
+    offset: 59  # 40060
+    format: u16
+    readable: true
+    writable: true
+
+  TOTALIZE_W1:
+    offset: 60  # 40061
+    format: u16
+    readable: true
+    writable: true
+
+  TOTALIZE_W0:
+    offset: 61  # 40062
+    format: u16
+    readable: true
+    writable: true
+
   MAXD_HI:
     offset: 62  # 40063
     format: u16
     readable: true
     writable: true
     description: "MAX.D Maximum discharge display value, high word"
-  
+
   MAXD_LO:
     offset: 63  # 40064
     format: u16
     readable: true
     writable: true
     description: "MAX.D Maximum discharge display value, low word"
-  
+
   DEMAND_HI:
     offset: 64  # 40065
     format: u16
     readable: true
     writable: false
     description: "DEMAND discharge display value, high word"
-  
+
   DEMAND_LO:
     offset: 65  # 40066
     format: u16
     readable: true
     writable: false
     description: "DEMAND discharge display value, low word"
-  
+
   RATE_HI:
     offset: 66  # 40067
     format: u16
     readable: true
     writable: false
     description: "RATE instantaneous flow display value, high word"
-  
+
   RATE_LO:
     offset: 67  # 40068
     format: u16
     readable: true
     writable: false
     description: "RATE instantaneous flow display value, low word"
-  
-  # ========== Computed Fields (32-bit combined values) ==========
-  MAXD:
-    type: computed
-    formula: combine_32bit_be
-    inputs: [MAXD_HI, MAXD_LO]
-    output_format: u32
-    description: "Combined 32-bit MAX.D value (0~99999)"
-  
-  DEMAND:
-    type: computed
-    formula: combine_32bit_be
-    inputs: [DEMAND_HI, DEMAND_LO]
-    output_format: u32
-    description: "Combined 32-bit DEMAND value (0~99999)"
-  
-  RATE:
-    type: computed
-    formula: combine_32bit_be
-    inputs: [RATE_HI, RATE_LO]
-    output_format: u32
-    description: "Combined 32-bit RATE value (0~99999)"

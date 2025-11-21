@@ -5,6 +5,7 @@
 # - Pressure sensors: 4–20 mA → 0–4 kg/cm²
 
 model: ADAM-4117
+# register_type: holding
 register_type: input
 type: ai_module
 
