@@ -205,10 +205,40 @@ class CompositeNode(BaseModel):
                 }:
                     if self.threshold is None:
                         problems.append(f"difference-{self.operator.value.upper()} requires 'threshold' value")
+            elif self.type in {
+                ConditionType.AVERAGE,
+                ConditionType.SUM,
+                ConditionType.MIN,
+                ConditionType.MAX,
+            }:
+                if self.operator is None:
+                    problems.append(f"{self.type} condition requires 'operator'")
+
+                if not self.sources:
+                    problems.append(f"{self.type} condition requires 'sources' list")
+                elif len(self.sources) < 2:
+                    problems.append(f"{self.type} condition requires at least 2 sources")
+                elif len(set(self.sources)) != len(self.sources):
+                    problems.append(f"{self.type} condition sources must be unique (found duplicates)")
+
+                if self.operator == ConditionOperator.BETWEEN:
+                    if self.min is None or self.max is None:
+                        problems.append(f"{self.type}-BETWEEN requires 'min' and 'max' values")
+                elif self.operator in {
+                    ConditionOperator.GREATER_THAN,
+                    ConditionOperator.LESS_THAN,
+                    ConditionOperator.EQUAL,
+                    ConditionOperator.GREATER_THAN_OR_EQUAL,
+                    ConditionOperator.LESS_THAN_OR_EQUAL,
+                }:
+                    if self.threshold is None:
+                        problems.append(f"{self.type}-{self.operator.value.upper()} requires 'threshold' value")
             else:
                 problems.append(f"unsupported condition type: {self.type}")
         else:
-            problems.append("node must be either group(all/any/not) OR leaf(type=threshold|difference)")
+            problems.append(
+                "node must be either group(all/any/not) OR leaf(type=threshold|difference|average|sum|min|max)"
+            )
 
         # Advanced validations (only if basic structure is valid)
         if not problems:

@@ -13,6 +13,10 @@ class ControlActionType(StrEnum):
 class ConditionType(StrEnum):
     THRESHOLD = "threshold"
     DIFFERENCE = "difference"
+    AVERAGE = "average"
+    SUM = "sum"
+    MIN = "min"
+    MAX = "max"
 
 
 class ConditionOperator(StrEnum):

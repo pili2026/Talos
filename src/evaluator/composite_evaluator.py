@@ -42,6 +42,14 @@ class CompositeEvaluator:
         if node.type == ConditionType.DIFFERENCE:
             return self._evaluate_difference_leaf(node, get_value)
 
+        if node.type in {
+            ConditionType.AVERAGE,
+            ConditionType.SUM,
+            ConditionType.MIN,
+            ConditionType.MAX,
+        }:
+            return self._evaluate_aggregate_leaf(node, get_value)
+
         # Group node (only one exists at a time)
         if node.all is not None:
             return all(self.evaluate_composite_node(child, get_value) for child in node.all)
@@ -68,6 +76,19 @@ class CompositeEvaluator:
             if node.operator == ConditionOperator.BETWEEN:
                 return f"difference([{srcs}] between {node.min}..{node.max}{' abs' if node.abs else ''})"
             return f"difference([{srcs}] {node.operator.value.lower()} {node.threshold}{' abs' if node.abs else ''})"
+
+        if node.type in {
+            ConditionType.AVERAGE,
+            ConditionType.SUM,
+            ConditionType.MIN,
+            ConditionType.MAX,
+        }:
+            srcs: str = ",".join(node.sources or [])
+            agg_type = node.type.value  # 'average', 'sum', 'min', 'max'
+
+            if node.operator == ConditionOperator.BETWEEN:
+                return f"{agg_type}([{srcs}]) between {node.min}..{node.max}"
+            return f"{agg_type}([{srcs}]) {node.operator.value.lower()} {node.threshold}"
 
         if node.any is not None:
             # OR Logic: recursively process sub-nodes
@@ -214,6 +235,72 @@ class CompositeEvaluator:
             return (min_value is not None) and (max_value is not None) and (min_value <= value <= max_value)
 
         return False
+
+    def _evaluate_aggregate_leaf(self, node: CompositeNode, get_value: ValueGetter) -> bool:
+        """
+        Evaluate aggregate condition (AVERAGE, SUM, MIN, MAX).
+
+        Aggregates multiple source values and compares against threshold.
+        Handles missing values gracefully by skipping None values.
+        Returns False if no valid values are found.
+        """
+        if not node.sources or len(node.sources) < 2:
+            return False
+
+        # Collect all valid values (skip None and NaN)
+        values = []
+        for src in node.sources:
+            val = get_value(src)
+            if val is not None:
+                # Also check for NaN
+                if isinstance(val, float) and math.isnan(val):
+                    continue
+                values.append(val)
+
+        # No valid values → condition fails
+        if not values:
+            return False
+
+        # Calculate aggregated value
+        try:
+            if node.type == ConditionType.AVERAGE:
+                aggregated = sum(values) / len(values)
+            elif node.type == ConditionType.SUM:
+                aggregated = sum(values)
+            elif node.type == ConditionType.MIN:
+                aggregated = min(values)
+            elif node.type == ConditionType.MAX:
+                aggregated = max(values)
+            else:
+                # Unknown aggregate type
+                return False
+
+            # Convert to float for comparison
+            aggregated = float(aggregated)
+        except Exception:
+            return False
+
+        # First do raw comparison without stabilization
+        raw_true: bool = self._evaluate_operator_comparison(
+            operator=node.operator,
+            value=aggregated,
+            threshold=node.threshold,
+            min_value=node.min,
+            max_value=node.max,
+        )
+
+        # Apply stabilization (hysteresis + debounce) using id(node) as the state key
+        return self._stabilize_leaf_truth(
+            key=id(node),
+            operator=node.operator,
+            value=aggregated,
+            raw_true=raw_true,
+            threshold=node.threshold,
+            min_value=node.min,
+            max_value=node.max,
+            hysteresis=float(node.hysteresis or 0.0),
+            debounce_sec=float(node.debounce_sec or 0.0),
+        )
 
     # ====== Added: minimal implementation of hysteresis + debounce ======
 
