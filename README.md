@@ -146,52 +146,118 @@ Talos/
 
 ### 設備配置 (`modbus_device.yml`)
 
-定義 Modbus 設備的連接參數和寄存器映射。
+定義 Modbus 設備的連接參數和驅動程式映射。
 
 ```yaml
+shared: &shared_config
+    port: /dev/ttyUSB0
+
 devices:
-  - name: "device_name"
-    type: "modbus_tcp"
-    host: "192.168.1.100"
-    port: 502
-    slave_id: 1
+  - model: ADTEK_CPM10           # 設備型號
+    type: power_meter             # 設備類型
+    model_file: driver/adtek_cpm_10.yml  # 驅動程式文件
+    <<: *shared_config            # 繼承共享配置
+    slave_id: 1                   # Modbus 從站 ID
 ```
 
 ### 告警條件 (`alert_condition.yml`)
 
-設定觸發告警的條件規則。
+設定觸發告警的條件規則，支援設備實例級別配置。
 
 ```yaml
-alerts:
-  - name: "temperature_high"
-    device: "sensor_01"
-    parameter: "temperature"
-    condition: "> 80"
-    priority: "high"
+SD400:                            # 設備型號
+  default_alerts:                 # 預設告警規則
+    - code: "AIN01_HIGH"
+      name: "AIn01 overheat"
+      source: "AIn01"             # 數據來源（寄存器或參數）
+      condition: "gt"             # 條件運算子：gt(>), lt(<), eq(=), gte(>=), lte(<=)
+      threshold: 49.0             # 閾值
+      severity: "WARNING"         # 嚴重程度：INFO, WARNING, ERROR, CRITICAL
+
+  instances:                      # 設備實例配置
+    "3":                          # 實例 ID（slave_id）
+      use_default_alerts: true    # 使用預設告警規則
+    "7":
+      alerts:                     # 自訂告警規則
+        - code: "AIN02_LOW"
+          name: "AIn02 low temp"
+          source: "AIn02"
+          condition: "lt"
+          threshold: 10.0
+          severity: "WARNING"
 ```
 
 ### 控制條件 (`control_condition.yml`)
 
-配置自動化控制邏輯。
+配置自動化控制邏輯，支援複雜的複合條件和控制策略。
 
 ```yaml
-controls:
-  - name: "auto_cooling"
-    trigger_condition: "temperature > 75"
-    action: "set_fan_speed"
-    value: 100
+version: 1.0.0
+SD400:                            # 設備型號
+  default_controls:               # 預設控制規則
+    - name: Emergency High Water Temperature Override
+      code: EMERGENCY_HIGH_WATER_TEMP
+      priority: 0                 # 優先級（數字越小優先級越高）
+      composite:                  # 複合條件
+        any:                      # 任一條件滿足即觸發（也可用 all）
+          - type: threshold       # 閾值類型
+            source: AIn01         # 監控來源
+            operator: gt          # 運算子
+            threshold: 32.0       # 閾值
+            hysteresis: 2.0       # 遲滯範圍（避免震盪）
+            debounce_sec: 2.0     # 去抖動時間（秒）
+      policy:
+        type: discrete_setpoint   # 控制策略類型
+      action:
+        model: TECO_VFD           # 目標設備型號
+        slave_id: '1'             # 目標從站 ID
+        type: set_frequency       # 動作類型
+        target: RW_HZ             # 目標寄存器
+        value: 60                 # 設定值
+        emergency_override: true  # 緊急覆蓋模式
+
+  instances:                      # 設備實例配置
+    '3':
+      use_default_controls: true
+      controls:                   # 自訂控制規則
+        - name: Temperature Difference Control
+          code: LIN_INC01
+          priority: 10
+          composite:
+            any:
+              - type: difference  # 差值類型
+                sources:
+                  - AIn01         # 第一個來源
+                  - AIn02         # 第二個來源
+                operator: gt
+                threshold: 3
+                abs: false        # 是否取絕對值
+          policy:
+            type: incremental_linear  # 線性遞增控制
+            condition_type: difference
+            sources:
+              - AIn01
+              - AIn02
+            gain_hz_per_unit: 1.5     # 增益係數
+          action:
+            model: TECO_VFD
+            slave_id: '2'
+            type: adjust_frequency    # 調整頻率（增量）
+            target: RW_HZ
 ```
 
 ### 時間條件 (`time_condition.yml`)
 
-設定基於時間的控制策略。
+設定基於時間的工作時段，用於控制系統行為。
 
 ```yaml
-schedules:
-  - name: "night_mode"
-    cron: "0 22 * * *"
-    action: "switch_mode"
-    value: "sleep"
+work_hours:
+  default:
+    weekdays: [1, 2, 3, 4, 5]     # 星期一到五（1=Monday, 7=Sunday）
+    intervals:
+      - { start: "09:00", end: "19:00" }  # 工作時段
+      # 可設定多個時段
+      # - { start: "21:00", end: "23:00" }
 ```
 
 ## 🔔 通知設定
