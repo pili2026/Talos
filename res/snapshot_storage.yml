@@ -1,0 +1,22 @@
+# Snapshot Storage Configuration
+# SQLite-based persistence for device snapshots
+
+# Enable/disable snapshot storage
+enabled: true
+
+# Database file path
+# The parent directory will be created automatically if it doesn't exist
+db_path: "/home/talos/data/snapshots.db"
+
+# Retention policy (days)
+# Snapshots older than this will be automatically deleted
+retention_days: 7
+
+# Cleanup interval (hours)
+# How often to run DELETE operations for old snapshots
+cleanup_interval_hours: 6
+
+# VACUUM interval (days)
+# How often to run VACUUM to reclaim disk space
+# VACUUM can take time, so it's run less frequently than cleanup
+vacuum_interval_days: 7

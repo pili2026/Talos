@@ -1,6 +1,7 @@
 aiofiles==24.1.0
 aiosmtplib==4.0.1
 aiohttp==3.12.15
+aiosqlite==0.20.0
 black==25.1.0
 fastapi[standard]
 httpx==0.28.1
@@ -9,4 +10,5 @@ pymodbus==3.9.2
 pyserial==3.5
 python-dotenv==1.1.1
 PyYAML==6.0.2
+SQLAlchemy==2.0.36
 websockets==15.0.1
