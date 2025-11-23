@@ -390,7 +390,13 @@ def convert_panel_meter_snapshot(
     values: dict[str, Any],
 ) -> list[dict]:
     """
-    Converter for GTA-A26-A panel meter (40063~40068 only).
+    Converter for GTA-A26-A panel meter
+    Converts A26A data to flow meter format:
+    - TOTALIZE -> consumption (int)
+    - RATE -> flow (float, rounded to 4 decimals)
+    - revconsumption: 0
+    - direction: 0
+    - Equipment type: SF (same as flow meter)
 
     Register layout (Big Endian):
         40063 (003E): MAX.D - High word
@@ -400,24 +406,19 @@ def convert_panel_meter_snapshot(
         40067 (0042): RATE - High word
         40068 (0043): RATE - Low word
 
-    Combines HI/LO word pairs into 32-bit unsigned values using Big Endian order.
+    The driver provides TOTALIZE and RATE as computed fields with decimal points already applied.
     """
-    # Combine 32-bit values using Big Endian
-    maxd_32: int | None = combine_32bit_be(to_int(values.get("MAXD_HI")), to_int(values.get("MAXD_LO")))
-    demand_32: int | None = combine_32bit_be(to_int(values.get("DEMAND_HI")), to_int(values.get("DEMAND_LO")))
-    rate_32: int | None = combine_32bit_be(to_int(values.get("RATE_HI")), to_int(values.get("RATE_LO")))
+    # Extract values from driver (already computed with decimal points)
+    totalize_value: float = to_float(values.get("TOTALIZE"))
+    rate_value: float = to_float(values.get("RATE"))
 
-    # Build output data
-    data: dict[str, Any] = {}
-    if maxd_32 is not None:
-        data["MAXD"] = maxd_32
-    if demand_32 is not None:
-        data["DEMAND"] = demand_32
-    if rate_32 is not None:
-        data["RATE"] = rate_32
-
-    if not data:
-        return []
+    # Build output data in flow meter format
+    data: dict[str, Any] = {
+        "flow": round(rate_value, 4),
+        "consumption": int(totalize_value),
+        "revconsumption": 0,
+        "direction": 0,
+    }
 
     # Build DeviceID
     policy: DeviceIdPolicy = get_policy()
@@ -425,7 +426,7 @@ def convert_panel_meter_snapshot(
         gateway_id=gateway_id,
         slave_id=slave_id,
         idx=0,
-        eq_suffix="",  # NOTE: Pending...
+        eq_suffix=EquipmentType.SF,
     )
 
     return [{"DeviceID": device_id, "Data": data}]
