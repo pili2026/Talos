@@ -19,6 +19,7 @@
 * **RESTful API**: Full FastAPI service with WebSocket real-time communication
 * **Multi-Channel Notification**: Supports Email, Telegram, and more
 * **Modular Architecture**: Extensible driver and handler design
+* **Local Snapshot Storage (SQLite)**: Asynchronous, WAL-optimized device snapshot persistence with auto-retention cleanup
 
 ---
 
@@ -165,6 +166,73 @@ Talos/
 ```
 
 ---
+
+## Snapshot Storage (SQLite)
+
+Talos includes a built-in asynchronous SQLite storage engine that persistently saves all device snapshots locally on the gateway.  
+This feature is fully internal in Phase 1 and will be exposed via REST API in Phase 2.
+
+### Why SQLite Snapshot Storage?
+
+* Reliable offline buffering  
+* Supports time-range queries, parameter trends, and historical analytics  
+* WAL mode optimized for Raspberry Pi and edge devices  
+* Independent from cloud communication or LegacySender  
+* Lightweight and zero-maintenance
+
+### How It Works
+
+Snapshots flow through the internal Pub/Sub system:
+`DeviceMonitor → PubSubTopic.DEVICE_SNAPSHOT → SnapshotSaverSubscriber → SQLite`
+
+Each snapshot is stored as one row in the `snapshot` table with fields:
+
+| Field | Description |
+|-------|-------------|
+| device_id | Device identifier |
+| model | Device model |
+| slave_id | Modbus slave ID |
+| device_type | Device classification |
+| sampling_ts | Timestamp from device |
+| created_at | Insert timestamp |
+| values_json | Full snapshot payload (JSON) |
+| is_online | Auto-computed communication status |
+
+The `is_online` flag uses a simple and robust rule:
+All parameters = -1 → offline
+Partial -1 → still online (e.g., unused pins)
+
+### Database Engine
+
+* Async engine: `sqlite+aiosqlite`
+* WAL mode enabled (`PRAGMA journal_mode=WAL`)
+* Performance-tuned settings:
+  - `synchronous = NORMAL`
+  - `cache_size = -64000`
+
+### Automatic Retention & Vacuum
+
+A background task runs periodically:
+* Deletes outdated snapshots (default: 7 days)
+* Runs `VACUUM` on a separate schedule
+* Fully non-blocking and safe for continuous uptime
+
+### Configuration
+
+Snapshot storage can be enabled/disabled via: `res/snapshot_storage.yml`:
+
+```yaml
+snapshot_storage:
+  enabled: true
+  db_path: "/home/talos/data/snapshots.db"
+
+  retention_days: 7
+  cleanup_interval_hours: 6
+  vacuum_interval_days: 7
+```
+Startup integration (added in main.py): `[SnapshotStorage] Enabled (retention=7d)`
+
+This feature operates completely in the background and does not affect existing alert, control, or sender subsystems.
 
 ## Configuration
 

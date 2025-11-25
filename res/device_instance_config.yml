@@ -1,7 +1,68 @@
+version: "1.0.0"
+
 global_defaults:
   initialization:
     startup_frequency: 50.0
 
-LITEON_EVO6800: {}
+TECO_VFD:
+  initialization:
+    startup_frequency: 50.0
+  
+  default_constraints:
+    RW_HZ:
+      min: 35
+      max: 60
+  
+  instances:
+    # Slave ID 3 - 冷卻水泵浦
+    "3":
+      constraints:
+        RW_HZ:
+          min: 40
+          max: 52
+    
+    # Slave ID 4 - 冰水泵浦
+    "4":
+      constraints:
+        RW_HZ:
+          min: 45
+          max: 52
+    
+    # Slave ID 5 - 風扇 1
+    "5":
+      constraints:
+        RW_HZ:
+          min: 35
+          max: 60
+    
+    # Slave ID 6 - 風扇 2
+    "6":
+      constraints:
+        RW_HZ:
+          min: 35
+          max: 60
 
-TECO_VFD: {}
+DAE_PM210:
+  default_constraints: {}
+  instances:
+    "1": {}
+    "2": {}
+SD500:
+  default_constraints: {}
+  instances:
+    "7": {}
+
+SD400:
+  default_constraints: {}
+  instances:
+    "8": {}
+
+IMA_C:
+  default_constraints: {}
+  instances:
+    "9": {}
+
+JY_DAM0204:
+  default_constraints: {}
+  instances:
+    "11": {}
