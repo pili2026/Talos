@@ -18,23 +18,30 @@ async def startup_event(app: FastAPI) -> None:
     logger.info("Starting Talos API Service...")
 
     try:
-        # 1. Load configs
+        # =========================
+        # 1. Load base configs
+        # =========================
         config_repo = ConfigRepository()
         config_repo.initialize_sync()
         logger.info("Configuration loaded successfully")
 
-        # 2. Resolve config paths (Support env vars)
-        base_path = Path(__file__).parent.parent.parent / "res"
-        instance_config_path = Path(os.getenv("TALOS_INSTANCE_CONFIG", base_path / "device_instance_config.yml"))
-        modbus_device_path = Path(os.getenv("TALOS_MODBUS_CONFIG", base_path / "modbus_device.yml"))
+        # Base path for default config files (res directory)
+        base_res_path = Path(__file__).parent.parent.parent / "res"
+
+        # =========================
+        # 2. Resolve device configs
+        # =========================
+        instance_config_path = Path(os.getenv("TALOS_INSTANCE_CONFIG", base_res_path / "device_instance_config.yml"))
+        modbus_device_path = Path(os.getenv("TALOS_MODBUS_CONFIG", base_res_path / "modbus_device.yml"))
 
         logger.info(f"Loading instance config from: {instance_config_path}")
         logger.info(f"Loading modbus config from: {modbus_device_path}")
 
-        # 3. Initialize AsyncDeviceManager
+        # Initialize ConstraintConfigSchema
         constraint_config = ConfigManager.load_yaml_file(str(instance_config_path))
         constraint_schema = ConstraintConfigSchema(**constraint_config)
 
+        # Initialize AsyncDeviceManager
         async_device_manager = AsyncDeviceManager(str(modbus_device_path), constraint_schema)
         await async_device_manager.init()
 
@@ -43,6 +50,24 @@ async def startup_event(app: FastAPI) -> None:
 
         logger.info("AsyncDeviceManager initialized successfully")
         logger.info("ConstraintConfigSchema stored successfully")
+
+        # =========================
+        # 3. Resolve snapshot storage config
+        # =========================
+        # Allow overriding snapshot storage config path via env:
+        #   TALOS_SNAPSHOT_CONFIG=/etc/talos/snapshot_storage.yml
+        snapshot_config_path = Path(os.getenv("TALOS_SNAPSHOT_CONFIG", base_res_path / "snapshot_storage.yml"))
+
+        logger.info("Loading snapshot storage config from: %s", snapshot_config_path)
+
+        snapshot_cfg: dict = ConfigManager.load_yaml_file(str(snapshot_config_path))
+        snapshot_db_path: str = snapshot_cfg.get("db_path", "./data/snapshots.db")
+
+        # Expose to dependency layer via app.state
+        app.state.snapshot_config_path = str(snapshot_config_path)
+        app.state.snapshot_db_path = snapshot_db_path
+
+        logger.info(f"Snapshot storage config loaded successfully (db_path={snapshot_db_path})")
 
     except Exception as exc:
         logger.error(f"Failed to start API service: {exc}", exc_info=True)
@@ -54,9 +79,13 @@ async def shutdown_event(app: FastAPI) -> None:
 
     logger.info("Shutting down Talos API Service...")
 
-    device_manager: AsyncDeviceManager | None = getattr(app.state, "async_device_manager", None)
-    if not device_manager:
+    if not hasattr(app.state, "async_device_manager"):
         logger.info("No AsyncDeviceManager instance found during shutdown")
+        return
+
+    device_manager: AsyncDeviceManager | None = app.state.async_device_manager
+    if not device_manager:
+        logger.info("AsyncDeviceManager on app.state is None during shutdown")
         return
 
     try:

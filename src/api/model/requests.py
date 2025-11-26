@@ -40,7 +40,7 @@ class ReadMultipleParametersRequest(BaseModel):
     """
 
     device_id: str = Field(..., example="vfd_001")
-    parameters: list[str] = Field(..., min_items=1, max_items=50, example=["hz", "current", "voltage"])
+    parameters: list[str] = Field(..., min_length=1, max_length=50, example=["hz", "current", "voltage"])
 
     @field_validator("parameters")
     def validate_parameters_unique(cls, v):
@@ -70,14 +70,14 @@ class WriteParameterRequest(BaseModel):
 class BatchReadDevicesRequest(BaseModel):
     """Batch read request for multiple devices"""
 
-    device_ids: list[str] = Field(..., min_items=1, max_items=50, example=["LITEON_EVO6800_1", "TECO_VFD_2"])
-    parameters: list[str] = Field(..., min_items=1, max_items=20, example=["RW_HZ", "CURRENT"])
+    device_ids: list[str] = Field(..., min_length=1, max_length=50, example=["LITEON_EVO6800_1", "TECO_VFD_2"])
+    parameters: list[str] = Field(..., min_length=1, max_length=20, example=["RW_HZ", "CURRENT"])
 
 
 class BatchWriteRequest(BaseModel):
     """Batch write request for multiple devices"""
 
-    device_ids: list[str] = Field(..., min_items=1, max_items=50)
+    device_ids: list[str] = Field(..., min_length=1, max_length=50)
     parameter: str = Field(..., example="RW_HZ")
     value: float = Field(..., example=50.0)
     force: bool = Field(False, description="Force write without constraint validation")
@@ -88,8 +88,8 @@ class BatchWriteMultipleRequest(BaseModel):
 
     writes: list[dict[str, Any]] = Field(
         ...,
-        min_items=1,
-        max_items=100,
+        min_length=1,
+        max_length=100,
         example=[
             {"device_id": "LITEON_EVO6800_1", "parameter": "RW_HZ", "value": 50.0},
             {"device_id": "TECO_VFD_2", "parameter": "RW_HZ", "value": 55.0},
@@ -101,13 +101,13 @@ class BatchWriteMultipleRequest(BaseModel):
 class BatchValidateRequest(BaseModel):
     """Batch validation request"""
 
-    device_ids: list[str] = Field(..., min_items=1, max_items=100, example=["LITEON_EVO6800_1", "TECO_VFD_2"])
+    device_ids: list[str] = Field(..., min_length=1, max_length=100, example=["LITEON_EVO6800_1", "TECO_VFD_2"])
 
 
 class BatchReadAllRequest(BaseModel):
     """Batch read-all-parameters request"""
 
-    device_ids: list[str] = Field(..., min_items=1, max_items=50, example=["LITEON_EVO6800_1", "SD400_3"])
+    device_ids: list[str] = Field(..., min_length=1, max_length=50, example=["LITEON_EVO6800_1", "SD400_3"])
 
 
 class WiFiConnectRequest(BaseModel):

@@ -79,9 +79,9 @@ class SnapshotRepository:
         return [self._snapshot_to_dict(s) for s in snapshots]
 
     async def get_time_range(
-        self, device_id: str, start_time: datetime, end_time: datetime, limit: int = 1000
+        self, device_id: str, start_time: datetime, end_time: datetime, limit: int = 1000, offset: int = 0
     ) -> list[dict[str, Any]]:
-        """Query snapshots in a time range."""
+        """Query snapshots in a time range with pagination support."""
         async with self.db.get_async_session() as session:
             stmt = (
                 select(Snapshot)
@@ -92,19 +92,39 @@ class SnapshotRepository:
                 )
                 .order_by(Snapshot.sampling_ts)
                 .limit(limit)
+                .offset(offset)
             )
             result = await session.execute(stmt)
             snapshots = result.scalars().all()
 
+        logger.debug(
+            f"[Snapshot] Query {device_id}: {start_time} to {end_time}, "
+            f"limit={limit}, offset={offset}, returned={len(snapshots)}"
+        )
+
         return [self._snapshot_to_dict(s) for s in snapshots]
 
+    async def get_count_in_time_range(self, device_id: str, start_time: datetime, end_time: datetime) -> int:
+        """
+        Get total count of snapshots in time range (for pagination metadata).
+
+        This query is optimized to use the composite index (device_id, sampling_ts).
+        """
+        async with self.db.get_async_session() as session:
+            stmt = select(func.count(Snapshot.id)).where(
+                Snapshot.device_id == device_id,
+                Snapshot.sampling_ts >= start_time,
+                Snapshot.sampling_ts <= end_time,
+            )
+            result = await session.execute(stmt)
+            count = result.scalar() or 0
+
+        logger.debug(f"[Snapshot] Count {device_id}: {start_time} to {end_time}, total={count}")
+
+        return count
+
     async def get_parameter_history(
-        self,
-        device_id: str,
-        parameter: str,
-        start_time: datetime,
-        end_time: datetime,
-        limit: int = 1000,
+        self, device_id: str, parameter: str, start_time: datetime, end_time: datetime, limit: int = 1000
     ) -> list[dict[str, Any]]:
         """Return history of a single parameter using json_extract()."""
         json_path = f"$.{parameter}"
