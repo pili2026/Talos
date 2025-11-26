@@ -1,40 +1,9 @@
 shared: &shared_config
     port: /dev/ttyUSB0
-    # port: /tmp/ttyV0
 
 devices:
-  # - model: TECO_VFD
-  #   type: inverter
-  #   model_file: driver/teco_inverter.yml
-  #   <<: *shared_config
-  #   slave_id: 3
-
-  # - model: SD400
-  #   type: ai_module
-  #   model_file: driver/sd_400.yml
-  #   <<: *shared_config
-  #   slave_id: 8
-
-  # - model: IMA_C
-  #   type: di_module
-  #   model_file: driver/ima_c.yml
-  #   <<: *shared_config
-  #   slave_id: 9
-
-  # - model: ADAM-4117
-  #   type: ai_module
-  #   model_file: driver/adam_4117.yml
-  #   <<: *shared_config
-  #   slave_id: 14
-
-  - model: GTA_A26A
-    type: panel_meter
-    model_file: driver/gta_a26a.yml
+  - model: DAE_PM210
+    type: power_meter
+    model_file: driver/dae_pm210.yml
     <<: *shared_config
     slave_id: 1
-
-  # - model: JY_DAM0816D
-  #   type: di_module
-  #   model_file: driver/jy_dam0816d.yml
-  #   <<: *shared_config
-  #   slave_id: 11
