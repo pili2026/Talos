@@ -30,4 +30,5 @@ exec python "$BASE_DIR/src/main.py" \
   --sender_config "$BASE_DIR/res/sender_config.yml" \
   --mail_config "$BASE_DIR/res/mail_config.yml" \
   --time_config "$BASE_DIR/res/time_condition.yml" \
-  --system_config "$BASE_DIR/res/system_config.yml"
+  --system_config "$BASE_DIR/res/system_config.yml" \
+  --snapshot_storage_config "$BASE_DIR/res/snapshot_storage_config.yml"
