@@ -28,7 +28,7 @@ exec python "$BASE_DIR/src/main.py" \
   --modbus_device "$BASE_DIR/res/modbus_device.yml" \
   --instance_config "$BASE_DIR/res/device_instance_config.yml" \
   --sender_config "$BASE_DIR/res/sender_config.yml" \
-  --mail_config "$BASE_DIR/res/mail_config.yml" \
+  --notifier_config "$BASE_DIR/res/notifier_config.yml" \
   --time_config "$BASE_DIR/res/time_condition.yml" \
   --system_config "$BASE_DIR/res/system_config.yml" \
   --snapshot_storage_config "$BASE_DIR/res/snapshot_storage_config.yml"
