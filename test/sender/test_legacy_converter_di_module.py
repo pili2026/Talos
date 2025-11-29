@@ -22,7 +22,7 @@ class TestGetDoStateForDi:
         assert result == 0
 
     def test_ima_c_invalid_dout_value(self):
-        """IMA_C: DOut has invalid value."""
+        """IMA_C: DOut has invalid value - degrades to 0."""
         snapshot = {"DOut01": "invalid"}
 
         result = _get_do_state_for_di(snapshot, 1, "IMA_C")
@@ -165,8 +165,8 @@ class TestConvertDiModuleSnapshot:
 
         assert result == []
 
-    def test_invalid_di_value_skipped(self):
-        """Invalid DIn values are skipped with warning."""
+    def test_invalid_di_value_generates_minus_one_record(self):
+        """Invalid DIn values generate -1 records (preserves DeviceID stability)."""
         snapshot = {
             "DIn01": "invalid",
             "DIn02": "0",
@@ -176,11 +176,16 @@ class TestConvertDiModuleSnapshot:
 
         result = convert_di_module_snapshot(gateway_id="GW123456789AB", slave_id="5", snapshot=snapshot, model="IMA_C")
 
-        # Only DIn02 should be processed
-        assert len(result) == 1
-        assert result[0]["Data"]["Relay0"] == 0
-        assert result[0]["Data"]["MCStatus0"] == 0
-        assert result[0]["DeviceID"].endswith("051SR")  # Still uses idx=0
+        # Both DIn pins should generate records
+        assert len(result) == 2
+
+        # DIn01 (invalid) → Relay0 = -1
+        assert result[0]["Data"]["Relay0"] == -1
+        assert result[0]["DeviceID"] == "GW123456789AB_050SR"
+
+        # DIn02 (valid) → Relay0 = 0
+        assert result[1]["Data"]["Relay0"] == 0
+        assert result[1]["DeviceID"] == "GW123456789AB_051SR"
 
     def test_device_id_format(self):
         """DeviceID format is correct."""

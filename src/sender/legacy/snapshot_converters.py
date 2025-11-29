@@ -32,6 +32,10 @@ def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
           DIn01 → DOut01, DIn02 → DOut02
     - Other models: No mapping, returns 0
 
+    Error handling:
+    - DOut read failure degrades to 0 (non-critical auxiliary field)
+    - This is safe because MCStatus0 is only used for monitoring DO feedback in test environments
+
     Args:
         snapshot: Device snapshot containing DOut values
         di_pin_num: DI pin number (e.g., 1 for DIn01)
@@ -47,6 +51,8 @@ def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
         0
         >>> _get_do_state_for_di({}, 1, "IMA_C")
         0
+        >>> _get_do_state_for_di({"DOut01": "invalid"}, 1, "IMA_C")
+        0
     """
     if model != "IMA_C":
         return 0
@@ -59,17 +65,15 @@ def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
         return 0
 
     try:
-        do_value = int(float(snapshot[do_pin_name]))
-        # Check if it's a missing value
-        if do_value == DEFAULT_MISSING_VALUE:
-            logger.debug(f"[LegacyFormat] {do_pin_name} is missing (-1) for IMA_C")
-            return DEFAULT_MISSING_VALUE
-        return do_value
+        return int(float(snapshot[do_pin_name]))
     except Exception as e:
         logger.warning(
-            f"[LegacyFormat] Invalid DOut value for {do_pin_name}: " f"{snapshot.get(do_pin_name)}, error: {e}"
+            f"[LegacyFormat] Invalid DOut value for {do_pin_name}: "
+            f"{snapshot.get(do_pin_name)}, error: {e} - degrading to 0"
         )
-        return DEFAULT_MISSING_VALUE
+        # NOTE: DOut is auxiliary field (MCStatus0), safe to degrade to 0
+        # Represents "DO not triggered" which is reasonable default
+        return 0
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str], model: str) -> list[dict]:
@@ -77,9 +81,29 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
     Convert Digital Input module to legacy format.
 
     Each DI pin generates one record with:
-    - Relay0: DI pin value (0/1)
+    - Relay0: DI pin value (0/1/-1)
     - MCStatus0: Corresponding DO state (model-specific, see _get_do_state_for_di)
     - Relay1, MCStatus1, ByPass: Reserved fields (currently 0)
+
+    Error handling strategy (v2 - adopted 2024):
+    - DIn (Relay0) read failure: Generate record with -1 (preserves DeviceID stability)
+    - DOut (MCStatus0) read failure: Degrade to 0 (non-critical auxiliary field)
+
+    Rationale:
+    1. DeviceID stability: idx must remain consistent across polling cycles
+       - Skipping failed DIn would cause idx shift → DeviceID mismatch
+       - Example: If DIn02 fails and is skipped, DIn03 gets idx=1 instead of idx=2
+
+    2. Observability: -1 allows Legacy Cloud to track device failures
+       - Can query: SELECT * FROM records WHERE Relay0 = -1
+       - Maintains time-series continuity (record count stays constant)
+
+    3. Safe degradation: DOut is non-critical (only used in test environments for DO→DI feedback monitoring)
+
+    TODO: Verify Legacy Cloud correctly handles Relay0 = -1
+          - Should display as "Read Failed" or similar warning state
+          - Must NOT be treated as truthy (ON state)
+          - Test payload: {"Relay0": -1, "MCStatus0": 0, ...}
 
     Model-specific behavior:
     - IMA_C: MCStatus0 populated from matching DOut pin (DIn01→DOut01, DIn02→DOut02)
@@ -113,6 +137,17 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         0
         >>> result[1]["Data"]["MCStatus0"]  # DOut02 value
         0
+
+        >>> snapshot_with_failure = {"DIn01": "1", "DIn02": "invalid", "DIn03": "0"}
+        >>> result = convert_di_module_snapshot("GW123", "5", snapshot_with_failure, "IMA_C")
+        >>> len(result)
+        3
+        >>> result[1]["Data"]["Relay0"]  # DIn02 failed
+        -1
+        >>> result[1]["DeviceID"]  # DeviceID stable
+        'GW123_051SR'
+        >>> result[2]["DeviceID"]  # DIn03 has correct idx
+        'GW123_052SR'
     """
     result = []
 
@@ -141,26 +176,31 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
         try:
             pin_value = int(float(snapshot[pin_name]))
         except Exception as e:
-            logger.warning(f"[LegacyFormat] Invalid value for {pin_name}: " f"{snapshot.get(pin_name)}, error: {e}")
+            logger.warning(
+                f"[LegacyFormat] Invalid value for {pin_name}: "
+                f"{snapshot.get(pin_name)}, error: {e} - using DEFAULT_MISSING_VALUE"
+            )
+            # NOTE: Generate -1 record instead of skipping to preserve DeviceID stability
+            # This ensures idx remains consistent across polling cycles
             pin_value = DEFAULT_MISSING_VALUE
 
-        # Model-specific DO state mapping
+        # Model-specific DO state mapping (degrades to 0 on failure)
         mc_status0 = _get_do_state_for_di(snapshot, pin_num, model)
 
         policy: DeviceIdPolicy = get_policy()
         device_id = policy.build_device_id(
             gateway_id=gateway_id,
             slave_id=slave_id,
-            idx=idx,  # DIn01 → idx=0, DIn02 → idx=1, ...
+            idx=idx,  # Stable idx ensures consistent DeviceID
             eq_suffix=EquipmentType.SR,
         )
 
         data = {
-            "Relay0": pin_value,
-            "Relay1": 0,
-            "MCStatus0": mc_status0,  # Now populated for IMA_C
-            "MCStatus1": 0,
-            "ByPass": 0,
+            "Relay0": pin_value,  # DI state: 0/1/-1 (where -1 = read failed)
+            "Relay1": 0,  # Reserved
+            "MCStatus0": mc_status0,  # DO state: 0/1 (degrades to 0 on failure)
+            "MCStatus1": 0,  # Reserved
+            "ByPass": 0,  # Reserved
         }
 
         result.append({"DeviceID": device_id, "Data": data})
@@ -274,6 +314,9 @@ def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dic
 def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: dict[str, str]) -> list[dict]:
     """
     Convert driver snapshot into SE's Data.
+
+    NOTE: Driver contract guarantees that failed reads are represented as "-1" string.
+          This ensures to_float("-1") correctly returns -1.0 (our missing value sentinel).
 
     Supports multiple power meter patterns:
     1. Simple pattern (e.g., DAE_PM210): Direct Kwh/Kvarh fields
