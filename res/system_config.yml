@@ -6,9 +6,9 @@ PATHS:
 
 
 DEVICE_ID_POLICY:
-  SERIES: 0
+  SERIES: 1
   WIDTH: 3
-  RADIX: hex
+  RADIX: device36
   UPPERCASE: true
   PREFIX: ""
 
