@@ -124,8 +124,14 @@ class AsyncGenericModbusDevice:
         if pin_register_type == "coil":
             # Read Coil (FC 01)
             try:
-                raw_bool = await bus.read_coil(offset)
-                value = 1 if raw_bool else 0
+                raw_value: int = await bus.read_coil(offset)
+                # Check for read failure first
+                if raw_value == DEFAULT_MISSING_VALUE:
+                    self.logger.warning(
+                        f"[{self.model}:{self.slave_id}] " f"Parameter '{name}' (coil) read failed (offset={offset})"
+                    )
+                    return DEFAULT_MISSING_VALUE
+                value: int = 1 if raw_value else 0
             except Exception as e:
                 self.logger.warning(
                     f"[{self.model}:{self.slave_id}] " f"Parameter '{name}' (coil) read failed (offset={offset}) - {e}"
@@ -135,8 +141,15 @@ class AsyncGenericModbusDevice:
         elif pin_register_type == "discrete_input":
             # Read Discrete Input (FC 02)
             try:
-                raw_bool: bool = await bus.read_discrete_input(offset)
-                value = 1 if raw_bool else 0
+                raw_value: int = await bus.read_discrete_input(offset)
+                # Check for read failure first
+                if raw_value == DEFAULT_MISSING_VALUE:
+                    self.logger.warning(
+                        f"[{self.model}:{self.slave_id}] "
+                        f"Parameter '{name}' (discrete_input) read failed (offset={offset})"
+                    )
+                    return DEFAULT_MISSING_VALUE
+                value = 1 if raw_value else 0
             except Exception as e:
                 self.logger.warning(
                     f"[{self.model}:{self.slave_id}] "

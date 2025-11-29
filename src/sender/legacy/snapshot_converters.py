@@ -4,11 +4,10 @@ import logging
 import re
 from typing import Any
 
-from model.device_constant import POWER_METER_FIELDS
+from model.device_constant import DEFAULT_MISSING_VALUE, POWER_METER_FIELDS
 from model.enum.equipment_enum import EquipmentType
 from util.converter_invstatus import compute_legacy_invstatus_code, to_int_or_none, u16_to_bit_flags, u16_to_hex
 from util.device_id_policy import DeviceIdPolicy, get_policy
-from util.register_formula import combine_32bit_be
 from util.value_util import to_float, to_int
 
 _COMMON_FIELDS = [k for k, v in POWER_METER_FIELDS.items() if v["common"]]
@@ -60,12 +59,17 @@ def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
         return 0
 
     try:
-        return int(float(snapshot[do_pin_name]))
+        do_value = int(float(snapshot[do_pin_name]))
+        # Check if it's a missing value
+        if do_value == DEFAULT_MISSING_VALUE:
+            logger.debug(f"[LegacyFormat] {do_pin_name} is missing (-1) for IMA_C")
+            return DEFAULT_MISSING_VALUE
+        return do_value
     except Exception as e:
         logger.warning(
             f"[LegacyFormat] Invalid DOut value for {do_pin_name}: " f"{snapshot.get(do_pin_name)}, error: {e}"
         )
-        return 0
+        return DEFAULT_MISSING_VALUE
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str], model: str) -> list[dict]:
@@ -138,7 +142,7 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
             pin_value = int(float(snapshot[pin_name]))
         except Exception as e:
             logger.warning(f"[LegacyFormat] Invalid value for {pin_name}: " f"{snapshot.get(pin_name)}, error: {e}")
-            continue
+            pin_value = DEFAULT_MISSING_VALUE
 
         # Model-specific DO state mapping
         mc_status0 = _get_do_state_for_di(snapshot, pin_num, model)
@@ -285,7 +289,11 @@ def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: d
     """
 
     # --- Direct mapping for common fields ---
-    mapped = {field: to_float(values.get(field)) for field in _COMMON_FIELDS}
+    # Driver puts "-1" for failed reads, so to_float("-1") → -1.0 (correct)
+    # Missing fields use else branch → float(DEFAULT_MISSING_VALUE) → -1.0
+    mapped = {
+        field: to_float(values[field]) if field in values else float(DEFAULT_MISSING_VALUE) for field in _COMMON_FIELDS
+    }
 
     # --- Energies: Try patterns in order of simplicity ---
 
