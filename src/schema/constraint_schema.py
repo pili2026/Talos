@@ -6,8 +6,8 @@ class InitializationConfig(BaseModel):
 
 
 class ConstraintConfig(BaseModel):
-    min: float | None = Field(60, description="Minimum allowed value")
-    max: float | None = Field(60, description="Maximum allowed value")
+    min: float | None = Field(default=60, description="Minimum allowed value")
+    max: float | None = Field(default=60, description="Maximum allowed value")
 
 
 class InstanceConfig(BaseModel):
