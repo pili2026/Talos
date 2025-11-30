@@ -1,15 +1,76 @@
-def to_int(x):
-    try:
-        return int(float(x))
-    except Exception:
-        return 0
+"""Utility functions for value conversion with proper error handling."""
+
+from model.device_constant import DEFAULT_MISSING_VALUE
 
 
 def to_float(x):
+    """
+    Convert value to float.
+
+    Args:
+        x: Value to convert (can be None, str, int, float, etc.)
+
+    Returns:
+        float: Converted value, or -1.0 if conversion fails or input is None.
+
+    Note: Returns -1.0 (not 0.0) on failure to distinguish from actual zero values.
+          This is critical for:
+          - Legacy Cloud to identify read failures
+          - Maintaining "never crash" philosophy in industrial control
+          - Enabling proper alerting on communication issues
+
+    Examples:
+        >>> to_float("123.45")
+        123.45
+        >>> to_float("-1")
+        -1.0
+        >>> to_float(None)
+        -1.0
+        >>> to_float("invalid")
+        -1.0
+        >>> to_float(0)
+        0.0
+    """
+    if x is None:
+        return float(DEFAULT_MISSING_VALUE)
+
     try:
         return float(x)
     except Exception:
-        return 0.0
+        return float(DEFAULT_MISSING_VALUE)
+
+
+def to_int(x):
+    """
+    Convert value to int.
+
+    Args:
+        x: Value to convert (can be None, str, int, float, etc.)
+
+    Returns:
+        int: Converted value, or -1 if conversion fails or input is None.
+
+    Note: Returns -1 (not 0) on failure for consistency with to_float().
+
+    Examples:
+        >>> to_int("123")
+        123
+        >>> to_int("123.9")
+        123
+        >>> to_int(None)
+        -1
+        >>> to_int("invalid")
+        -1
+        >>> to_int(0)
+        0
+    """
+    if x is None:
+        return DEFAULT_MISSING_VALUE
+
+    try:
+        return int(float(x))
+    except Exception:
+        return DEFAULT_MISSING_VALUE
 
 
 def extract_bit(value: int | float, bit: int) -> int:

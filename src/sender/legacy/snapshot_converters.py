@@ -296,16 +296,59 @@ def convert_ai_module_snapshot(
 
 
 def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dict]:
+    """
+    Convert flow meter snapshot to legacy format.
+
+    NOTE: Driver contract guarantees that failed reads are represented as -1.
+          This may be either integer -1 or string "-1" depending on the driver implementation.
+
+    Error handling:
+    - Failed reads (value == -1) are preserved as -1 in output
+    - Scaling is NOT applied to -1 values to avoid confusion
+
+    Special case:
+    - FLOW_DIRECTION: -1 → 65535 (legacy compatibility)
+    """
     policy: DeviceIdPolicy = get_policy()
     device_id = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SF)
+
+    # Convert values with proper -1 handling
+    flow_value = to_float(values.get("FLOW_VALUE"))
+    consumption_value = to_float(values.get("FLOW_CONSUMPTION"))
+    revconsumption_value = to_float(values.get("FLOW_REVCONSUMPTION"))
+    direction_value = to_int(values.get("FLOW_DIRECTION"))
+
+    # Apply scaling only if value is valid (not -1)
+    # Scaling -1 would produce -23.1784214, which is confusing
+    if flow_value == DEFAULT_MISSING_VALUE:
+        flow = float(DEFAULT_MISSING_VALUE)
+    else:
+        flow = round(flow_value * 23.1784214, 4)
+
+    if consumption_value == DEFAULT_MISSING_VALUE:
+        consumption = DEFAULT_MISSING_VALUE
+    else:
+        consumption = int(consumption_value * 23.1784214)
+
+    if revconsumption_value == DEFAULT_MISSING_VALUE:
+        revconsumption = DEFAULT_MISSING_VALUE
+    else:
+        revconsumption = int(revconsumption_value * 23.1784214)
+
+    # Special handling for direction: -1 → 65535 (legacy format)
+    if direction_value == DEFAULT_MISSING_VALUE:
+        direction = 65535
+    else:
+        direction = direction_value
+
     return [
         {
             "DeviceID": device_id,
             "Data": {
-                "flow": round(values.get("FLOW_VALUE", 0.0) * 23.1784214, 4),
-                "consumption": int(values.get("FLOW_CONSUMPTION", 0.0) * 23.1784214),
-                "revconsumption": int(values.get("FLOW_REVCONSUMPTION", 0.0) * 23.1784214),
-                "direction": 65535 if values.get("FLOW_DIRECTION") == -1 else int(values.get("FLOW_DIRECTION", 0)),
+                "flow": flow,
+                "consumption": consumption,
+                "revconsumption": revconsumption,
+                "direction": direction,
             },
         }
     ]

@@ -1,5 +1,6 @@
 """Tests for panel meter converter (GTA-A26-A)."""
 
+from model.device_constant import DEFAULT_MISSING_VALUE
 from sender.legacy.snapshot_converters import convert_panel_meter_snapshot
 
 
@@ -92,8 +93,8 @@ class TestConvertPanelMeterSnapshot:
         assert result[0]["Data"]["consumption"] == 12345
         assert isinstance(result[0]["Data"]["consumption"], int)
 
-    def test_when_totalize_missing_then_default_zero(self):
-        """Missing TOTALIZE defaults to 0."""
+    def test_when_totalize_missing_then_return_minus_one(self):
+        """Missing TOTALIZE returns -1 (not 0) to indicate read failure."""
         values = {
             "RATE": 123.45,
             # TOTALIZE missing
@@ -106,11 +107,12 @@ class TestConvertPanelMeterSnapshot:
         )
 
         assert len(result) == 1
-        assert result[0]["Data"]["consumption"] == 0
-        assert result[0]["Data"]["flow"] == 123.45
+        assert result[0]["Data"]["consumption"] == DEFAULT_MISSING_VALUE  # -1, not 0
+        assert result[0]["Data"]["flow"] == round(123.45, 4)
+        assert result[0]["DeviceID"] == "GW123456789AB_0A0SF"  # slave_id=10 (0x0A), idx=0, suffix=SF
 
-    def test_when_rate_missing_then_default_zero(self):
-        """Missing RATE defaults to 0."""
+    def test_when_rate_missing_then_return_minus_one(self):
+        """Missing RATE returns -1 (not 0) to indicate read failure."""
         values = {
             "TOTALIZE": 12345.0,
             # RATE missing
@@ -124,10 +126,11 @@ class TestConvertPanelMeterSnapshot:
 
         assert len(result) == 1
         assert result[0]["Data"]["consumption"] == 12345
-        assert result[0]["Data"]["flow"] == 0.0
+        assert result[0]["Data"]["flow"] == float(DEFAULT_MISSING_VALUE)  # -1.0, not 0.0
+        assert result[0]["DeviceID"] == "GW123456789AB_0A0SF"
 
-    def test_when_values_empty_then_return_zero_record(self):
-        """Empty values dict returns record with zeros."""
+    def test_when_values_empty_then_return_minus_one_record(self):
+        """Empty values dict returns record with -1 (not 0) to indicate read failures."""
         values = {}
 
         result = convert_panel_meter_snapshot(
@@ -137,10 +140,132 @@ class TestConvertPanelMeterSnapshot:
         )
 
         assert len(result) == 1
+        # All values should be -1 to indicate missing data
+        assert result[0]["Data"]["consumption"] == DEFAULT_MISSING_VALUE
+        assert result[0]["Data"]["flow"] == float(DEFAULT_MISSING_VALUE)
+        assert result[0]["Data"]["revconsumption"] == 0  # Always 0 (not a real field)
+        assert result[0]["Data"]["direction"] == 0  # Always 0 (not a real field)
+
+    def test_when_values_are_none_then_return_minus_one(self):
+        """None values return -1 (not 0) to indicate read failures."""
+        values = {
+            "TOTALIZE": None,
+            "RATE": None,
+        }
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="GW123456789AB",
+            slave_id="10",
+            values=values,
+        )
+
+        assert len(result) == 1
+        # None should be treated as missing data (-1), not valid zero
+        assert result[0]["Data"]["consumption"] == DEFAULT_MISSING_VALUE
+        assert result[0]["Data"]["flow"] == float(DEFAULT_MISSING_VALUE)
+
+    def test_when_values_are_minus_one_string_then_preserve_minus_one(self):
+        """Driver returns "-1" string for read failures, should be preserved as -1."""
+        values = {
+            "TOTALIZE": "-1",
+            "RATE": "-1",
+        }
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="GW123456789AB",
+            slave_id="10",
+            values=values,
+        )
+
+        assert len(result) == 1
+        # "-1" string should be converted to -1 (not scaled)
+        assert result[0]["Data"]["consumption"] == DEFAULT_MISSING_VALUE
+        assert result[0]["Data"]["flow"] == float(DEFAULT_MISSING_VALUE)
+
+    def test_when_totalize_zero_then_preserve_zero(self):
+        """Actual zero value (not missing) should be preserved as 0."""
+        values = {
+            "TOTALIZE": 0.0,  # Valid zero, not missing
+            "RATE": 100.5,
+        }
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="GW123456789AB",
+            slave_id="10",
+            values=values,
+        )
+
+        assert len(result) == 1
+        # Valid zero should remain 0 (distinguishable from -1 failure)
         assert result[0]["Data"]["consumption"] == 0
+        assert result[0]["Data"]["flow"] == round(100.5, 4)
+
+    def test_when_rate_zero_then_preserve_zero(self):
+        """Actual zero flow rate (not missing) should be preserved as 0.0."""
+        values = {
+            "TOTALIZE": 5000.0,
+            "RATE": 0.0,  # Valid zero, not missing
+        }
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="GW123456789AB",
+            slave_id="10",
+            values=values,
+        )
+
+        assert len(result) == 1
+        # Valid zero should remain 0.0 (distinguishable from -1.0 failure)
+        assert result[0]["Data"]["consumption"] == 5000
         assert result[0]["Data"]["flow"] == 0.0
+
+    def test_normal_values(self):
+        """Normal operation with valid values."""
+        values = {
+            "TOTALIZE": 12345.67,
+            "RATE": 123.4567,
+        }
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="GW123456789AB",
+            slave_id="10",
+            values=values,
+        )
+
+        assert len(result) == 1
+        assert result[0]["Data"]["consumption"] == 12345  # int conversion
+        assert result[0]["Data"]["flow"] == round(123.4567, 4)  # 123.4567
         assert result[0]["Data"]["revconsumption"] == 0
         assert result[0]["Data"]["direction"] == 0
+        assert result[0]["DeviceID"] == "GW123456789AB_0A0SF"
+
+    def test_device_id_format(self):
+        """Device ID follows SF (flow meter) format."""
+        values = {"TOTALIZE": 100.0, "RATE": 50.0}
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="ABC123",
+            slave_id="5",
+            values=values,
+        )
+
+        assert result[0]["DeviceID"] == "ABC123_050SF"
+
+    def test_partial_read_failure_scenario(self):
+        """One field succeeds, one fails - both states should be clear."""
+        values = {
+            "TOTALIZE": 9999.0,  # Success
+            "RATE": "-1",  # Failure
+        }
+
+        result = convert_panel_meter_snapshot(
+            gateway_id="GW123456789AB",
+            slave_id="10",
+            values=values,
+        )
+
+        assert len(result) == 1
+        assert result[0]["Data"]["consumption"] == 9999  # Valid data
+        assert result[0]["Data"]["flow"] == float(DEFAULT_MISSING_VALUE)  # Failed read
 
     def test_when_generating_device_id_then_append_sf_suffix(self):
         """DeviceID uses SF equipment type suffix."""
@@ -279,22 +404,6 @@ class TestConvertPanelMeterSnapshot:
 
         assert result[0]["Data"]["consumption"] == 12345
         assert result[0]["Data"]["flow"] == 123.45
-
-    def test_when_values_are_none_then_default_zero(self):
-        """None values default to 0."""
-        values = {
-            "TOTALIZE": None,
-            "RATE": None,
-        }
-
-        result = convert_panel_meter_snapshot(
-            gateway_id="GW123456789AB",
-            slave_id="10",
-            values=values,
-        )
-
-        assert result[0]["Data"]["consumption"] == 0
-        assert result[0]["Data"]["flow"] == 0.0
 
 
 class TestPanelMeterIntegration:
