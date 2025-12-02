@@ -76,7 +76,9 @@ python src/main.py \
   --instance_config res/device_instance_config.yml \
   --sender_config res/sender_config.yml \
   --mail_config res/mail_config.yml \
-  --time_config res/time_condition.yml
+  --time_config res/time_condition.yml \
+  --notifier_config res/notifier_config.yml \
+  --snapshot_storage_config res/snapshot_storage_config.yml
 ```
 
 #### Method 2: Run API service (development)
@@ -259,7 +261,7 @@ SD400:
   default_alerts:
     - code: "AIN01_HIGH"
       name: "AIn01 overheat"
-      source: "AIn01"
+      sources: ["AIn01"]
       condition: "gt"
       threshold: 49.0
       severity: "WARNING"
@@ -271,7 +273,7 @@ SD400:
       alerts:
         - code: "AIN02_LOW"
           name: "AIn02 low temp"
-          source: "AIn02"
+          sources: ["AIn02"]
           condition: "lt"
           threshold: 10.0
           severity: "WARNING"
@@ -293,7 +295,7 @@ SD400:
       composite:
         any:
           - type: threshold
-            source: AIn01
+            sources: ["AIn01"]
             operator: gt
             threshold: 32.0
             hysteresis: 2.0
