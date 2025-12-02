@@ -29,9 +29,12 @@ class DeviceService:
         self._device_manager = device_manager
         self._config_repo = config_repo
 
-    async def get_all_devices(self) -> list[DeviceInfo]:
+    async def get_all_devices(self, include_status: bool = False) -> list[DeviceInfo]:
         """
         Retrieve a list of all devices.
+
+        Args:
+            include_status: Whether to check actual device connectivity.
 
         Returns:
             list[DeviceInfo]: List of device information.
@@ -39,19 +42,19 @@ class DeviceService:
         device_configs: dict[str, dict[str, Any]] = self._config_repo.get_all_device_configs()
         devices = []
 
-        #  Fixed: iterate over dictionary items
         for device_id, config in device_configs.items():
-            device_info = await self._build_device_info(config)
+            device_info = await self._build_device_info(config, include_status=include_status)
             devices.append(device_info)
 
         return devices
 
-    async def get_device_by_id(self, device_id: str) -> DeviceInfo | None:
+    async def get_device_by_id(self, device_id: str, include_status: bool = True) -> DeviceInfo | None:
         """
         Retrieve device information by ID.
 
         Args:
             device_id: Unique device identifier.
+            include_status: Whether to check actual device connectivity.
 
         Returns:
             DeviceInfo | None: Device information, or None if not found.
@@ -60,7 +63,7 @@ class DeviceService:
         if not config:
             return None
 
-        return await self._build_device_info(config)
+        return await self._build_device_info(config, include_status=include_status)
 
     async def check_device_connectivity(self, device_id: str) -> DeviceConnectionStatus:
         """
@@ -111,18 +114,23 @@ class DeviceService:
 
         return models
 
-    async def _build_device_info(self, config: dict[str, Any]) -> DeviceInfo:
+    async def _build_device_info(self, config: dict[str, Any], include_status: bool = False) -> DeviceInfo:
         """
         Build a DeviceInfo object.
 
         Args:
             config: Device configuration dictionary.
+            include_status: Whether to check actual device connectivity.
 
         Returns:
             DeviceInfo: Constructed device information object.
         """
         device_id = config["device_id"]
-        connection_status = await self.check_device_connectivity(device_id)
+
+        if include_status:
+            connection_status = await self.check_device_connectivity(device_id)
+        else:
+            connection_status = DeviceConnectionStatus.UNKNOWN
 
         return DeviceInfo(
             device_id=device_id,

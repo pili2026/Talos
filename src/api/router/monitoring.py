@@ -82,7 +82,7 @@ async def get_monitoring_status():
 async def get_available_devices():
     """Get the list of devices available for monitoring."""
     config_repo = ConfigRepository()
-    devices = config_repo.get_all_device_configs()
+    devices: dict = config_repo.get_all_device_configs()
 
     device_list = []
     for device_id, config in devices.items():
@@ -347,6 +347,37 @@ async def monitor_single_device(
         param_list = device_config.get("available_parameters", [])
 
     try:
+        logger.info(f"Testing connection to device {device_id}...")
+
+        # Try reading a parameter to test the connection.
+        test_param = param_list[0] if param_list else None
+        if not test_param:
+            await websocket.send_json({"type": "error", "message": f"No parameters available for device {device_id}"})
+            await websocket.close()
+            return
+
+        # Test reading
+        test_result = await service.read_multiple_parameters(device_id, [test_param])
+
+        # Check if successful
+        if not test_result or not any(pv.is_valid for pv in test_result):
+            error_msg = "Failed to connect to device. Please check the connection."
+            logger.error(f"[{device_id}] Connection test failed")
+            await websocket.send_json({"type": "error", "message": error_msg, "code": "CONNECTION_FAILED"})
+            await websocket.close(code=1011)
+            return
+
+        logger.info(f"[{device_id}] ✓ Connection test successful")
+
+    except Exception as e:
+        logger.error(f"[{device_id}] Connection test error: {e}", exc_info=True)
+        await websocket.send_json(
+            {"type": "error", "message": f"Failed to connect to device: {str(e)}", "code": "CONNECTION_ERROR"}
+        )
+        await websocket.close(code=1011)
+        return
+
+    try:
         # Send connection acknowledgment
         await websocket.send_json(
             {
@@ -358,14 +389,39 @@ async def monitor_single_device(
             }
         )
 
+        consecutive_failures = 0
+        max_failures = 3
+
         # Create two concurrent tasks
         async def monitoring_task():
-            """Continuous monitoring task."""
+            nonlocal consecutive_failures
+
             while True:
                 try:
                     param_value_list: list[ParameterValue] = await service.read_multiple_parameters(
                         device_id, param_list
                     )
+
+                    # Check if there is any valid data.
+                    has_valid_data = any(pv.is_valid for pv in param_value_list)
+
+                    if not has_valid_data:
+                        consecutive_failures += 1
+                        logger.warning(f"[{device_id}] No valid data ({consecutive_failures}/{max_failures})")
+
+                        # If consecutive failures exceed the threshold, the connection will be closed.
+                        if consecutive_failures >= max_failures:
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": "Device connection lost. Please reconnect.",
+                                    "code": "CONNECTION_LOST",
+                                }
+                            )
+                            await websocket.close(code=1011)
+                            break
+                    else:
+                        consecutive_failures = 0
 
                     data = {}
                     errors = []
@@ -391,7 +447,20 @@ async def monitor_single_device(
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.error(f"Error in monitoring: {e}")
+                    consecutive_failures += 1
+                    logger.error(f"[{device_id}] Error in monitoring ({consecutive_failures}/{max_failures}): {e}")
+
+                    if consecutive_failures >= max_failures:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "Too many consecutive errors. Closing connection.",
+                                "code": "TOO_MANY_ERRORS",
+                            }
+                        )
+                        await websocket.close(code=1011)
+                        break
+
                     await asyncio.sleep(interval)
 
         async def control_task():
