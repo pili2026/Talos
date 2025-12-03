@@ -31,7 +31,7 @@ class TimeControlExecutor:
                     type=action_type,
                     target=None,
                     value=None,
-                    source="TimeControl",
+                    action_origin="TimeControl",
                     reason=reason,
                 )
             )
@@ -54,7 +54,7 @@ class TimeControlExecutor:
                         type=ControlActionType.WRITE_DO,
                         target=target,  # e.g., "DOut01"
                         value=int(value),
-                        source="TimeControl",
+                        action_origin="TimeControl",
                         reason=f"{reason} -> translate {action_type.name} to {target}={value}",
                     )
                 )

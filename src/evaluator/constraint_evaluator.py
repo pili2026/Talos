@@ -37,7 +37,7 @@ class ConstraintEvaluator:
                             type=ControlActionType.SET_FREQUENCY,
                             target=target,
                             value=corrected_value,
-                            source=self.__class__.__name__,
+                            action_origin=self.__class__.__name__,
                             reason=f"Value {value} out of range [{min_val}, {max_val}]",
                         )
                     )

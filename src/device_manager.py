@@ -120,7 +120,7 @@ class AsyncDeviceManager:
         logger.info("Applying startup frequencies to devices...")
 
         for device in self.device_list:
-            startup_freq = ConfigManager._get_device_startup_frequency(
+            startup_freq = ConfigManager.get_device_startup_frequency(
                 self.constraint_config_schema, device.model, device.slave_id
             )
 
@@ -152,7 +152,7 @@ class AsyncDeviceManager:
             logger.info(f"[{device_id}] Set startup frequency to {final_frequency} Hz")
 
         except Exception as e:
-            logger.error(f"[{device_id}] Failed to set startup frequency: {e}")
+            logger.warning(f"[{device_id}] Failed to set startup frequency: {e}")
 
     def _is_frequency_within_constraints(self, device: AsyncGenericModbusDevice, frequency: float) -> bool:
         """Check whether the frequency is within the device’s constraint range"""

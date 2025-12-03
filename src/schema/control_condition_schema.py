@@ -37,7 +37,7 @@ class ControlActionSchema(BaseModel):
     target: str | None = None
     value: float | int | None = None
     # Tracking metadata (for logging/debugging)
-    source: str | None = None  # Origin of this action (e.g., "local_rule", "mqtt_command")
+    action_origin: str | None = None  # Origin of this action (e.g., "local_rule", "mqtt_command")
     reason: str | None = None
     emergency_override: bool = Field(default=False)
     priority: int | None = None  # Populated by Evaluator at runtime

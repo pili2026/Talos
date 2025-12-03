@@ -1,11 +1,12 @@
-import pytest
 import logging
-from unittest.mock import Mock, AsyncMock, patch
-from device.generic.constraints_policy import ConstraintPolicy
-from device_manager import AsyncDeviceManager
-from device.generic.generic_device import AsyncGenericModbusDevice
+from unittest.mock import AsyncMock, Mock, patch
 
-from schema.constraint_schema import ConstraintConfigSchema, ConstraintConfig
+import pytest
+
+from device.generic.constraints_policy import ConstraintPolicy
+from device.generic.generic_device import AsyncGenericModbusDevice
+from device_manager import AsyncDeviceManager
+from schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
 
 
 @pytest.mark.asyncio
@@ -82,7 +83,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = [mock_device]
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=56):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=56):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -106,7 +107,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = [mock_device]
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=25):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=25):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -129,7 +130,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = [mock_device]
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=70):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=70):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -154,7 +155,7 @@ class TestAsyncDeviceManagerStartupFrequency:
 
         # Act
         # Using global_defaults = 50.0 but constraint requires 60.0
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=50):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=50):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -166,7 +167,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = [mock_device]
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=None):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=None):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -179,8 +180,8 @@ class TestAsyncDeviceManagerStartupFrequency:
         mock_device.write_value.side_effect = Exception("Write failed")
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=56):
-            with caplog.at_level(logging.ERROR):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=56):
+            with caplog.at_level(logging.WARNING):
                 await device_manager._apply_startup_frequency()
 
         # Assert
@@ -221,7 +222,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = devices
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=50):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=50):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -245,7 +246,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = [mock_device]
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=75.0):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=75.0):
             await device_manager._apply_startup_frequency()
 
         # Assert
@@ -281,7 +282,7 @@ class TestAsyncDeviceManagerStartupFrequency:
         device_manager.device_list = [mock_device]
 
         # Act
-        with patch("device_manager.ConfigManager._get_device_startup_frequency", return_value=25.0):
+        with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=25.0):
             with caplog.at_level(logging.WARNING):
                 await device_manager._apply_startup_frequency()
 

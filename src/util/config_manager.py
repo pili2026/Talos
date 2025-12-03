@@ -34,7 +34,7 @@ class ConfigManager:
         return ConstraintConfigSchema(**raw_config)
 
     @staticmethod
-    def _get_device_startup_frequency(config: ConstraintConfigSchema, model: str, slave_id: int) -> float | None:
+    def get_device_startup_frequency(config: ConstraintConfigSchema, model: str, slave_id: int) -> float | None:
         """Retrieve the startup frequency configuration for a device"""
         # 1. Check instance settings
         device_config = config.devices.get(model)

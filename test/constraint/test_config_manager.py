@@ -1,6 +1,7 @@
 import pytest
+
+from schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
 from util.config_manager import ConfigManager
-from schema.constraint_schema import ConstraintConfigSchema, DeviceConfig, ConstraintConfig
 
 
 class TestConfigManagerStartupFrequency:
@@ -29,7 +30,7 @@ class TestConfigManagerStartupFrequency:
         slave_id = 1
 
         # Act
-        freq = ConfigManager._get_device_startup_frequency(sample_config, model, slave_id)
+        freq = ConfigManager.get_device_startup_frequency(sample_config, model, slave_id)
 
         # Assert
         assert freq == 52.0
@@ -41,7 +42,7 @@ class TestConfigManagerStartupFrequency:
         slave_id = 2
 
         # Act
-        freq = ConfigManager._get_device_startup_frequency(sample_config, model, slave_id)
+        freq = ConfigManager.get_device_startup_frequency(sample_config, model, slave_id)
 
         # Assert
         assert freq == 45.0
@@ -53,7 +54,7 @@ class TestConfigManagerStartupFrequency:
         slave_id = 5
 
         # Act
-        freq = ConfigManager._get_device_startup_frequency(sample_config, model, slave_id)
+        freq = ConfigManager.get_device_startup_frequency(sample_config, model, slave_id)
 
         # Assert
         assert freq == 50.0
@@ -64,7 +65,7 @@ class TestConfigManagerStartupFrequency:
         config = ConstraintConfigSchema(**{"LITEON_EVO6800": {"initialization": {"startup_frequency": 45.0}}})
 
         # Act
-        freq = ConfigManager._get_device_startup_frequency(config, "UNKNOWN_MODEL", 1)
+        freq = ConfigManager.get_device_startup_frequency(config, "UNKNOWN_MODEL", 1)
 
         # Assert
         assert freq is None
@@ -76,7 +77,7 @@ class TestConfigManagerStartupFrequency:
         slave_id = 1
 
         # Act
-        freq = ConfigManager._get_device_startup_frequency(sample_config, model, slave_id)
+        freq = ConfigManager.get_device_startup_frequency(sample_config, model, slave_id)
 
         # Assert
         assert freq == 50.0

@@ -45,7 +45,7 @@ class CompositeNode(BaseModel):
     # validation state
     invalid: bool = False
 
-    def calculate_max_depth(self, visited: set[id] = None) -> int:
+    def calculate_max_depth(self, visited: set[int] | None = None) -> int:
         """
         Calculate maximum nesting depth of the composite tree.
         Also detects circular references.
@@ -90,166 +90,38 @@ class CompositeNode(BaseModel):
 
         return max_child_depth + 1
 
-    def _validate_operator_threshold_combination(self) -> list[str]:
-        """Validate operator and threshold field combinations for leaf nodes"""
-        problems = []
-
-        if self.type != ConditionType.THRESHOLD:
-            return problems
-
-        if self.operator == ConditionOperator.BETWEEN:
-            # BETWEEN requires both min and max
-            if self.min is None or self.max is None:
-                problems.append("BETWEEN operator requires both 'min' and 'max' values")
-            elif self.min >= self.max:
-                problems.append("For BETWEEN operator, 'min' must be less than 'max'")
-            # BETWEEN should not use threshold
-            if self.threshold is not None:
-                problems.append("BETWEEN operator should not specify 'threshold' (use 'min' and 'max')")
-
-        elif self.operator == ConditionOperator.EQUAL:
-            # EQUAL requires threshold
-            if self.threshold is None:
-                problems.append("EQUAL operator requires 'threshold' value")
-            # EQUAL should not use min/max
-            if self.min is not None or self.max is not None:
-                problems.append("EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
-
-        elif self.operator in {
-            ConditionOperator.GREATER_THAN,
-            ConditionOperator.LESS_THAN,
-            ConditionOperator.GREATER_THAN_OR_EQUAL,
-            ConditionOperator.LESS_THAN_OR_EQUAL,
-        }:
-            # GT/LT requires threshold
-            if self.threshold is None:
-                problems.append(f"{self.operator.value.upper()} operator requires 'threshold' value")
-            # GT/LT should not use min/max
-            if self.min is not None or self.max is not None:
-                problems.append(
-                    f"{self.operator.value.upper()} operator should not specify 'min' or 'max' (use 'threshold')"
-                )
-
-        return problems
-
     @model_validator(mode="after")
     def validate_structure(self) -> CompositeNode:
         problems: list[str] = []
+
         group_count = sum(x is not None for x in (self.all, self.any, self.not_))
         is_leaf = self.type is not None
 
-        # Basic structure validation: exactly one group OR exactly one leaf
-        if group_count == 1 and not is_leaf:
-            # Group node validation
-            if self.all is not None:
-                if not self.all:
-                    problems.append("'all' must contain at least one child")
-                elif len(self.all) > self.MAX_CHILDREN_PER_NODE:
-                    problems.append(f"'all' cannot have more than {self.MAX_CHILDREN_PER_NODE} children")
+        # ---- Basic structure: group vs leaf ----
+        match (group_count, is_leaf):
+            # Group node: exactly 1 of (all / any / not_) is set, and no type
+            case (1, False):
+                problems.extend(self._validate_group_node())
 
-                # Always check child validity regardless of count issues
-                if self.all:
-                    invalid_children = [i for i, child in enumerate(self.all) if child.invalid]
-                    if invalid_children:
-                        problems.append(f"'all' contains invalid child nodes at indices: {invalid_children}")
+            # Leaf node: no group, but has type
+            case (0, True):
+                problems.extend(self._validate_leaf_node())
 
-            if self.any is not None:
-                if not self.any:
-                    problems.append("'any' must contain at least one child")
-                elif len(self.any) > self.MAX_CHILDREN_PER_NODE:
-                    problems.append(f"'any' cannot have more than {self.MAX_CHILDREN_PER_NODE} children")
+            # Anything else is invalid
+            case _:
+                problems.append(
+                    "node must be either group(all/any/not) OR " "leaf(type=threshold|difference|average|sum|min|max)"
+                )
 
-                # Always check child validity regardless of count issues
-                if self.any:
-                    invalid_children = [i for i, child in enumerate(self.any) if child.invalid]
-                    if invalid_children:
-                        problems.append(f"'any' contains invalid child nodes at indices: {invalid_children}")
-
-            if self.not_ is not None:
-                # Check if the 'not' child node is invalid
-                if self.not_.invalid:
-                    problems.append("'not' contains invalid child node")
-
-        elif group_count == 0 and is_leaf:
-            # Leaf node validation
-            if self.type == ConditionType.THRESHOLD:
-                if not self.sources or len(self.sources) != 1:
-                    problems.append("threshold condition requires exactly 1 source in 'sources' list")
-                else:
-                    # Advanced operator-threshold combination validation
-                    problems.extend(self._validate_operator_threshold_combination())
-
-                if not self.sources:
-                    problems.append("threshold condition requires non-empty 'source'")
-
-            elif self.type == ConditionType.DIFFERENCE:
-                if self.operator is None:
-                    problems.append("difference condition requires 'operator'")
-
-                # Validate sources list with clear error messages
-                if not self.sources:
-                    problems.append("difference condition requires 'sources' list")
-                elif len(self.sources) != 2:
-                    problems.append("difference condition requires exactly 2 sources")
-                elif self.sources[0] == self.sources[1]:
-                    problems.append("difference condition sources must be different")
-
-                # Validate operator compatibility with difference type
-                if self.operator == ConditionOperator.BETWEEN:
-                    if self.min is None or self.max is None:
-                        problems.append("difference-BETWEEN requires 'min' and 'max' values")
-                elif self.operator in {
-                    ConditionOperator.GREATER_THAN,
-                    ConditionOperator.LESS_THAN,
-                    ConditionOperator.EQUAL,
-                }:
-                    if self.threshold is None:
-                        problems.append(f"difference-{self.operator.value.upper()} requires 'threshold' value")
-            elif self.type in {
-                ConditionType.AVERAGE,
-                ConditionType.SUM,
-                ConditionType.MIN,
-                ConditionType.MAX,
-            }:
-                if self.operator is None:
-                    problems.append(f"{self.type} condition requires 'operator'")
-
-                if not self.sources:
-                    problems.append(f"{self.type} condition requires 'sources' list")
-                elif len(self.sources) < 2:
-                    problems.append(f"{self.type} condition requires at least 2 sources")
-                elif len(set(self.sources)) != len(self.sources):
-                    problems.append(f"{self.type} condition sources must be unique (found duplicates)")
-
-                if self.operator == ConditionOperator.BETWEEN:
-                    if self.min is None or self.max is None:
-                        problems.append(f"{self.type}-BETWEEN requires 'min' and 'max' values")
-                elif self.operator in {
-                    ConditionOperator.GREATER_THAN,
-                    ConditionOperator.LESS_THAN,
-                    ConditionOperator.EQUAL,
-                    ConditionOperator.GREATER_THAN_OR_EQUAL,
-                    ConditionOperator.LESS_THAN_OR_EQUAL,
-                }:
-                    if self.threshold is None:
-                        problems.append(f"{self.type}-{self.operator.value.upper()} requires 'threshold' value")
-            else:
-                problems.append(f"unsupported condition type: {self.type}")
-        else:
-            problems.append(
-                "node must be either group(all/any/not) OR leaf(type=threshold|difference|average|sum|min|max)"
-            )
-
-        # Advanced validations (only if basic structure is valid)
+        # ---- Advanced validations (only if basic structure is valid) ----
         if not problems:
-            # Check nesting depth and circular references - no exceptions, just validation
             depth = self.calculate_max_depth()
             if depth == -1:
                 problems.append("circular reference detected in composite structure")
             elif depth > self.MAX_NESTING_DEPTH:
-                problems.append(f"composite structure exceeds maximum nesting depth ({self.MAX_NESTING_DEPTH})")
+                problems.append(f"composite structure exceeds maximum nesting depth " f"({self.MAX_NESTING_DEPTH})")
 
-        # Log problems and mark as invalid if any found
+        # ---- Mark invalid & log ----
         if problems:
             for msg in problems:
                 logger.warning(f"[COMPOSITE] Validation error: {msg}")
@@ -264,8 +136,16 @@ class CompositeNode(BaseModel):
         if v is None:
             return None
         try:
-            normalized = [s for s in (str(x).strip() for x in v) if s]
-            return normalized if normalized else None
+            if isinstance(v, str):
+                stripped: str = v.strip()
+                return [stripped] if stripped else None
+
+            if not isinstance(v, (list, tuple, set)):
+                logger.warning(f"[COMPOSITE] sources should be a list or string, got {type(v).__name__}: {v}")
+                return None
+
+            normalized: list[str] = [s for s in (str(x).strip() for x in v) if s]
+            return normalized or None
         except (TypeError, AttributeError) as e:
             logger.warning(f"[COMPOSITE] Failed to normalize sources {v}: {e}")
             return None
@@ -281,8 +161,219 @@ class CompositeNode(BaseModel):
                     field_name = info.field_name if hasattr(info, "field_name") else "numeric_field"
                     logger.warning(f"[COMPOSITE] {field_name} should be non-negative, got: {float_v}")
                 return float_v
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError):
                 field_name = info.field_name if hasattr(info, "field_name") else "numeric_field"
                 logger.error(f"[COMPOSITE] Invalid numeric value for {field_name}: {v}")
                 return None
         return v
+
+    def _validate_operator_threshold_combination(self) -> list[str]:
+        """Validate operator and threshold field combinations for leaf nodes"""
+        problems = []
+
+        if self.type != ConditionType.THRESHOLD:
+            return problems
+
+        operator: ConditionOperator | None = self.operator
+
+        match operator:
+            # ------------------------------
+            # BETWEEN
+            # ------------------------------
+            case ConditionOperator.BETWEEN:
+                if self.min is None or self.max is None:
+                    problems.append("BETWEEN operator requires both 'min' and 'max' values")
+                elif self.min >= self.max:
+                    problems.append("For BETWEEN operator, 'min' must be less than 'max'")
+
+                if self.threshold is not None:
+                    problems.append("BETWEEN operator should not specify 'threshold' (use 'min' and 'max')")
+
+            # ------------------------------
+            # EQUAL
+            # ------------------------------
+            case ConditionOperator.EQUAL:
+                if self.threshold is None:
+                    problems.append("EQUAL operator requires 'threshold' value")
+
+                if self.min is not None or self.max is not None:
+                    problems.append("EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
+
+            # ------------------------------
+            # GREATER / LESS variants
+            # ------------------------------
+            case (
+                ConditionOperator.GREATER_THAN
+                | ConditionOperator.LESS_THAN
+                | ConditionOperator.GREATER_THAN_OR_EQUAL
+                | ConditionOperator.LESS_THAN_OR_EQUAL
+            ):
+                if self.threshold is None:
+                    problems.append(f"{operator.value.upper()} operator requires 'threshold' value")
+
+                if self.min is not None or self.max is not None:
+                    problems.append(
+                        f"{operator.value.upper()} operator should not specify 'min' or 'max' (use 'threshold')"
+                    )
+
+            # ------------------------------
+            # Default: no additional validation
+            # ------------------------------
+            case _:
+                pass
+
+        return problems
+
+    # ====== Group node helpers ======
+
+    def _validate_group_node(self) -> list[str]:
+        """Validate group node (all / any / not_)"""
+        problems: list[str] = []
+
+        problems.extend(self._validate_group_children("all", self.all))
+        problems.extend(self._validate_group_children("any", self.any))
+
+        # not_ is a single child
+        if self.not_ is not None and self.not_.invalid:
+            problems.append("'not' contains invalid child node")
+
+        return problems
+
+    def _validate_group_children(
+        self,
+        group_name: str,
+        children: list["CompositeNode"] | None,
+    ) -> list[str]:
+        """Shared validation logic for 'all' and 'any' groups."""
+        problems: list[str] = []
+
+        if children is None:
+            return problems
+
+        if not children:
+            problems.append(f"'{group_name}' must contain at least one child")
+        elif len(children) > self.MAX_CHILDREN_PER_NODE:
+            problems.append(f"'{group_name}' cannot have more than {self.MAX_CHILDREN_PER_NODE} children")
+
+        # Always check child validity regardless of count issues
+        if children:
+            invalid_indices = [i for i, child in enumerate(children) if child.invalid]
+            if invalid_indices:
+                problems.append(f"'{group_name}' contains invalid child nodes at indices: {invalid_indices}")
+
+        return problems
+
+    # ====== Leaf node dispatcher (match-case by type) ======
+
+    def _validate_leaf_node(self) -> list[str]:
+        """Dispatch leaf validation based on condition type."""
+        problems: list[str] = []
+
+        if self.type is None:
+            problems.append("leaf node must have 'type'")
+            return problems
+
+        match self.type:
+            case ConditionType.THRESHOLD:
+                problems.extend(self._validate_threshold_leaf())
+
+            case ConditionType.DIFFERENCE:
+                problems.extend(self._validate_difference_leaf())
+
+            case ConditionType.AVERAGE | ConditionType.SUM | ConditionType.MIN | ConditionType.MAX:
+                problems.extend(self._validate_aggregate_leaf())
+
+            case _:
+                problems.append(f"unsupported condition type: {self.type}")
+
+        return problems
+
+    # ====== THRESHOLD leaf ======
+
+    def _validate_threshold_leaf(self) -> list[str]:
+        problems: list[str] = []
+
+        if not self.sources:
+            problems.append("threshold condition requires non-empty 'sources' list")
+            return problems
+
+        if len(self.sources) != 1:
+            problems.append("threshold condition requires exactly 1 source in 'sources' list")
+            return problems
+
+        problems.extend(self._validate_operator_threshold_combination())
+        return problems
+
+    # ====== DIFFERENCE leaf ======
+
+    def _validate_difference_leaf(self) -> list[str]:
+        problems: list[str] = []
+
+        # operator
+        if self.operator is None:
+            problems.append("difference condition requires 'operator'")
+
+        # sources
+        if not self.sources:
+            problems.append("difference condition requires 'sources' list")
+        elif len(self.sources) != 2:
+            problems.append("difference condition requires exactly 2 sources")
+        elif self.sources[0] == self.sources[1]:
+            problems.append("difference condition sources must be different")
+
+        # operator compatibility (using match-case)
+        match self.operator:
+            case ConditionOperator.BETWEEN:
+                if self.min is None or self.max is None:
+                    problems.append("difference-BETWEEN requires 'min' and 'max' values")
+
+            case ConditionOperator.GREATER_THAN | ConditionOperator.LESS_THAN | ConditionOperator.EQUAL:
+                if self.threshold is None:
+                    problems.append(f"difference-{self.operator.value.upper()} requires 'threshold' value")
+
+            case _:
+                # other operators are either unsupported or don't need extra validation
+                pass
+
+        return problems
+
+    # ====== AVERAGE / SUM / MIN / MAX leaf ======
+
+    def _validate_aggregate_leaf(self) -> list[str]:
+        """Validation for AVERAGE / SUM / MIN / MAX types."""
+        problems: list[str] = []
+        agg_type = self.type.value if self.type is not None else "aggregate"  # just for shorter messages
+
+        # operator
+        if self.operator is None:
+            problems.append(f"{agg_type} condition requires 'operator'")
+
+        # sources: at least 2, all unique
+        if not self.sources:
+            problems.append(f"{agg_type} condition requires 'sources' list")
+        elif len(self.sources) < 2:
+            problems.append(f"{agg_type} condition requires at least 2 sources")
+        elif len(set(self.sources)) != len(self.sources):
+            problems.append(f"{agg_type} condition sources must be unique (found duplicates)")
+
+        # operator compatibility (using match-case)
+        match self.operator:
+            case ConditionOperator.BETWEEN:
+                if self.min is None or self.max is None:
+                    problems.append(f"{agg_type}-BETWEEN requires 'min' and 'max' values")
+
+            case (
+                ConditionOperator.GREATER_THAN
+                | ConditionOperator.LESS_THAN
+                | ConditionOperator.EQUAL
+                | ConditionOperator.GREATER_THAN_OR_EQUAL
+                | ConditionOperator.LESS_THAN_OR_EQUAL
+            ):
+                if self.threshold is None:
+                    problems.append(f"{agg_type}-{self.operator.value.upper()} requires 'threshold' value")
+
+            case _:
+                # other operators either unsupported or don't have extra constraints here
+                pass
+
+        return problems
