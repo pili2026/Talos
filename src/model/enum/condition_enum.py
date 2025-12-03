@@ -17,6 +17,7 @@ class ConditionType(StrEnum):
     SUM = "sum"
     MIN = "min"
     MAX = "max"
+    SCHEDULE_EXPECTED_STATE = "schedule_expected_state"
 
 
 class ConditionOperator(StrEnum):

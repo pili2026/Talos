@@ -1,428 +1,376 @@
-# Template from Dayandday Field
-version: "1.0.0"
-
 # ============================================================
-# Alert Condition Configuration
+# Talos Alert Condition Configuration Template
+# Version: 1.1.0 (with schedule_expected_state support)
 # ============================================================
-# Architecture: Sensor Device Model → Instances → Alerts
-# All alerts now use 'sources' (list) instead of 'source'
+# This template demonstrates all available alert types and configurations.
+# Copy and modify sections as needed for your deployment.
 # ============================================================
 
+version: "1.1.0"
+
 # ============================================================
-# Loop 0: Dissolved Oxygen Alerts
+# EXAMPLE 1: Threshold Alerts (Single Source)
 # ============================================================
+# Use case: Monitor single parameter against fixed threshold
+# Supported devices: Any device with readable parameters
+# ============================================================
+
+# Example: Temperature monitoring
+ADAM-4117:
+  instances:
+    "10":
+      use_default_alerts: false
+      alerts:
+        # Single threshold alert
+        - code: "TEMP_HIGH"
+          name: "Temperature High Warning"
+          sources: ["AIn01"]  # Single source (must be list)
+          type: "threshold"
+          condition: "gt"  # gt, lt, eq, gte, lte, neq
+          threshold: 35.0
+          severity: "WARNING"  # CRITICAL, ERROR, WARNING, INFO
+          message: "Temperature exceeds 35°C"  # Optional custom message
+
+# Example: Dissolved oxygen monitoring
 DO750:
   instances:
     "5":
       use_default_alerts: false
       alerts:
-        # Critical low: DO < 1.5 mg/l
-        - code: "LOOP0_DO_CRITICAL_LOW"
+        # Critical low threshold
+        - code: "DO_CRITICAL_LOW"
           name: "Dissolved Oxygen Critical Low"
-          sources: ["O2_PCT"]  # Single source wrapped in list
+          sources: ["O2_PCT"]
           type: "threshold"
           condition: "lt"
           threshold: 1.5
           severity: "CRITICAL"
-          message: "Dissolved oxygen critically low (< 1.5 mg/l). Emergency aeration activated."
+          message: "DO critically low (< 1.5 mg/l). Emergency action required."
         
-        # Warning high: DO > 3.0 mg/l
-        - code: "LOOP0_DO_WARNING_HIGH"
+        # Warning high threshold
+        - code: "DO_WARNING_HIGH"
           name: "Dissolved Oxygen High"
-          sources: ["O2_PCT"]  # Single source wrapped in list
+          sources: ["O2_PCT"]
           type: "threshold"
           condition: "gt"
           threshold: 3.0
           severity: "WARNING"
-          message: "Dissolved oxygen level high (> 3.0 mg/l). Check system."
+          message: "DO level high (> 3.0 mg/l). Check aeration system."
 
 # ============================================================
-# Loop 1: Temperature Alerts
+# EXAMPLE 2: Aggregate Alerts (Multiple Sources)
 # ============================================================
+# Use case: Monitor combined/averaged values from multiple sensors
+# Types: average, sum, min, max
+# Requires: At least 2 sources
+# ============================================================
+
 ADAM-4117:
   instances:
-    # ========== Slave 12: Oxygen Fermenter (連氧發酵機) ==========
-    # Alert when average temperature > 40°C
     "12":
       use_default_alerts: false
       alerts:
-        # Average of AIn02 and AIn03 > 40°C
-        - code: "LOOP1_R1_AVG_OVERHEAT"
-          name: "Oxygen Fermenter Avg Temp High"
-          sources: ["AIn02", "AIn03"]  # Multiple sources for average
-          type: "average"  # Use average aggregate type
+        # Average temperature alert
+        - code: "AVG_TEMP_HIGH"
+          name: "Average Temperature High"
+          sources: ["AIn02", "AIn03"]  # Multiple sources required
+          type: "average"
           condition: "gt"
           threshold: 40.0
           severity: "CRITICAL"
-          message: "Oxygen fermenter average temperature exceeds 40°C."
+          message: "Average temperature exceeds 40°C"
         
-        # Individual sensor alerts for redundancy
-        - code: "LOOP1_R1_AIN02_OVERHEAT"
-          name: "Oxygen Fermenter Temp 1 High"
-          sources: ["AIn02"]
-          type: "threshold"
+        # Sum of currents alert
+        - code: "TOTAL_CURRENT_HIGH"
+          name: "Total Current High"
+          sources: ["AIn04", "AIn05", "AIn06"]
+          type: "sum"
           condition: "gt"
-          threshold: 42.0
+          threshold: 100.0
           severity: "WARNING"
-          message: "Oxygen fermenter temperature sensor 1 (AIn02) exceeds 42°C."
+          message: "Total current exceeds 100A"
         
-        - code: "LOOP1_R1_AIN03_OVERHEAT"
-          name: "Oxygen Fermenter Temp 2 High"
-          sources: ["AIn03"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
+        # Minimum temperature alert
+        - code: "MIN_TEMP_LOW"
+          name: "Minimum Temperature Low"
+          sources: ["AIn02", "AIn03"]
+          type: "min"
+          condition: "lt"
+          threshold: 20.0
           severity: "WARNING"
-          message: "Oxygen fermenter temperature sensor 2 (AIn03) exceeds 42°C."
+          message: "Minimum temperature below 20°C"
+        
+        # Maximum temperature alert
+        - code: "MAX_TEMP_HIGH"
+          name: "Maximum Temperature High"
+          sources: ["AIn02", "AIn03", "AIn04"]
+          type: "max"
+          condition: "gt"
+          threshold: 45.0
+          severity: "CRITICAL"
+          message: "Maximum temperature exceeds 45°C"
 
-    # ========== Slave 14: Exhaust Fermenter (排氣發酵機) ==========
-    # Alert when average temperature > 40°C
+# ============================================================
+# EXAMPLE 3: Schedule Expected State Alerts (Time-Based)
+# ============================================================
+# Use case: Detect devices running outside scheduled work hours
+# Requirements:
+#   - TimeControl must be enabled with work_hours configured
+#   - Device must have readable state parameter (e.g., RW_ON_OFF)
+#   - Only applicable to controllable devices (VFD, pumps, etc.)
+# Behavior:
+#   - No alert during work_hours (device allowed to run)
+#   - Alert triggered outside work_hours if state != expected_state
+# ============================================================
+
+# Example: Blower/pump shutdown monitoring
+TECO_VFD:
+  instances:
+    "1":
+      use_default_alerts: false
+      alerts:
+        # Alert if running after hours
+        - code: "BLOWER_AFTER_HOURS"
+          name: "Blower Running After Hours"
+          sources: ["RW_ON_OFF"]  # Must be exactly 1 source (state parameter)
+          type: "schedule_expected_state"
+          expected_state: 0  # 0/"off" = device should be OFF, 1/"on" = device should be ON
+          use_work_hours: true  # Use time_condition work_hours (default: true)
+          severity: "WARNING"
+          message: "Blower is running outside scheduled work hours"
+
+# Example: Critical equipment must run 24/7
+COOLING_SYSTEM:
+  instances:
+    "1":
+      use_default_alerts: false
+      alerts:
+        # Alert if stopped during any period
+        - code: "COOLING_STOPPED"
+          name: "Cooling System Stopped"
+          sources: ["RW_ON_OFF"]
+          type: "schedule_expected_state"
+          expected_state: 1  # Expect ON (device must always run)
+          severity: "CRITICAL"
+          message: "Critical: Cooling system has stopped"
+
+# ============================================================
+# EXAMPLE 4: Mixed Alert Strategies
+# ============================================================
+# Use case: Combine different alert types for comprehensive monitoring
+# Strategy: Average for trends + individual for redundancy + schedule for compliance
+# ============================================================
+
+ADAM-4117:
+  instances:
     "14":
       use_default_alerts: false
       alerts:
-        # Average of AIn05 and AIn06 > 40°C
-        - code: "LOOP1_R2_AVG_OVERHEAT"
-          name: "Exhaust Fermenter Avg Temp High"
-          sources: ["AIn05", "AIn06"]  # Multiple sources for average
-          type: "average"  # Use average aggregate type
+        # Primary: Average temperature trend
+        - code: "FERMENTER_AVG_OVERHEAT"
+          name: "Fermenter Average Temperature High"
+          sources: ["AIn05", "AIn06"]
+          type: "average"
           condition: "gt"
           threshold: 40.0
           severity: "CRITICAL"
-          message: "Exhaust fermenter average temperature exceeds 40°C."
+          message: "Fermenter average temperature exceeds 40°C"
         
-        # Individual sensor alerts for redundancy
-        - code: "LOOP1_R2_AIN05_OVERHEAT"
-          name: "Exhaust Fermenter Temp 1 High"
+        # Redundancy: Individual sensor failures
+        - code: "FERMENTER_SENSOR1_OVERHEAT"
+          name: "Fermenter Temperature Sensor 1 High"
           sources: ["AIn05"]
           type: "threshold"
           condition: "gt"
           threshold: 42.0
           severity: "WARNING"
-          message: "Exhaust fermenter temperature sensor 1 (AIn05) exceeds 42°C."
+          message: "Fermenter sensor 1 exceeds 42°C"
         
-        - code: "LOOP1_R2_AIN06_OVERHEAT"
-          name: "Exhaust Fermenter Temp 2 High"
+        - code: "FERMENTER_SENSOR2_OVERHEAT"
+          name: "Fermenter Temperature Sensor 2 High"
           sources: ["AIn06"]
           type: "threshold"
           condition: "gt"
           threshold: 42.0
           severity: "WARNING"
-          message: "Exhaust fermenter temperature sensor 2 (AIn06) exceeds 42°C."
+          message: "Fermenter sensor 2 exceeds 42°C"
 
-    # ========== Slave 16: Cooling System (冷卻系統) ==========
-    # Alert when key temperatures exceed 34°C
-    "16":
+TECO_VFD:
+  instances:
+    "2":
       use_default_alerts: false
       alerts:
-        # AIn01 (1g0st) - Base temperature reference
-        - code: "LOOP1_COOLING_AIN01_OVERHEAT"
-          name: "Cooling System Base Temp High"
-          sources: ["AIn01"]
+        # Operational: Current overload
+        - code: "VFD_OVERCURRENT"
+          name: "VFD Current High"
+          sources: ["RW_CURRENT"]
           type: "threshold"
           condition: "gt"
-          threshold: 34.0
+          threshold: 10.0
           severity: "WARNING"
-          message: "Cooling system base temperature (AIn01/1g0st) exceeds 34°C."
+          message: "VFD current exceeds 10A"
         
-        # AIn07 (1g6st) - Remote temperature point
-        - code: "LOOP1_COOLING_AIN07_OVERHEAT"
-          name: "Cooling System Remote Temp High"
-          sources: ["AIn07"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 34.0
+        # Compliance: Schedule monitoring
+        - code: "VFD_AFTER_HOURS"
+          name: "VFD Running After Hours"
+          sources: ["RW_ON_OFF"]
+          type: "schedule_expected_state"
+          expected_state: 0
           severity: "WARNING"
-          message: "Cooling system remote temperature (AIn07/1g6st) exceeds 34°C."
-        
-        # Max temperature across cooling system
-        - code: "LOOP1_COOLING_MAX_TEMP_HIGH"
-          name: "Cooling System Max Temp High"
-          sources: ["AIn01", "AIn02", "AIn04", "AIn05", "AIn07"]
-          type: "max"  # Use max aggregate type
-          condition: "gt"
-          threshold: 36.0
-          severity: "WARNING"
-          message: "Cooling system maximum temperature exceeds 36°C."
+          message: "VFD is running outside work hours"
 
 # ============================================================
-# Configuration Notes
+# EXAMPLE 5: Using Default Alerts
 # ============================================================
-# 1. Format Change:
-#    OLD: source: "O2_PCT"
-#    NEW: sources: ["O2_PCT"]  # Always use list
-#
-# 2. Aggregate Types:
-#    - threshold: Single source (default)
-#    - average: Average of multiple sources
-#    - sum: Sum of multiple sources
-#    - min: Minimum of multiple sources
-#    - max: Maximum of multiple sources
-#
-# 3. Alert Strategy:
-#    Loop 0 (DO750):
-#      - CRITICAL: O2_PCT < 1.5 mg/l (emergency)
-#      - WARNING: O2_PCT > 3.0 mg/l (over-aeration)
-#    
-#    Loop 1 Rule 1 (Slave 12 - Oxygen Fermenter):
-#      - CRITICAL: average(AIn02, AIn03) > 40°C
-#      - WARNING: Individual sensors > 42°C (redundancy)
-#    
-#    Loop 1 Rule 2 (Slave 14 - Exhaust Fermenter):
-#      - CRITICAL: average(AIn05, AIn06) > 40°C
-#      - WARNING: Individual sensors > 42°C (redundancy)
-#    
-#    Loop 1 Rules 3-6 (Slave 16 - Cooling System):
-#      - WARNING: AIn01 > 34°C (base reference)
-#      - WARNING: AIn07 > 34°C (remote point)
-#      - WARNING: max(AIn01, AIn02, AIn04, AIn05, AIn07) > 36°C
-#
-# 4. Severity Levels:
-#    - CRITICAL: Immediate action required (matches control emergency)
-#    - WARNING: Attention needed (preventive)
-#    - INFO: Informational only
-#
-# 5. Notification Messages:
-#    Format: "[SEVERITY] Name: sources=value violates condition threshold"
-#    Example: "[CRITICAL] Oxygen Fermenter Avg Temp High: average(AIn02, AIn03)=40.5 violates gt 40.0"
-#
-# 6. State Management:version: "1.0.0"
-
-# ============================================================
-# Alert Condition Configuration
-# ============================================================
-# Architecture: Sensor Device Model → Instances → Alerts
-# All alerts now use 'sources' (list) instead of 'source'
+# Use case: Apply same alerts to multiple device instances
 # ============================================================
 
-# ============================================================
-# Loop 0: Dissolved Oxygen Alerts
-# ============================================================
-DO750:
+SD400:
+  # Define alerts once at model level
+  default_alerts:
+    - code: "TEMP_HIGH_DEFAULT"
+      name: "Temperature High (Default)"
+      sources: ["AIn01"]
+      type: "threshold"
+      condition: "gt"
+      threshold: 50.0
+      severity: "WARNING"
+
   instances:
+    # Instance 3: Use default alerts
+    "3":
+      use_default_alerts: true
+      display_name: "Temperature Sensor A"
+    
+    # Instance 5: Override with custom alerts
     "5":
       use_default_alerts: false
+      display_name: "Temperature Sensor B"
       alerts:
-        # Critical low: DO < 1.5 mg/l
-        - code: "LOOP0_DO_CRITICAL_LOW"
-          name: "Dissolved Oxygen Critical Low"
-          sources: ["O2_PCT"]  # Single source wrapped in list
-          type: "threshold"
-          condition: "lt"
-          threshold: 1.5
-          severity: "CRITICAL"
-          message: "Dissolved oxygen critically low (< 1.5 mg/l). Emergency aeration activated."
-        
-        # Warning high: DO > 3.0 mg/l
-        - code: "LOOP0_DO_WARNING_HIGH"
-          name: "Dissolved Oxygen High"
-          sources: ["O2_PCT"]  # Single source wrapped in list
-          type: "threshold"
-          condition: "gt"
-          threshold: 3.0
-          severity: "WARNING"
-          message: "Dissolved oxygen level high (> 3.0 mg/l). Check system."
-
-# ============================================================
-# Loop 1: Temperature Alerts
-# ============================================================
-ADAM-4117:
-  instances:
-    # ========== Slave 12: Oxygen Fermenter (連氧發酵機) ==========
-    # Alert when average temperature > 40°C
-    "12":
-      use_default_alerts: false
-      alerts:
-        # Average of AIn02 and AIn03 > 40°C
-        - code: "LOOP1_R1_AVG_OVERHEAT"
-          name: "Oxygen Fermenter Avg Temp High"
-          sources: ["AIn02", "AIn03"]  # Multiple sources for average
-          type: "average"  # Use average aggregate type
-          condition: "gt"
-          threshold: 40.0
-          severity: "CRITICAL"
-          message: "Oxygen fermenter average temperature exceeds 40°C."
-        
-        # Individual sensor alerts for redundancy
-        - code: "LOOP1_R1_AIN02_OVERHEAT"
-          name: "Oxygen Fermenter Temp 1 High"
-          sources: ["AIn02"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
-          severity: "WARNING"
-          message: "Oxygen fermenter temperature sensor 1 (AIn02) exceeds 42°C."
-        
-        - code: "LOOP1_R1_AIN03_OVERHEAT"
-          name: "Oxygen Fermenter Temp 2 High"
-          sources: ["AIn03"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
-          severity: "WARNING"
-          message: "Oxygen fermenter temperature sensor 2 (AIn03) exceeds 42°C."
-
-    # ========== Slave 14: Exhaust Fermenter (排氣發酵機) ==========
-    # Alert when average temperature > 40°C
-    "14":
-      use_default_alerts: false
-      alerts:
-        # Average of AIn05 and AIn06 > 40°C
-        - code: "LOOP1_R2_AVG_OVERHEAT"
-          name: "Exhaust Fermenter Avg Temp High"
-          sources: ["AIn05", "AIn06"]  # Multiple sources for average
-          type: "average"  # Use average aggregate type
-          condition: "gt"
-          threshold: 40.0
-          severity: "CRITICAL"
-          message: "Exhaust fermenter average temperature exceeds 40°C."
-        
-        # Individual sensor alerts for redundancy
-        - code: "LOOP1_R2_AIN05_OVERHEAT"
-          name: "Exhaust Fermenter Temp 1 High"
-          sources: ["AIn05"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
-          severity: "WARNING"
-          message: "Exhaust fermenter temperature sensor 1 (AIn05) exceeds 42°C."
-        
-        - code: "LOOP1_R2_AIN06_OVERHEAT"
-          name: "Exhaust Fermenter Temp 2 High"
-          sources: ["AIn06"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
-          severity: "WARNING"
-          message: "Exhaust fermenter temperature sensor 2 (AIn06) exceeds 42°C."
-
-    # ========== Slave 16: Cooling System (冷卻系統) ==========
-    # Alert when key temperatures exceed 34°C
-    "16":
-      use_default_alerts: false
-      alerts:
-        # AIn01 (1g0st) - Base temperature reference
-        - code: "LOOP1_COOLING_AIN01_OVERHEAT"
-          name: "Cooling System Base Temp High"
+        - code: "CUSTOM_TEMP_HIGH"
+          name: "Custom Temperature High"
           sources: ["AIn01"]
           type: "threshold"
           condition: "gt"
-          threshold: 34.0
-          severity: "WARNING"
-          message: "Cooling system base temperature (AIn01/1g0st) exceeds 34°C."
-        
-        # AIn07 (1g6st) - Remote temperature point
-        - code: "LOOP1_COOLING_AIN07_OVERHEAT"
-          name: "Cooling System Remote Temp High"
-          sources: ["AIn07"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 34.0
-          severity: "WARNING"
-          message: "Cooling system remote temperature (AIn07/1g6st) exceeds 34°C."
-        
-        # Max temperature across cooling system
-        - code: "LOOP1_COOLING_MAX_TEMP_HIGH"
-          name: "Cooling System Max Temp High"
-          sources: ["AIn01", "AIn02", "AIn04", "AIn05", "AIn07"]
-          type: "max"  # Use max aggregate type
-          condition: "gt"
-          threshold: 36.0
-          severity: "WARNING"
-          message: "Cooling system maximum temperature exceeds 36°C."
+          threshold: 45.0  # Different threshold
+          severity: "CRITICAL"
+    
+    # Instance 7: No alerts
+    "7":
+      use_default_alerts: false
+      display_name: "Temperature Sensor C (No Alerts)"
 
 # ============================================================
-# Configuration Notes
+# Configuration Guidelines
 # ============================================================
-# 1. Format Change:
-#    OLD: source: "O2_PCT"
-#    NEW: sources: ["O2_PCT"]  # Always use list
 #
-# 2. Aggregate Types:
-#    - threshold: Single source (default)
+# 1. Alert Types:
+#    - threshold: Single source, fixed threshold
 #    - average: Average of multiple sources
 #    - sum: Sum of multiple sources
 #    - min: Minimum of multiple sources
 #    - max: Maximum of multiple sources
+#    - schedule_expected_state: Time-based state monitoring
 #
-# 3. Alert Strategy:
-#    Loop 0 (DO750):
-#      - CRITICAL: O2_PCT < 1.5 mg/l (emergency)
-#      - WARNING: O2_PCT > 3.0 mg/l (over-aeration)
+# 2. Condition Operators:
+#    - gt: Greater than (>)
+#    - gte: Greater than or equal (>=)
+#    - lt: Less than (<)
+#    - lte: Less than or equal (<=)
+#    - eq: Equal (==)
+#    - neq: Not equal (!=)
+#
+# 3. Severity Levels (highest to lowest):
+#    - CRITICAL: Immediate action required, emergency response
+#    - ERROR: Serious issue, requires prompt attention
+#    - WARNING: Attention needed, preventive action
+#    - INFO: Informational only, no action required
+#
+# 4. State Management (automatic):
+#    - NORMAL → TRIGGERED: First violation detected (notification sent)
+#    - TRIGGERED → ACTIVE: Continuous violation (no notification)
+#    - ACTIVE → RESOLVED: Condition recovered (notification sent)
+#    - RESOLVED → NORMAL: Cleanup (no notification)
+#
+# 5. Schedule Expected State Requirements:
+#    - TimeControl must be configured in time_condition.yml
+#    - Device must have work_hours defined (or use default)
+#    - Only applicable to devices with state parameters (RW_ON_OFF)
+#    - Alert triggers when: (outside work_hours) AND (state != expected_state)
+#
+# 6. expected_state Values:
+#    - 0 or "off": Device should be OFF
+#    - 1 or "on": Device should be ON
+#    - Recommendation: Use 0 for most shutdown monitoring
+#                     Use 1 for critical 24/7 equipment
+#
+# 7. Best Practices:
+#    a. Redundancy Strategy:
+#       - Use average alerts for overall trends (CRITICAL)
+#       - Use individual alerts for single sensor failures (WARNING)
+#       - Prevents missing failures when one sensor is offline
+#
+#    b. Threshold Tuning:
+#       - Set WARNING thresholds before CRITICAL thresholds
+#       - Leave buffer between WARNING and CRITICAL (e.g., 40°C → 42°C)
+#       - Adjust based on operational experience
+#
+#    c. Message Clarity:
+#       - Include context (what, why, action needed)
+#       - Reference specific sensors/equipment
+#       - Use consistent terminology
+#
+#    d. Schedule Monitoring:
+#       - Apply to non-essential equipment only
+#       - Exclude critical 24/7 systems (cooling, safety)
+#       - Coordinate with operational schedules
+#
+# 8. Example Notification Messages:
+#    TRIGGERED (threshold):
+#      "[WARNING] Temperature High: AIn01=35.2 violates gt 35.0"
 #    
-#    Loop 1 Rule 1 (Slave 12 - Oxygen Fermenter):
-#      - CRITICAL: average(AIn02, AIn03) > 40°C
-#      - WARNING: Individual sensors > 42°C (redundancy)
+#    TRIGGERED (aggregate):
+#      "[CRITICAL] Average Temperature High: average(AIn02, AIn03)=40.5 violates gt 40.0"
 #    
-#    Loop 1 Rule 2 (Slave 14 - Exhaust Fermenter):
-#      - CRITICAL: average(AIn05, AIn06) > 40°C
-#      - WARNING: Individual sensors > 42°C (redundancy)
-#    
-#    Loop 1 Rules 3-6 (Slave 16 - Cooling System):
-#      - WARNING: AIn01 > 34°C (base reference)
-#      - WARNING: AIn07 > 34°C (remote point)
-#      - WARNING: max(AIn01, AIn02, AIn04, AIn05, AIn07) > 36°C
-#
-# 4. Severity Levels:
-#    - CRITICAL: Immediate action required (matches control emergency)
-#    - WARNING: Attention needed (preventive)
-#    - INFO: Informational only
-#
-# 5. Notification Messages:
-#    Format: "[SEVERITY] Name: sources=value violates condition threshold"
-#    Example: "[CRITICAL] Oxygen Fermenter Avg Temp High: average(AIn02, AIn03)=40.5 violates gt 40.0"
-#
-# 6. State Management:
-#    - NORMAL → TRIGGERED: First violation (notify)
-#    - TRIGGERED → ACTIVE: Continuous violation (no notify)
-#    - ACTIVE → RESOLVED: Recovered (notify)
-#    - RESOLVED → NORMAL: Cleanup
-#
-# 7. Redundant Alerts:
-#    - Average alerts for overall trend (CRITICAL)
-#    - Individual sensor alerts for single failures (WARNING)
-#    - This prevents missing failures when one sensor is offline
-#
-# 8. Example Alert Messages:
-#    TRIGGERED:
-#      "[CRITICAL] Oxygen Fermenter Avg Temp High: average(AIn02, AIn03)=40.5 violates gt 40.0"
-#      "[WARNING] Cooling System Base Temp High: AIn01=34.2 violates gt 34.0"
-#    
-#    RESOLVED:
-#      "[RESOLVED] Oxygen Fermenter Avg Temp High: average(AIn02, AIn03)=39.5 returned to normal (threshold: 40.0)"
-#
-# 9. Integration with Control:
-#    - Control emergency conditions (priority 0) execute automatically
-#    - Alerts provide notification to operators
-#    - Both systems work together for safety
-#
-# 10. Future Extensions:
-#     - difference: Temperature differential alerts
-#     - rate_of_change: Rapid temperature change detection
-#     - time_in_range: Duration-based alerts
-#    - NORMAL → TRIGGERED: First violation (notify)
-#    - TRIGGERED → ACTIVE: Continuous violation (no notify)
-#    - ACTIVE → RESOLVED: Recovered (notify)
-#    - RESOLVED → NORMAL: Cleanup
-#
-# 7. Redundant Alerts:
-#    - Average alerts for overall trend (CRITICAL)
-#    - Individual sensor alerts for single failures (WARNING)
-#    - This prevents missing failures when one sensor is offline
-#
-# 8. Example Alert Messages:
-#    TRIGGERED:
-#      "[CRITICAL] Oxygen Fermenter Avg Temp High: average(AIn02, AIn03)=40.5 violates gt 40.0"
-#      "[WARNING] Cooling System Base Temp High: AIn01=34.2 violates gt 34.0"
+#    TRIGGERED (schedule):
+#      "[WARNING] Blower Running After Hours: RW_ON_OFF=ON (expected OFF) during shutdown period"
 #    
 #    RESOLVED:
-#      "[RESOLVED] Oxygen Fermenter Avg Temp High: average(AIn02, AIn03)=39.5 returned to normal (threshold: 40.0)"
+#      "[RESOLVED] Temperature High: AIn01=34.8 returned to normal (threshold: 35.0)"
+#      "[RESOLVED] Blower Running After Hours: RW_ON_OFF=OFF returned to expected state"
 #
-# 9. Integration with Control:
-#    - Control emergency conditions (priority 0) execute automatically
-#    - Alerts provide notification to operators
-#    - Both systems work together for safety
+# 9. Integration Notes:
+#    - Alerts work alongside Control Conditions (separate systems)
+#    - Control emergency conditions execute automatically
+#    - Alerts provide notifications to operators
+#    - Both systems contribute to overall safety
 #
-# 10. Future Extensions:
-#     - difference: Temperature differential alerts
-#     - rate_of_change: Rapid temperature change detection
-#     - time_in_range: Duration-based alerts
+# 10. Common Pitfalls:
+#     X Using single source for aggregate types (validation error)
+#     X Forgetting to wrap single source in list: source: "AIn01" (use sources: ["AIn01"])
+#     X Using schedule_expected_state without TimeControl configured
+#     X Applying schedule alerts to AI/DI modules (they have no state)
+#     X Setting threshold too close to normal operating range (false alarms)
+#
+# ============================================================
+# Quick Start Checklist
+# ============================================================
+# [ ] Identify devices and parameters to monitor
+# [ ] Determine appropriate alert types (threshold/aggregate/schedule)
+# [ ] Set severity levels based on operational impact
+# [ ] Configure work_hours in time_condition.yml (if using schedule alerts)
+# [ ] Test alerts in non-production environment
+# [ ] Tune thresholds based on actual data
+# [ ] Document alert handling procedures
+# [ ] Review and adjust alert fatigue (too many notifications)
+#
+# ============================================================
+# Support & Documentation
+# ============================================================
+# For more information:
+# - Alert Specification: docs/Talos_Alert_Condition_Specification.md
+# - Time Control: docs/Time_Control___Scheduling___Capability_Translation_Specification.md
+# - State Management: evaluator/alert_state_manager.py
+# - Configuration Schema: schema/alert_schema.py
+#
+# ============================================================

@@ -32,7 +32,7 @@ class TimeControlEvaluator:
         """Return whether the current time (with timezone) is within allowed intervals."""
         schedule, tz = self._resolve_schedule_and_tz(device_id)
         if schedule is None:
-            logger.warning(f"[TimeControl] No config for {device_id}, allow by default.")
+            logger.warning(f"[TimeControl] No config for {device_id}, no working time limit.")
             return True
 
         local_now = (now or datetime.now(self._default_tz)).astimezone(tz)
@@ -71,8 +71,8 @@ class TimeControlEvaluator:
 
     def _resolve_schedule_and_tz(self, device_id: str) -> tuple[DeviceSchedule | None, ZoneInfo]:
         """Return (DeviceSchedule, timezone); if not found, return (None, default_tz)."""
-        wh = self._config.work_hours
-        schedule: DeviceSchedule | None = wh.get(device_id) or wh.get("default")
+        work_hours: dict[str, DeviceSchedule] = self._config.work_hours
+        schedule: DeviceSchedule | None = work_hours.get(device_id) or work_hours.get("default")
         if schedule is None:
             return None, self._default_tz
 
