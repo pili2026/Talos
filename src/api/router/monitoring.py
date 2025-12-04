@@ -12,8 +12,8 @@ from fastapi import APIRouter, Query, WebSocket
 from api.repository.config_repository import ConfigRepository
 from api.service.parameter_service import ParameterService
 from api.util.connect_manager import ConnectionManager
-from api.websocket.config import MonitoringConfig
 from api.websocket.message_builder import MessageBuilder
+from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.monitoring_handler import MultiDeviceMonitoringHandler
 from api.websocket.parameter_paser import ParameterParseError, parse_device_list, parse_multi_device_parameters
 from api.websocket.session import WebSocketDeviceSession, WebSocketSessionFactory
@@ -138,6 +138,10 @@ async def monitor_multiple_devices(
     """
     await manager.connect(websocket)
 
+    await websocket.send_json(
+        MessageBuilder.connection_status(status="connecting", message="Connecting multiple devices...")
+    )
+
     try:
         # Parse device list
         device_list = parse_device_list(device_ids)
@@ -162,7 +166,9 @@ async def monitor_multiple_devices(
     try:
         # Send connection established
         await websocket.send_json(
-            MessageBuilder.multi_device_connection_established(
+            MessageBuilder.connection_status(
+                status="connected",
+                message="Multiple devices are connected.",
                 device_ids=device_list,
                 parameters=[p.strip() for p in parameters.split(",")] if parameters else None,
                 interval=interval,

@@ -12,8 +12,8 @@ from typing import Protocol
 from fastapi import WebSocket
 
 from api.model.responses import ParameterValue
-from api.websocket.config import MonitoringConfig
 from api.websocket.message_builder import MessageBuilder
+from api.websocket.monitoring_config import MonitoringConfig
 
 logger = logging.getLogger(__name__)
 

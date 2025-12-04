@@ -9,8 +9,8 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from api.websocket.config import MonitoringConfig
-from api.websocket.config_loader import (
+from api.websocket.monitoring_config import MonitoringConfig
+from api.websocket.monitoring_config_loader import (
     EXAMPLE_CONFIG_YAML,
     create_default_config_file,
     load_monitoring_config_from_dict,
@@ -34,7 +34,7 @@ class TestLoadFromYAML:
             "enable_control_commands": False,
         }
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f)
 
         config = load_monitoring_config_from_yaml(config_file)
@@ -51,7 +51,7 @@ class TestLoadFromYAML:
         config_file = tmp_path / "monitoring.yml"
         config_data = {"max_consecutive_failures": 10}
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f)
 
         config = load_monitoring_config_from_yaml(config_file)
@@ -71,7 +71,7 @@ class TestLoadFromYAML:
         config_file = tmp_path / "monitoring.yml"
         config_data = {"max_consecutive_failures": 0}  # Invalid: must be >= 1
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f)
 
         with pytest.raises(ValidationError):
@@ -89,7 +89,7 @@ class TestLoadFromYAML:
         """Test error when YAML is malformed."""
         config_file = tmp_path / "malformed.yml"
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             f.write("invalid: yaml: content: [")
 
         with pytest.raises(yaml.YAMLError):
@@ -193,7 +193,7 @@ class TestValidateConfigFile:
         config_file = tmp_path / "invalid.yml"
         config_data = {"max_consecutive_failures": 0}  # Invalid
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f)
 
         is_valid, error = validate_config_file(config_file)
@@ -212,7 +212,7 @@ class TestValidateConfigFile:
         """Test validation fails for malformed YAML."""
         config_file = tmp_path / "malformed.yml"
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             f.write("invalid: yaml: [")
 
         is_valid, error = validate_config_file(config_file)
@@ -228,7 +228,7 @@ class TestExampleConfigYAML:
         """Test that the example configuration is valid."""
         config_file = tmp_path / "example.yml"
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             f.write(EXAMPLE_CONFIG_YAML)
 
         config = load_monitoring_config_from_yaml(config_file)
@@ -253,7 +253,7 @@ class TestIntegrationScenarios:
             "enable_control_commands": True,
         }
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f)
 
         config = load_monitoring_config_from_yaml(config_file)
@@ -271,7 +271,7 @@ class TestIntegrationScenarios:
             "min_interval": 0.1,
         }
 
-        with open(config_file, "w") as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f)
 
         config = load_monitoring_config_from_yaml(config_file)

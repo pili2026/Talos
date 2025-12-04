@@ -5,6 +5,7 @@ Handles connection validation and error notification,
 following Talos patterns for industrial IoT reliability.
 """
 
+import asyncio
 import logging
 from typing import Protocol
 
@@ -49,50 +50,55 @@ class DeviceConnectionTester:
 
     async def test_connection(self, device_id: str, test_parameters: list[str]) -> tuple[bool, str | None]:
         """
-        Test device connection by attempting to read a parameter.
+        Test device connection using fast batch testing.
+
+        Uses Core's optimized fast_test_device_connection which:
+        - Tests multiple parameters (up to 5)
+        - Uses short timeout (0.8s per parameter)
+        - Requires 30% success rate
 
         Args:
             device_id: Device identifier
-            test_parameters: List of parameters available for testing
+            test_parameters: List of parameters (used to determine count)
 
         Returns:
             Tuple of (success, error_message)
-            - If successful: (True, None)
-            - If failed: (False, "error description")
-
-        Example:
-            >>> success, error = await tester.test_connection("VFD_01", ["frequency"])
-            >>> if not success:
-            ...     print(f"Connection failed: {error}")
         """
         if not test_parameters:
             return False, "No parameters available for testing"
 
         try:
-            logger.info(f"Testing connection to device {device_id}...")
+            # Determine how many parameters to test
+            test_count = min(5, len(test_parameters))
 
-            # Use first parameter for connection test
-            test_param = test_parameters[0]
-            result = await self.service.read_multiple_parameters(device_id, [test_param])
+            logger.info(f"[{device_id}] Testing connection with up to {test_count} parameters")
 
-            # Check if any valid data was received
-            if not result or not any(pv.is_valid for pv in result):
-                logger.error(f"[{device_id}] Connection test failed - no valid data")
-                return False, "Device not responding"
+            if hasattr(self.service, "fast_test_device_connection"):
+                success, error, details = await self.service.fast_test_device_connection(
+                    device_id, test_param_count=test_count, min_success_rate=0.3
+                )
 
-            logger.info(f"[{device_id}] ✓ Connection test successful")
-            return True, None
+                if success:
+                    logger.info(
+                        f"[{device_id}] ✓ Connection test passed: "
+                        f"{details['passed']}/{details['tested']} parameters "
+                        f"({details['rate']:.0%}) in {details['elapsed_seconds']}s"
+                    )
+                else:
+                    logger.error(f"[{device_id}] Connection test failed: {error}")
+
+                return success, error
+
+            else:
+                # Fallback to old method if fast test not available
+                logger.warning(f"[{device_id}] fast_test_device_connection not available, " f"using legacy test method")
+                return await self._legacy_test_connection(device_id, test_parameters)
 
         except Exception as e:
             logger.error(f"[{device_id}] Connection test error: {e}", exc_info=True)
-            return False, f"Connection error: {str(e)}"
+            return False, f"Connection test error: {str(e)}"
 
-    async def test_and_notify(
-        self,
-        websocket: WebSocket,
-        device_id: str,
-        test_parameters: list[str],
-    ) -> bool:
+    async def test_and_notify(self, websocket: WebSocket, device_id: str, test_parameters: list[str]) -> bool:
         """
         Test connection and automatically send error message to WebSocket if failed.
 
@@ -127,10 +133,15 @@ class DeviceConnectionTester:
 
         if not success:
             # Send appropriate error message
-            if "not responding" in error.lower():
-                await websocket.send_json(MessageBuilder.connection_failed(device_id, error))
-            else:
-                await websocket.send_json(MessageBuilder.connection_error(device_id, error))
+            await websocket.send_json(
+                MessageBuilder.connection_status(
+                    status="device_offline",
+                    device_id=device_id,
+                    message="The device is not responding. Please check the device's power and connections",
+                    error_details=error,
+                    suggestion="Please ensure the device is powered on and properly connected to the Modbus bus.",
+                )
+            )
             return False
 
         return True
@@ -156,7 +167,6 @@ class DeviceConnectionTester:
             >>> results = await tester.test_multiple_devices(configs)
             >>> failed = [dev for dev, (ok, _) in results.items() if not ok]
         """
-        import asyncio
 
         async def test_one(device_id: str, params: list[str]):
             result = await self.test_connection(device_id, params)
@@ -166,6 +176,22 @@ class DeviceConnectionTester:
         results = await asyncio.gather(*tasks)
 
         return dict(results)
+
+    async def _legacy_test_connection(self, device_id: str, test_parameters: list[str]) -> tuple[bool, str | None]:
+        """Legacy test method (fallback)."""
+        test_param = test_parameters[0]
+        try:
+            result = await asyncio.wait_for(self.service.read_multiple_parameters(device_id, [test_param]), timeout=2.0)
+
+            if not result or not any(pv.is_valid for pv in result):
+                return False, "Device not responding"
+
+            return True, None
+
+        except asyncio.TimeoutError:
+            return False, "Device timeout"
+        except Exception as e:
+            return False, str(e)
 
 
 class ConnectionTestResult:

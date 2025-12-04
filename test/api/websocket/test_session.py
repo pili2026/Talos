@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from api.websocket.config import MonitoringConfig
+from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.session import WebSocketDeviceSession, WebSocketSessionFactory
 
 

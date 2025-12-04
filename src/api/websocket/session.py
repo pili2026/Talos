@@ -11,10 +11,10 @@ from typing import Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from api.websocket.config import MonitoringConfig
 from api.websocket.connection_tester import DeviceConnectionTester
 from api.websocket.control_handler import ControlCommandHandler
 from api.websocket.message_builder import MessageBuilder
+from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.monitoring_handler import MonitoringTaskHandler
 from api.websocket.parameter_paser import ParameterParseError, parse_parameter_list
 
@@ -112,9 +112,15 @@ class WebSocketDeviceSession:
         # Connect
         await self.manager.connect(self.websocket)
 
+        await self.websocket.send_json(
+            MessageBuilder.connection_status(
+                status="connecting", device_id=self.device_id, message="Test device connectivity..."
+            )
+        )
+
         try:
             # Parse parameters
-            param_list = await self._parse_parameters(parameters)
+            param_list: list[str] | None = await self._parse_parameters(parameters)
             if param_list is None:
                 return  # Error already sent
 
@@ -123,12 +129,14 @@ class WebSocketDeviceSession:
                 return  # Error already sent
 
             # Use config defaults if not specified
-            actual_interval = interval or self.monitoring_config.default_single_device_interval
+            actual_interval: float = interval or self.monitoring_config.default_single_device_interval
 
             # Send connection established
             await self.websocket.send_json(
-                MessageBuilder.connection_established(
+                MessageBuilder.connection_status(
+                    status="connected",
                     device_id=self.device_id,
+                    message="The device is connected.",
                     parameters=param_list,
                     interval=actual_interval,
                     support_control=self.monitoring_config.enable_control_commands,
@@ -175,7 +183,7 @@ class WebSocketDeviceSession:
         """
         tester = DeviceConnectionTester(self.service)
         if not await tester.test_and_notify(self.websocket, self.device_id, param_list):
-            await self.websocket.close(code=1011)
+            await self.websocket.close(code=1000, reason="Device offline")
             return False
         return True
 
@@ -200,7 +208,7 @@ class WebSocketDeviceSession:
         control_task = asyncio.create_task(control_handler.handle_commands(self.websocket, self.device_id))
 
         # Wait for first task to complete
-        done, pending = await asyncio.wait([monitoring_task, control_task], return_when=asyncio.FIRST_COMPLETED)
+        _, pending = await asyncio.wait([monitoring_task, control_task], return_when=asyncio.FIRST_COMPLETED)
 
         # Cancel remaining tasks
         for task in pending:

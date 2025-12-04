@@ -8,7 +8,7 @@ Uses Pydantic for validation, consistent with Talos patterns.
 import pytest
 from pydantic import ValidationError
 
-from api.websocket.config import MonitoringConfig, WebSocketLimits
+from api.websocket.monitoring_config import MonitoringConfig, WebSocketLimits
 
 
 class TestMonitoringConfigValidation:

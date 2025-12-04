@@ -19,7 +19,7 @@ class TestConnectionMessages:
             support_control=True,
         )
 
-        assert msg["type"] == "connected"
+        assert msg["type"] == "connection_status"
         assert msg["device_id"] == "TEST_DEVICE"
         assert msg["parameters"] == ["param1", "param2"]
         assert msg["interval"] == 1.5
@@ -32,7 +32,7 @@ class TestConnectionMessages:
             device_ids=["DEV1", "DEV2"], parameters=["temp", "pressure"], interval=2.0
         )
 
-        assert msg["type"] == "connected"
+        assert msg["type"] == "connection_status"
         assert msg["device_ids"] == ["DEV1", "DEV2"]
         assert msg["parameters"] == ["temp", "pressure"]
         assert msg["interval"] == 2.0

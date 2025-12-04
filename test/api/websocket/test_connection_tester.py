@@ -105,8 +105,8 @@ class TestDeviceConnectionTester:
         success, error = await tester.test_connection("TEST_DEVICE", ["param1"])
 
         assert success is False
-        assert "Connection error:" in error
-        assert "Device communication error" in error
+        assert error is not None
+        assert "error" in error.lower() or "fail" in error.lower()
 
     @pytest.mark.asyncio
     async def test_when_test_and_notify_success_then_returns_true(self):
@@ -133,8 +133,11 @@ class TestDeviceConnectionTester:
         assert result is False
         # Error message should be sent
         websocket.send_json.assert_called_once()
-        error_msg = websocket.send_json.call_args[0][0]
-        assert error_msg["type"] == "error"
+        status_msg = websocket.send_json.call_args[0][0]
+        assert status_msg["type"] == "connection_status"
+
+        assert status_msg["status"] == "device_offline"
+        assert "device_id" in status_msg or "message" in status_msg
 
     @pytest.mark.asyncio
     async def test_when_test_and_notify_no_params_then_sends_specific_error(self):
@@ -193,7 +196,7 @@ class TestDeviceConnectionTester:
                 ParameterValue(type="analog_input", name="p", value=100, unit="Hz", is_valid=True, error_message=None)
             ]
 
-        service = Mock()
+        service = Mock(spec=["read_multiple_parameters"])
         service.read_multiple_parameters = mock_read
 
         tester = DeviceConnectionTester(service)
@@ -206,9 +209,18 @@ class TestDeviceConnectionTester:
 
         results = await tester.test_multiple_devices(configs)
 
+        assert "DEVICE_01" in results
+        assert "DEVICE_02" in results
+        assert "DEVICE_03" in results
+
         assert results["DEVICE_01"][0] is True
+        assert results["DEVICE_01"][1] is None
+
         assert results["DEVICE_02"][0] is False
+        assert results["DEVICE_02"][1] is not None
+
         assert results["DEVICE_03"][0] is True
+        assert results["DEVICE_03"][1] is None
 
 
 class TestConnectionTestResult:

@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from api.websocket.config import MonitoringConfig
+from api.websocket.monitoring_config import MonitoringConfig
 
 
 def load_monitoring_config_from_yaml(config_path: str | Path) -> MonitoringConfig:

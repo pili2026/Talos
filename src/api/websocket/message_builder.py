@@ -26,6 +26,11 @@ class MessageBuilder:
         """
         Build connection acknowledgment message.
 
+        .. deprecated::
+            Use :func:`connection_status` with status="connected" instead.
+            This method is kept for backward compatibility and will be
+            removed in a future version.
+
         Args:
             device_id: Device identifier
             parameters: List of monitored parameters
@@ -33,18 +38,61 @@ class MessageBuilder:
             support_control: Whether control commands are supported
 
         Returns:
-            Connection established message
+            Connection established message (redirects to connection_status)
         """
-        return {
-            "type": "connected",
-            "device_id": device_id,
-            "parameters": parameters,
-            "interval": interval,
-            "features": {
-                "monitoring": True,
-                "control": support_control,
-            },
+        # Redirect to new unified method
+        return MessageBuilder.connection_status(
+            status="connected",
+            device_id=device_id,
+            message="Device connected",
+            parameters=parameters,
+            interval=interval,
+            features={"monitoring": True, "control": support_control},
+        )
+
+    @staticmethod
+    def connection_status(status: str, device_id: str | None = None, message: str | None = None, **extra) -> dict:
+        """
+        Build connection status message.
+
+        Provides explicit status information for different connection stages.
+
+        Args:
+            status: Connection status
+                - "connecting": Testing device connection
+                - "connected": Device connected and monitoring started
+                - "device_offline": Device not responding
+                - "connection_lost": Connection lost during monitoring
+            device_id: Device identifier (optional)
+            message: Human-readable message (optional)
+            **extra: Additional fields (e.g., parameters, interval)
+
+        Returns:
+            Connection status message with type "connection_status"
+
+        Example:
+            >>> MessageBuilder.connection_status(
+            ...     status="connecting",
+            ...     device_id="VFD_01",
+            ...     message="Testing device connection..."
+            ... )
+        """
+        msg = {
+            "type": "connection_status",
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
         }
+
+        if device_id:
+            msg["device_id"] = device_id
+
+        if message:
+            msg["message"] = message
+
+        if extra:
+            msg.update(extra)
+
+        return msg
 
     @staticmethod
     def multi_device_connection_established(
@@ -55,20 +103,26 @@ class MessageBuilder:
         """
         Build multi-device connection acknowledgment message.
 
+        .. deprecated::
+            Use :func:`connection_status` with status="connected" instead.
+            This method is kept for backward compatibility.
+
         Args:
             device_ids: List of device identifiers
             parameters: List of monitored parameters (optional)
             interval: Update interval in seconds
 
         Returns:
-            Multi-device connection established message
+            Multi-device connection established message (redirects to connection_status)
         """
-        return {
-            "type": "connected",
-            "device_ids": device_ids,
-            "parameters": parameters,
-            "interval": interval,
-        }
+        # Redirect to new unified method
+        return MessageBuilder.connection_status(
+            status="connected",
+            message="Multiple devices connected",
+            device_ids=device_ids,
+            parameters=parameters,
+            interval=interval,
+        )
 
     # ===== Error Messages =====
 

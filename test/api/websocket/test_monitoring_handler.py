@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from api.model.responses import ParameterValue
-from api.websocket.config import MonitoringConfig
+from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.monitoring_handler import MonitoringTaskHandler, MultiDeviceMonitoringHandler
 
 
@@ -198,7 +198,7 @@ class TestMultiDeviceMonitoringHandler:
     async def test_when_start_monitoring_multiple_devices_then_sends_updates(self):
         """Test multi-device monitoring sends updates."""
         service = MockParameterService(should_succeed=True)
-        handler = MultiDeviceMonitoringHandler(service, connection_manager=None)  # 明確不用 manager
+        handler = MultiDeviceMonitoringHandler(service, connection_manager=None)
 
         websocket = AsyncMock()
         device_params = {

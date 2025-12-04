@@ -232,6 +232,22 @@ class ParameterService:
             "was_forced": force,
         }
 
+    async def fast_test_device_connection(
+        self, device_id: str, test_param_count: int = 5, min_success_rate: float = 0.3
+    ) -> tuple[bool, str | None, dict]:
+        """
+        Fast connection test using Core's optimized method.
+
+        Args:
+            device_id: Device identifier
+            test_param_count: Number of parameters to test
+            min_success_rate: Minimum success rate (0.0-1.0)
+
+        Returns:
+            (success, error_message, details)
+        """
+        return await self._device_manager.fast_test_device_connection(device_id, test_param_count, min_success_rate)
+
     def _get_device(self, device_id: str) -> AsyncGenericModbusDevice | None:
         try:
             model, slave = device_id.rsplit("_", 1)
