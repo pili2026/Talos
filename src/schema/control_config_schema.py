@@ -1,4 +1,5 @@
 import logging
+import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -28,7 +29,6 @@ class ControlConfig(BaseModel):
     @classmethod
     def validate_version(cls, v):
         """Validate version format (basic semantic versioning)"""
-        import re
 
         if not re.match(r"^\d+\.\d+\.\d+$", v):
             logger.warning(f"[CONFIG] Version '{v}' does not follow semantic versioning (x.y.z)")
