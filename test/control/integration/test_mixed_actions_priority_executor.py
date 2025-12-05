@@ -4,13 +4,13 @@ Executor Integration Tests — Priority Protection & Parallel Targets
 - Verifies that different targets execute side-by-side
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from executor.control_executor import ControlExecutor
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_condition_schema import ControlActionSchema
-from model.enum.condition_enum import ControlActionType
+import pytest
+
+from core.executor.control_executor import ControlExecutor
+from core.model.enum.condition_enum import ControlActionType
+from core.schema.control_condition_schema import ControlActionSchema
 
 
 @pytest.fixture

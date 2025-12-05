@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SnapshotStorageConfig(BaseModel):
@@ -14,12 +14,19 @@ class SnapshotStorageConfig(BaseModel):
     defines retention and maintenance policies.
     """
 
+    model_config = ConfigDict(
+        extra="allow",  # Allow extra fields for future extensions
+    )
+
     enabled: bool = Field(
         default=True,
         description="Enable/disable snapshot storage to SQLite",
     )
 
-    db_path: str = Field(default="", description="Path to SQLite database file. Leave empty for auto-selection.")
+    db_path: str = Field(
+        default="",
+        description="Path to SQLite database file. Leave empty for auto-selection.",
+    )
 
     # Retention policy
     retention_days: int = Field(
@@ -62,8 +69,3 @@ class SnapshotStorageConfig(BaseModel):
         # 3. Default development path
         default_path = Path("./data/snapshots.db")
         return str(default_path.resolve())
-
-    class Config:
-        """Pydantic config."""
-
-        extra = "allow"  # Allow extra fields for future extensions

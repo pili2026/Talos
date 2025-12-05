@@ -6,7 +6,7 @@ Uses Pydantic for validation and YAML configuration support,
 consistent with Talos system architecture.
 """
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class MonitoringConfig(BaseModel):
@@ -28,6 +28,12 @@ class MonitoringConfig(BaseModel):
         >>> config.validate_interval(1.5)
         True
     """
+
+    model_config = ConfigDict(
+        validate_assignment=True,  # Validate on attribute assignment
+        extra="forbid",  # Forbid extra fields
+        frozen=False,  # Allow modification after creation
+    )
 
     # Connection health monitoring
     max_consecutive_failures: int = Field(
@@ -114,13 +120,6 @@ class MonitoringConfig(BaseModel):
         """
         return self.min_interval <= interval <= self.max_interval
 
-    class Config:
-        """Pydantic configuration."""
-
-        validate_assignment = True  # Validate on attribute assignment
-        extra = "forbid"  # Forbid extra fields
-        frozen = False  # Allow modification after creation
-
 
 class WebSocketLimits(BaseModel):
     """
@@ -134,6 +133,12 @@ class WebSocketLimits(BaseModel):
         >>> limits.max_active_connections
         100
     """
+
+    model_config = ConfigDict(
+        validate_assignment=True,
+        extra="forbid",
+        frozen=False,
+    )
 
     max_active_connections: int = Field(
         default=100,
@@ -178,13 +183,6 @@ class WebSocketLimits(BaseModel):
         ge=1024,  # At least 1KB
         description="Maximum WebSocket message size in bytes",
     )
-
-    class Config:
-        """Pydantic configuration."""
-
-        validate_assignment = True
-        extra = "forbid"
-        frozen = False
 
 
 # Global default configuration

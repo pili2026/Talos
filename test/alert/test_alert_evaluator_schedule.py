@@ -1,9 +1,9 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from evaluator.alert_evaluator import AlertEvaluator
-from model.enum.alert_enum import AlertSeverity
-from model.enum.alert_state_enum import AlertState
+from core.evaluator.alert_evaluator import AlertEvaluator
+from core.model.enum.alert_enum import AlertSeverity
+from core.model.enum.alert_state_enum import AlertState
 
 # ============================================================
 # Schedule Expected State Tests with Mock Time Evaluator

@@ -1,6 +1,7 @@
-from pydantic import ValidationError
 import pytest
-from schema.constraint_schema import ConstraintConfigSchema
+from pydantic import ValidationError
+
+from core.schema.constraint_schema import ConstraintConfigSchema
 
 
 class TestConstraintConfigSchema:

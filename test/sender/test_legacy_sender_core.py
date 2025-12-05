@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from sender.legacy.legacy_sender import LegacySenderAdapter
-from util.time_util import TIMEZONE_INFO
-
+from core.sender.legacy.legacy_sender import LegacySenderAdapter
+from core.sender.transport import ResendTransport
+from core.util.time_util import TIMEZONE_INFO
 
 # ==================== Snapshot Handling Tests ====================
 
@@ -282,7 +282,6 @@ class TestWarmupLogic:
             mock_client_class.return_value = mock_client
 
             sender_adapter._client = mock_client
-            from sender.transport import ResendTransport
 
             sender_adapter._transport = ResendTransport(sender_adapter.ima_url, mock_client, sender_adapter._is_ok)
 

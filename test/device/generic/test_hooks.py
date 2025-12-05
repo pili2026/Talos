@@ -1,4 +1,4 @@
-from device.generic.hooks import HookManager
+from core.device.generic.hooks import HookManager
 
 
 class DummyScale:

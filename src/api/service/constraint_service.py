@@ -13,7 +13,7 @@ from typing import Any
 from api.model.enums import ResponseStatus
 from api.model.responses import ConstraintInfo, DeviceConstraintResponse
 from api.repository.config_repository import ConfigRepository
-from schema.constraint_schema import ConstraintConfigSchema
+from core.schema.constraint_schema import ConstraintConfigSchema
 
 logger = logging.getLogger(__name__)
 

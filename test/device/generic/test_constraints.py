@@ -1,5 +1,5 @@
-from device.generic.constraints_policy import ConstraintPolicy
-from schema.constraint_schema import ConstraintConfig
+from core.device.generic.constraints_policy import ConstraintPolicy
+from core.schema.constraint_schema import ConstraintConfig
 
 
 class DummyLogger:

@@ -13,7 +13,7 @@ from api.model.snapshot_responses import (
     SnapshotResponse,
 )
 from api.service.snapshot_service import SnapshotService
-from util.time_util import TIMEZONE_INFO
+from core.util.time_util import TIMEZONE_INFO
 
 
 @pytest.fixture

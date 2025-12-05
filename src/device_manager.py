@@ -6,11 +6,11 @@ from typing import Any
 
 from pymodbus.client import AsyncModbusSerialClient
 
-from device.generic.constraints_policy import ConstraintPolicy
-from device.generic.generic_device import AsyncGenericModbusDevice
-from model.device_constant import DEFAULT_MISSING_VALUE
-from schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
-from util.config_manager import ConfigManager
+from core.device.generic.constraints_policy import ConstraintPolicy
+from core.device.generic.generic_device import AsyncGenericModbusDevice
+from core.model.device_constant import DEFAULT_MISSING_VALUE
+from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
+from core.util.config_manager import ConfigManager
 
 logger = logging.getLogger("DeviceManager")
 

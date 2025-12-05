@@ -3,14 +3,15 @@ Emergency Control Integration Tests
 Tests complete emergency override flow: Config → Evaluator → Executor → Device
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 import yaml
 
-from evaluator.control_evaluator import ControlEvaluator
-from executor.control_executor import ControlExecutor
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_config_schema import ControlConfig
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.executor.control_executor import ControlExecutor
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_config_schema import ControlConfig
 
 
 class TestEmergencyControlIntegration:

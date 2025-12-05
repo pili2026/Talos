@@ -2,8 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from sender.legacy.converter_registry import CONVERTER_MAP
-from sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
+from core.sender.legacy.converter_registry import CONVERTER_MAP
+from core.sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 
 
 @pytest.fixture

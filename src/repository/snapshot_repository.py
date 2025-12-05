@@ -7,9 +7,9 @@ from typing import Any
 
 from sqlalchemy import delete, desc, func, select, text
 
+from core.util.time_util import TIMEZONE_INFO
 from repository.model.snapshot_model import Snapshot
-from util.db_manager import SQLiteSnapshotDBManager
-from util.time_util import TIMEZONE_INFO
+from repository.util.db_manager import SQLiteSnapshotDBManager
 
 logger = logging.getLogger(__name__)
 

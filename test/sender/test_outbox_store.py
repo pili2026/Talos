@@ -3,8 +3,8 @@ from datetime import datetime
 
 import pytest
 
-from sender.outbox_store import OutboxStore
-from util.time_util import TIMEZONE_INFO
+from core.sender.outbox_store import OutboxStore
+from core.util.time_util import TIMEZONE_INFO
 
 
 @pytest.fixture

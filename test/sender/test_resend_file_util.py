@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from sender.legacy import resend_file_util
+from core.sender.legacy import resend_file_util
 
 
 def test_when_extract_retry_count_then_return_expected_value():

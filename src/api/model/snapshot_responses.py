@@ -3,11 +3,13 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class SnapshotResponse(BaseModel):
     """Single snapshot response."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     device_id: str
@@ -18,9 +20,6 @@ class SnapshotResponse(BaseModel):
     created_at: datetime
     values: dict[str, Any]
     is_online: int
-
-    class Config:
-        from_attributes = True
 
 
 class SnapshotHistoryResponse(BaseModel):
@@ -95,7 +94,10 @@ class DatabaseStatsResponse(BaseModel):
     latest_ts: datetime | None = Field(description="Newest snapshot timestamp")
     file_size_bytes: int
     file_size_mb: float
-    devices: dict[str, int] | None = Field(default=None, description="Snapshot count per device")
+    devices: dict[str, int] | None = Field(
+        default=None,
+        description="Snapshot count per device",
+    )
 
 
 class CleanupResponse(BaseModel):

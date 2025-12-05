@@ -17,10 +17,10 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from model.enum.alert_enum import AlertSeverity
-from schema.alert_schema import AlertMessageModel
-from util.factory.notifier_factory import build_notifiers_and_routing
-from util.time_util import TIMEZONE_INFO
+from core.model.enum.alert_enum import AlertSeverity
+from core.schema.alert_schema import AlertMessageModel
+from core.util.factory.notifier_factory import build_notifiers_and_routing
+from core.util.time_util import TIMEZONE_INFO
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 

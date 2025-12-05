@@ -1,6 +1,11 @@
 """Tests for register combination formulas."""
 
-from util.register_formula import combine_32bit_be, combine_32bit_le, combine_32bit_signed_be, combine_32bit_signed_le
+from core.util.register_formula import (
+    combine_32bit_be,
+    combine_32bit_le,
+    combine_32bit_signed_be,
+    combine_32bit_signed_le,
+)
 
 
 class TestCombine32BitBE:

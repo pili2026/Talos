@@ -1,11 +1,10 @@
-import pytest
 import asyncio
-
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
 
-from unittest.mock import Mock, AsyncMock, patch
+import pytest
 
-from sender.test_resend_alignment import TIMEZONE_INFO
+from core.util.time_util import TIMEZONE_INFO
 
 
 class TestLegacySenderIntegration:

@@ -1,7 +1,7 @@
 """Tests for panel meter converter (GTA-A26-A)."""
 
-from model.device_constant import DEFAULT_MISSING_VALUE
-from sender.legacy.snapshot_converters import convert_panel_meter_snapshot
+from core.model.device_constant import DEFAULT_MISSING_VALUE
+from core.sender.legacy.snapshot_converters import convert_panel_meter_snapshot
 
 
 class TestConvertPanelMeterSnapshot:

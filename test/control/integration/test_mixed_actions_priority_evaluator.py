@@ -4,13 +4,13 @@ Evaluator Integration Tests — Mixed Actions Priority
 - Does NOT assert "only one action" — that is Executor's responsibility
 """
 
-import yaml
 import pytest
+import yaml
 
-from evaluator.control_evaluator import ControlEvaluator
-from schema.control_config_schema import ControlConfig
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_condition_schema import ControlActionSchema, ControlActionType
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
+from core.schema.control_config_schema import ControlConfig
 
 
 @pytest.fixture

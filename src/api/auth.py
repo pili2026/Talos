@@ -5,7 +5,7 @@ import os
 
 from fastapi import Header, HTTPException
 
-from util.config_manager import ConfigManager
+from core.util.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 

@@ -1,9 +1,9 @@
 import pytest
 from pydantic import ValidationError
 
-from model.enum.alert_enum import AlertSeverity
-from model.enum.condition_enum import ConditionOperator, ConditionType
-from schema.alert_schema import AggregateAlertConfig, ScheduleExpectedStateAlertConfig, ThresholdAlertConfig
+from core.model.enum.alert_enum import AlertSeverity
+from core.model.enum.condition_enum import ConditionOperator, ConditionType
+from core.schema.alert_schema import AggregateAlertConfig, ScheduleExpectedStateAlertConfig, ThresholdAlertConfig
 
 # ============================================================
 # Threshold Alert Schema Tests

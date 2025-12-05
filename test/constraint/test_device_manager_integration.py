@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from device.generic.constraints_policy import ConstraintPolicy
-from device.generic.generic_device import AsyncGenericModbusDevice
+from core.device.generic.constraints_policy import ConstraintPolicy
+from core.device.generic.generic_device import AsyncGenericModbusDevice
+from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
 from device_manager import AsyncDeviceManager
-from schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
 
 
 @pytest.mark.asyncio

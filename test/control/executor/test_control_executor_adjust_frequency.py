@@ -1,6 +1,6 @@
 import pytest
-from unittest.mock import Mock, AsyncMock
-from schema.control_condition_schema import ControlActionSchema, ControlActionType
+
+from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 class TestControlExecutorAdjustFrequency:

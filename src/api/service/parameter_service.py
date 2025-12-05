@@ -7,11 +7,11 @@ from typing import Any
 from api.model.enums import ParameterType
 from api.model.responses import ParameterValue
 from api.repository.config_repository import ConfigRepository
-from device.generic.generic_device import AsyncGenericModbusDevice
+from core.device.generic.generic_device import AsyncGenericModbusDevice
+from core.model.device_constant import DEFAULT_MISSING_VALUE
+from core.schema.constraint_schema import ConstraintConfig
+from core.util.value_util import safe_float
 from device_manager import AsyncDeviceManager
-from model.device_constant import DEFAULT_MISSING_VALUE
-from schema.constraint_schema import ConstraintConfig
-from util.value_util import safe_float
 
 logger = logging.getLogger(__name__)
 

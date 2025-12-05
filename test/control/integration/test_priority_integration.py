@@ -5,17 +5,18 @@ Control System Tests (clean version for current design)
 - Integration: verify emergency (blocking vs non-blocking) and policy calculations
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 import yaml
-from unittest.mock import Mock, AsyncMock
 
-from evaluator.control_evaluator import ControlEvaluator
-from executor.control_executor import ControlExecutor
-from schema.control_config_schema import ControlConfig
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_condition_schema import ControlActionSchema
-from model.device_constant import REG_RW_ON_OFF
-from model.enum.condition_enum import ControlActionType
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.executor.control_executor import ControlExecutor
+from core.model.device_constant import REG_RW_ON_OFF
+from core.model.enum.condition_enum import ControlActionType
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_condition_schema import ControlActionSchema
+from core.schema.control_config_schema import ControlConfig
 
 # ---------------------------
 # Constants (avoid magic strings)

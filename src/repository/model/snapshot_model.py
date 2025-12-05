@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from util.time_util import TIMEZONE_INFO
+from core.util.time_util import TIMEZONE_INFO
 
 
 class Base(DeclarativeBase):

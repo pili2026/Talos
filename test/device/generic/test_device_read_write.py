@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from device.generic.generic_device import AsyncGenericModbusDevice
+from core.device.generic.generic_device import AsyncGenericModbusDevice
 
 
 class FakeClient:

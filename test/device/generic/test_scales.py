@@ -1,6 +1,6 @@
 import pytest
 
-from device.generic.scales import ScaleService
+from core.device.generic.scales import ScaleService
 
 
 class DummyLogger:

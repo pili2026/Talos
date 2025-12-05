@@ -1,8 +1,8 @@
 import pytest
 
-from model.enum.equipment_enum import EquipmentType
-from schema.system_config_schema import DeviceIdPolicyConfig
-from util.device_id_policy import DeviceIdPolicy
+from core.model.enum.equipment_enum import EquipmentType
+from core.schema.system_config_schema import DeviceIdPolicyConfig
+from core.util.device_id_policy import DeviceIdPolicy
 
 
 class TestDeviceIdPolicyDevice36:

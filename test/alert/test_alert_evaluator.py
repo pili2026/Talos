@@ -1,4 +1,4 @@
-from evaluator.alert_evaluator import AlertEvaluator
+from core.evaluator.alert_evaluator import AlertEvaluator
 
 # ============================================================
 # Existing Tests (Updated for sources format)

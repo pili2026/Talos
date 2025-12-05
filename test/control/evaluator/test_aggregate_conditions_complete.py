@@ -9,9 +9,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from evaluator.composite_evaluator import CompositeEvaluator
-from model.control_composite import CompositeNode
-from model.enum.condition_enum import ConditionOperator, ConditionType
+from core.evaluator.composite_evaluator import CompositeEvaluator
+from core.model.control_composite import CompositeNode
+from core.model.enum.condition_enum import ConditionOperator, ConditionType
 
 
 def create_mock_composite_node(**kwargs):

@@ -3,11 +3,13 @@ Emergency Override Unit Tests for ControlEvaluator
 Tests the emergency override logic that bypasses constraints for safety
 """
 
-import pytest
 from unittest.mock import Mock
-from evaluator.control_evaluator import ControlEvaluator
-from schema.control_condition_schema import ControlActionSchema
-from schema.constraint_schema import ConstraintConfigSchema
+
+import pytest
+
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_condition_schema import ControlActionSchema
 
 
 class TestEmergencyOverrideLogic:

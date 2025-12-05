@@ -1,5 +1,5 @@
-from evaluator.alert_state_manager import AlertState, AlertStateManager
-from schema.alert_schema import AlertSeverity
+from core.evaluator.alert_state_manager import AlertState, AlertStateManager
+from core.schema.alert_schema import AlertSeverity
 
 
 class TestAlertStateManager:

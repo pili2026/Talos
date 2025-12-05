@@ -1,6 +1,6 @@
 """Tests for ComputedFieldProcessor."""
 
-from device.generic.computed_field_processor import ComputedFieldProcessor
+from core.device.generic.computed_field_processor import ComputedFieldProcessor
 
 
 class TestComputedFieldProcessor:

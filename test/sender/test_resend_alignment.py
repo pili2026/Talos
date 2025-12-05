@@ -1,12 +1,11 @@
-# test/sender/test_resend_alignment.py
+from datetime import datetime
+from unittest.mock import Mock
+from zoneinfo import ZoneInfo
 
 import pytest
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-from unittest.mock import Mock
 
-from sender.legacy.legacy_sender import LegacySenderAdapter
-from schema.sender_schema import SenderSchema, CloudConfig
+from core.schema.sender_schema import CloudConfig, SenderSchema
+from core.sender.legacy.legacy_sender import LegacySenderAdapter
 
 TIMEZONE_INFO = ZoneInfo("Asia/Taipei")
 

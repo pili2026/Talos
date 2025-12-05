@@ -2,9 +2,9 @@ from datetime import datetime, time
 
 import pytest
 
-from evaluator.time_evalutor import TimeControlEvaluator
-from schema.time_control_schema import DeviceSchedule, TimeControlConfig, TimeInterval
-from util.time_util import TIMEZONE_INFO
+from core.evaluator.time_evalutor import TimeControlEvaluator
+from core.schema.time_control_schema import DeviceSchedule, TimeControlConfig, TimeInterval
+from core.util.time_util import TIMEZONE_INFO
 
 
 def _build_datetime(hour: int, minute: int, iso_weekday: int) -> datetime:

@@ -1,10 +1,12 @@
+from unittest.mock import Mock
+
 import pytest
 import pytest_asyncio
 import yaml
-from unittest.mock import Mock
+
+from core.schema.sender_schema import SenderSchema
+from core.sender.legacy.legacy_sender import LegacySenderAdapter
 from device_manager import AsyncDeviceManager
-from schema.sender_schema import SenderSchema
-from sender.legacy.legacy_sender import LegacySenderAdapter
 
 
 @pytest.fixture

@@ -1,9 +1,10 @@
 from unittest.mock import Mock
+
 import pytest
 
-from evaluator.control_evaluator import ControlEvaluator
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_config_schema import ControlConfig
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_config_schema import ControlConfig
 
 # ----------------------
 # Fixtures

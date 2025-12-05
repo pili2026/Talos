@@ -1,7 +1,7 @@
 import pytest
 
-from schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
-from util.config_manager import ConfigManager
+from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
+from core.util.config_manager import ConfigManager
 
 
 class TestConfigManagerStartupFrequency:

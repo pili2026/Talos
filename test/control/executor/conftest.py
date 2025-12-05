@@ -1,7 +1,9 @@
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
-from executor.control_executor import ControlExecutor
-from schema.control_condition_schema import ControlActionSchema, ControlActionType
+
+from core.executor.control_executor import ControlExecutor
+from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
 @pytest.fixture

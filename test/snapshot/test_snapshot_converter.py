@@ -1,4 +1,4 @@
-from sender.legacy.snapshot_converters import _get_do_state_for_di, convert_di_module_snapshot
+from core.sender.legacy.snapshot_converters import _get_do_state_for_di, convert_di_module_snapshot
 
 
 def test_di_module_with_invalid_pin_value():

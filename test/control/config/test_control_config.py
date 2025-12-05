@@ -3,9 +3,9 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from model.control_composite import CompositeNode
-from model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
-from schema.control_config_schema import ControlConfig
+from core.model.control_composite import CompositeNode
+from core.model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
+from core.schema.control_config_schema import ControlConfig
 
 
 def create_control_config(config_data: dict) -> ControlConfig:

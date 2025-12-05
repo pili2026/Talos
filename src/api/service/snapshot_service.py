@@ -10,8 +10,8 @@ from api.model.snapshot_responses import (
     SnapshotHistoryResponse,
     SnapshotResponse,
 )
+from core.util.time_util import TIMEZONE_INFO
 from repository.snapshot_repository import SnapshotRepository
-from util.time_util import TIMEZONE_INFO
 
 logger = logging.getLogger(__name__)
 

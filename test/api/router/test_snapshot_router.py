@@ -15,7 +15,7 @@ from api.model.snapshot_responses import (
     SnapshotResponse,
 )
 from api.router import snapshot
-from util.time_util import TIMEZONE_INFO
+from core.util.time_util import TIMEZONE_INFO
 
 
 @pytest.fixture

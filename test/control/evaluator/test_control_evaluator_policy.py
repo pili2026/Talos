@@ -1,11 +1,13 @@
-import pytest
 import logging
 from unittest.mock import Mock
-from schema.control_condition_schema import ControlActionSchema, ConditionSchema
-from model.enum.condition_enum import ControlActionType
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_config_schema import ControlConfig
-from evaluator.control_evaluator import ControlEvaluator
+
+import pytest
+
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.model.enum.condition_enum import ControlActionType
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema
+from core.schema.control_config_schema import ControlConfig
 
 
 class TestControlEvaluatorPolicyProcessing:

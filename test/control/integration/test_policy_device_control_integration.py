@@ -3,16 +3,16 @@ Device Control Integration Tests
 Tests TURN_ON/TURN_OFF actions for TECO_VFD device control
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 import yaml
 
-
-from evaluator.control_evaluator import ControlEvaluator
-from executor.control_executor import ControlExecutor
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_config_schema import ControlConfig
-from schema.control_condition_schema import ControlActionType
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.executor.control_executor import ControlExecutor
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_condition_schema import ControlActionType
+from core.schema.control_config_schema import ControlConfig
 
 
 class TestDeviceControl:

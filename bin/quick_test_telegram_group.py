@@ -11,10 +11,10 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from model.enum.alert_enum import AlertSeverity
-from schema.alert_schema import AlertMessageModel
-from util.notifier.telegram_notifier import TelegramNotifier
-from util.time_util import TIMEZONE_INFO
+from core.model.enum.alert_enum import AlertSeverity
+from core.schema.alert_schema import AlertMessageModel
+from core.util.notifier.telegram_notifier import TelegramNotifier
+from core.util.time_util import TIMEZONE_INFO
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 

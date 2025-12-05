@@ -1,9 +1,9 @@
-import pytest
 import logging
 from unittest.mock import Mock
-from evaluator.control_evaluator import ControlEvaluator
-from model.enum.condition_enum import ControlActionType, ControlPolicyType
-from schema.control_condition_schema import ControlActionSchema, ConditionSchema
+
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.model.enum.condition_enum import ControlActionType, ControlPolicyType
+from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema
 
 
 class TestControlEvaluatorPriorityHandling:

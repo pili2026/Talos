@@ -3,18 +3,16 @@ Integration Tests for Control System - Core Tests (T1-T3)
 Tests the complete flow: Config → ControlEvaluator → ControlExecutor
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 import yaml
 
-from evaluator.control_evaluator import ControlEvaluator
-from executor.control_executor import ControlExecutor
-from schema.constraint_schema import ConstraintConfigSchema
-from schema.control_config_schema import ControlConfig
-from schema.control_condition_schema import ControlActionSchema
-
-from schema.control_condition_schema import ControlActionType
+from core.evaluator.control_evaluator import ControlEvaluator
+from core.executor.control_executor import ControlExecutor
+from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
+from core.schema.control_config_schema import ControlConfig
 
 
 class TestControlIntegration:

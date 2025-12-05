@@ -22,7 +22,7 @@ fi
 export PYTHONUNBUFFERED=1
 
 # Run Talos main.py with configs (Python from venv will be used automatically)
-exec python "$BASE_DIR/src/main.py" \
+exec python "$BASE_DIR/src/core/main.py" \
   --alert_config "$BASE_DIR/res/alert_condition.yml" \
   --control_config "$BASE_DIR/res/control_condition.yml" \
   --modbus_device "$BASE_DIR/res/modbus_device.yml" \
