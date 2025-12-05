@@ -16,7 +16,7 @@ def test_when_device_running_during_shutdown_then_trigger_alert(mock_alert_confi
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False  # Outside work hours
     snapshot = {"RW_ON_OFF": 1.0}  # Device is ON
@@ -42,7 +42,7 @@ def test_when_device_off_during_shutdown_then_no_alert(mock_alert_config_with_sc
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False  # Outside work hours
     snapshot = {"RW_ON_OFF": 0.0}  # Device is OFF
@@ -60,7 +60,7 @@ def test_when_device_running_during_work_hours_then_no_alert(mock_alert_config_w
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = True  # In work hours
     snapshot = {"RW_ON_OFF": 1.0}  # Device is ON
@@ -78,7 +78,7 @@ def test_when_alert_resolved_then_send_resolved_notification(mock_alert_config_w
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False  # Outside work hours
 
@@ -110,7 +110,7 @@ def test_when_no_time_evaluator_then_log_warning_and_skip(mock_alert_config_with
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=None,  # No time evaluator
+        time_control_evaluator=None,  # No time evaluator
     )
     snapshot = {"RW_ON_OFF": 1.0}
 
@@ -131,7 +131,7 @@ def test_when_missing_source_in_snapshot_then_log_warning_and_skip(
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False
     snapshot = {}  # Missing RW_ON_OFF
@@ -153,7 +153,7 @@ def test_when_expected_state_on_and_device_off_then_trigger_alert(
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule_expected_on,
         valid_device_ids={"COOLING_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False  # Outside work hours
     snapshot = {"RW_ON_OFF": 0.0}  # Device is OFF (violation!)
@@ -179,7 +179,7 @@ def test_when_expected_state_on_and_device_on_then_no_alert(
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule_expected_on,
         valid_device_ids={"COOLING_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False  # Outside work hours
     snapshot = {"RW_ON_OFF": 1.0}  # Device is ON (as expected)
@@ -197,7 +197,7 @@ def test_when_continuous_violation_then_no_repeated_notification(mock_alert_conf
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=mock_time_evaluator,
+        time_control_evaluator=mock_time_evaluator,
     )
     mock_time_evaluator.allow.return_value = False
     snapshot = {"RW_ON_OFF": 1.0}
@@ -226,7 +226,7 @@ def test_when_night_time_23_00_and_device_running_then_trigger_alert(
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=real_time_evaluator,
+        time_control_evaluator=real_time_evaluator,
     )
     # Simulate 23:00 (outside work hours 09:00-18:00)
     night_time = datetime(2025, 1, 15, 23, 0, 0, tzinfo=ZoneInfo("Asia/Taipei"))
@@ -254,7 +254,7 @@ def test_when_afternoon_14_00_and_device_running_then_no_alert(mock_alert_config
     evaluator = AlertEvaluator(
         alert_config=mock_alert_config_with_schedule,
         valid_device_ids={"TECO_VFD_1"},
-        time_evaluator=real_time_evaluator,
+        time_control_evaluator=real_time_evaluator,
     )
     # Simulate 14:00 (within work hours 09:00-18:00)
     afternoon = datetime(2025, 1, 15, 14, 0, 0, tzinfo=ZoneInfo("Asia/Taipei"))

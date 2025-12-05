@@ -1,11 +1,12 @@
 import logging
+from collections import Counter
 
-from alert_config import AlertConfig
 from evaluator.alert_state_manager import AlertStateManager
 from evaluator.time_evalutor import TimeControlEvaluator
 from model.enum.alert_enum import AlertSeverity
 from model.enum.alert_state_enum import AlertState
 from model.enum.condition_enum import ConditionOperator, ConditionType
+from schema.alert_config_schema import AlertConfig
 from schema.alert_schema import (
     AggregateAlertConfig,
     AlertConditionModel,
@@ -18,29 +19,61 @@ logger = logging.getLogger("AlertEvaluator")
 
 class AlertEvaluator:
     def __init__(
-        self, alert_config: AlertConfig, valid_device_ids: set[str], time_evaluator: TimeControlEvaluator | None = None
+        self,
+        alert_config: AlertConfig,
+        valid_device_ids: set[str],
+        time_control_evaluator: TimeControlEvaluator | None = None,
     ):
         # Nest struct: { model: { slave_id: [AlertConditionModel] } }
         self.device_alert_dict: dict[str, dict[str, list[AlertConditionModel]]] = {}
 
+        total_alerts = 0
+        total_devices = 0
+        skipped_devices = 0
+        alert_type_counter = Counter()
+        severity_counter = Counter()
+        model_alert_counts = {}  # { model: { slave_id: count } }
+
         for model, model_config in alert_config.root.items():
             self.device_alert_dict[model] = {}
+            model_alert_counts[model] = {}
 
             for slave_id in model_config.instances:
                 device_id = f"{model}_{slave_id}"
 
                 if device_id not in valid_device_ids:
                     logger.warning(f"[SKIP] Unknown device in config: {device_id}")
+                    skipped_devices += 1
                     continue
 
                 alerts = alert_config.get_instance_alerts(model, slave_id)
                 if alerts:
                     self.device_alert_dict[model][slave_id] = alerts
+                    total_devices += 1
+                    total_alerts += len(alerts)
+                    model_alert_counts[model][slave_id] = len(alerts)
+
+                    for alert in alerts:
+                        alert_type_counter[alert.type.value] += 1
+                        severity_counter[alert.severity.value] += 1
+
+                    logger.info(f"[{device_id}] Loaded {len(alerts)} alerts")
                 else:
-                    logger.info(f"[{device_id}] No alert configured. Skipped.")
+                    logger.debug(f"[{device_id}] No alert configured. Skipped.")
 
         self.state_manager = AlertStateManager()
-        self.time_evaluator = time_evaluator
+        self.time_control_evaluator = time_control_evaluator
+
+        logger.info("=" * 60)
+        logger.info("AlertEvaluator Initialization Summary")
+        logger.info("=" * 60)
+        logger.info(f"Configuration Version: {alert_config.version}")
+        logger.info(
+            f"TimeControlEvaluator: {'Available' if time_control_evaluator else 'Not Available (schedule alerts disabled)'}"
+        )
+        logger.info(f"Total Devices: {total_devices}")
+        logger.info(f"Total Alerts: {total_alerts}")
+        logger.info(f"Skipped Devices: {skipped_devices}")
 
     def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str, AlertSeverity, str]]:
         """
@@ -185,7 +218,7 @@ class AlertEvaluator:
             (triggered: bool, actual_state_value: float) or None if unable to evaluate
         """
         # Check if TimeControlEvaluator is available
-        if self.time_evaluator is None:
+        if self.time_control_evaluator is None:
             logger.warning(
                 f"[{device_id}] Alert '{alert.code}': TimeControlEvaluator not available, "
                 f"cannot evaluate schedule_expected_state alert"
@@ -201,7 +234,7 @@ class AlertEvaluator:
         actual_state = snapshot[source]
 
         # Check if current time is within work_hours
-        is_in_work_hours = self.time_evaluator.allow(device_id)
+        is_in_work_hours: bool = self.time_control_evaluator.allow(device_id)
 
         if is_in_work_hours:
             # Device is allowed to run, no alert

@@ -26,10 +26,9 @@ from util.pubsub.in_memory_pubsub import InMemoryPubSub
 from util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from util.pubsub.subscriber.snapshot_saver_subscriber import SnapshotSaverSubscriber
-from util.pubsub.subscriber.time_control_subscriber import TimeControlSubscriber
 from util.sub_registry import SubscriberRegistry
 
-logger = logging.getLogger("Main")
+logger = logging.getLogger("CoreMain")
 
 
 async def main(
@@ -86,6 +85,14 @@ async def main(
     # ----------------------------------------------------------------------
     # Build subscribers (constraint / alert / control / time)
     # ----------------------------------------------------------------------
+    time_control_subscriber, time_control_evaluator = build_time_control_subscriber(
+        pubsub=pubsub,
+        valid_device_ids=valid_device_ids,
+        time_config_path=time_config_path,
+        driver_config=async_device_manager.driver_config_by_model,
+        instance_config=constraint_config_raw,
+    )
+
     constraint_subscriber: ConstraintSubscriber = build_constraint_subscriber(pubsub)
 
     notifier_list, notifier_config = build_notifiers_and_routing(notifier_config_path)
@@ -96,18 +103,11 @@ async def main(
         valid_device_ids=valid_device_ids,
         notifier_list=notifier_list,
         notifier_config_schema=notifier_config,
+        time_control_evaluator=time_control_evaluator,
     )
 
     control_subscriber: ControlSubscriber = build_control_subscriber(
         control_path=control_path, pubsub=pubsub, async_device_manager=async_device_manager
-    )
-
-    time_control_subscriber: TimeControlSubscriber = build_time_control_subscriber(
-        pubsub=pubsub,
-        valid_device_ids=valid_device_ids,
-        time_config_path=time_config_path,
-        driver_config=async_device_manager.driver_config_by_model,
-        instance_config=constraint_config_raw,
     )
 
     # ----------------------------------------------------------------------

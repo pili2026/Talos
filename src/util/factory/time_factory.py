@@ -15,9 +15,13 @@ def build_time_control_subscriber(
     *,
     driver_config: dict[str, str] | None = None,  # e.g., {"IMA_C": "res/driver/ima_c.yml"}
     instance_config: str | None = None,  # e.g., "res/device_instance_config.yml"
-) -> TimeControlSubscriber:
+) -> tuple[TimeControlSubscriber, TimeControlEvaluator]:
     """
     Build components related to TimeControl.
+
+    Returns:
+        Tuple of (subscriber, evaluator) to enable other components to access evaluator
+
     - Original parameters remain unchanged; new keyword arguments are optional,
       used to inject driver/instance capability settings.
     - If driver paths are not provided, DO translation falls back to heuristics
@@ -36,8 +40,10 @@ def build_time_control_subscriber(
         executor=time_control_executor,
         expected_devices=valid_device_ids,
     )
+
     time_control_subscriber = TimeControlSubscriber(
         pubsub=pubsub,
         time_control_handler=time_control_handler,
     )
-    return time_control_subscriber
+
+    return time_control_subscriber, time_control_evaluator

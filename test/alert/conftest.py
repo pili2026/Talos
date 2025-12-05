@@ -3,8 +3,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from alert_config import AlertConfig
 from evaluator.time_evalutor import TimeControlEvaluator
+from schema.alert_config_schema import AlertConfig
 from schema.time_control_schema import DeviceSchedule, TimeControlConfig, TimeInterval
 
 
