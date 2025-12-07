@@ -5,28 +5,27 @@ import logging
 from dotenv import load_dotenv
 
 from core.schema.constraint_schema import ConstraintConfigSchema
-from core.schema.system_config_schema import SystemConfig
+from core.schema.system_config_schema import DeviceIdPolicyConfig, SystemConfig
 from core.task.snapshot_cleanup_task import SnapshotCleanupTask
 from core.util.config_manager import ConfigManager
-from core.util.device_id_policy import load_device_id_policy
+from core.util.device_health_manager import DeviceHealthManager
+from core.util.device_id_policy import get_policy, load_device_id_policy
 from core.util.factory.alert_factory import build_alert_subscriber
 from core.util.factory.constraint_factory import build_constraint_subscriber
 from core.util.factory.control_factory import build_control_subscriber
 from core.util.factory.notifier_factory import build_notifiers_and_routing
 from core.util.factory.sender_factory import build_sender_subscriber, init_sender
+from core.util.factory.snapshot_factory import build_snapshot_subscriber
 from core.util.factory.time_factory import build_time_control_subscriber
 from core.util.logger_config import setup_logging
 from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
-from core.util.pubsub.subscriber.snapshot_saver_subscriber import SnapshotSaverSubscriber
 from core.util.sub_registry import SubscriberRegistry
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from repository.schema.snapshot_storage_schema import SnapshotStorageConfig
-from repository.snapshot_repository import SnapshotRepository
-from repository.util.db_manager import SQLiteSnapshotDBManager
 
 logger = logging.getLogger("CoreMain")
 
@@ -54,6 +53,7 @@ async def main(
     system_config = SystemConfig(**system_config_raw)
 
     load_device_id_policy(system_config)
+    policy = get_policy()
 
     # ----------------------------------------------------------------------
     # Load snapshot storage config
@@ -66,6 +66,9 @@ async def main(
     # ----------------------------------------------------------------------
     pubsub = InMemoryPubSub()
 
+    health_manager = DeviceHealthManager()
+    logger.info("DeviceHealthManager initialized")
+
     constraint_config_raw: dict = ConfigManager.load_yaml_file(instance_config_path)
     constraint_config = ConstraintConfigSchema(**constraint_config_raw)
 
@@ -76,6 +79,7 @@ async def main(
         async_device_manager=async_device_manager,
         pubsub=pubsub,
         interval=system_config.MONITOR_INTERVAL_SECONDS,
+        health_manager=health_manager,
     )
 
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
@@ -117,41 +121,21 @@ async def main(
         pubsub=pubsub,
         async_device_manager=async_device_manager,
         sender_config_path=sender_config_path,
-        series_number=system_config.DEVICE_ID_POLICY.SERIES,
+        series_number=policy._config.SERIES,
     )
 
     # ----------------------------------------------------------------------
     # Snapshot storage (SQLite DB)
     # ----------------------------------------------------------------------
-    snapshot_saver_subscriber = None
+    snapshot_saver_subscriber, snapshot_repo, snapshot_db_manager = await build_snapshot_subscriber(
+        snapshot_config_path=snapshot_storage_path,
+        pubsub=pubsub,
+    )
+
     cleanup_task_handle = None
-    snapshot_db_manager: SQLiteSnapshotDBManager | None = None
 
-    if snapshot_storage.enabled:
-        logger.info(
-            f"[SnapshotStorage] Enabled: retention={snapshot_storage.retention_days}d "
-            f"db_path={snapshot_storage.db_path}"
-        )
-
-        # --- Create DB manager ---
-        snapshot_db_manager = SQLiteSnapshotDBManager(
-            db_path=snapshot_storage.db_path,
-            echo=False,
-        )
-
-        # DB availability check
-        await snapshot_db_manager.wait_for_db_available()
-
-        # Schema initialization
-        await snapshot_db_manager.init_database()
-
-        # Repository
-        snapshot_repo = SnapshotRepository(snapshot_db_manager)
-
-        # Subscriber for saving snapshots
-        snapshot_saver_subscriber = SnapshotSaverSubscriber(pubsub, snapshot_repo)
-
-        # Background cleanup task
+    if snapshot_saver_subscriber:
+        # Use the repository returned by factory (no duplicate creation)
         cleanup_task = SnapshotCleanupTask(
             repository=snapshot_repo,
             db_path=snapshot_storage.db_path,

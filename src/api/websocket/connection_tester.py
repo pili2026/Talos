@@ -39,7 +39,7 @@ class DeviceConnectionTester:
         ...     # Proceed with monitoring
     """
 
-    def __init__(self, parameter_service: ParameterServiceProtocol):
+    def __init__(self, parameter_service: ParameterServiceProtocol, min_success_rate: float = 0.2):
         """
         Initialize connection tester.
 
@@ -47,6 +47,7 @@ class DeviceConnectionTester:
             parameter_service: Service for reading device parameters
         """
         self.service = parameter_service
+        self.min_success_rate = min_success_rate
 
     async def test_connection(self, device_id: str, test_parameters: list[str]) -> tuple[bool, str | None]:
         """
@@ -69,18 +70,18 @@ class DeviceConnectionTester:
 
         try:
             # Determine how many parameters to test
-            test_count = min(5, len(test_parameters))
+            test_count: int = min(3, len(test_parameters))
 
             logger.info(f"[{device_id}] Testing connection with up to {test_count} parameters")
 
             if hasattr(self.service, "fast_test_device_connection"):
                 success, error, details = await self.service.fast_test_device_connection(
-                    device_id, test_param_count=test_count, min_success_rate=0.3
+                    device_id, test_param_count=test_count, min_success_rate=self.min_success_rate
                 )
 
                 if success:
                     logger.info(
-                        f"[{device_id}] ✓ Connection test passed: "
+                        f"[{device_id}] Connection test passed: "
                         f"{details['passed']}/{details['tested']} parameters "
                         f"({details['rate']:.0%}) in {details['elapsed_seconds']}s"
                     )
@@ -89,10 +90,9 @@ class DeviceConnectionTester:
 
                 return success, error
 
-            else:
-                # Fallback to old method if fast test not available
-                logger.warning(f"[{device_id}] fast_test_device_connection not available, " f"using legacy test method")
-                return await self._legacy_test_connection(device_id, test_parameters)
+            # Fallback to old method if fast test not available
+            logger.warning(f"[{device_id}] fast_test_device_connection not available, " f"using legacy test method")
+            return await self._legacy_test_connection(device_id, test_parameters)
 
         except Exception as e:
             logger.error(f"[{device_id}] Connection test error: {e}", exc_info=True)

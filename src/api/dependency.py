@@ -15,6 +15,7 @@ from api.service.parameter_service import ParameterService
 from api.service.snapshot_service import SnapshotService
 from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
+from core.util.pubsub.base import PubSub
 from device_manager import AsyncDeviceManager
 from repository.snapshot_repository import SnapshotRepository
 from repository.util.db_manager import SQLiteSnapshotDBManager
@@ -41,20 +42,8 @@ def get_wifi_service() -> WiFiService:
 
 
 def get_async_device_manager(request: Request) -> AsyncDeviceManager:
-    """
-    Provide the shared AsyncDeviceManager stored on the FastAPI app.
-
-    The app startup code must set:
-        app.state.async_device_manager = AsyncDeviceManager(...)
-    """
-    if not hasattr(request.app.state, "async_device_manager"):
-        raise RuntimeError("AsyncDeviceManager is not initialized on app.state")
-
-    manager = request.app.state.async_device_manager
-    if manager is None:
-        raise RuntimeError("AsyncDeviceManager on app.state is None")
-
-    return manager
+    """Provide AsyncDeviceManager from app state."""
+    return request.app.state.talos.get_device_manager()
 
 
 def get_device_service(
@@ -77,20 +66,18 @@ def get_parameter_service(
 
 
 def get_constraint_schema(request: Request) -> ConstraintConfigSchema:
+    """Provide ConstraintConfigSchema from app state."""
+    return request.app.state.talos.get_constraint_schema()
+
+
+def get_pubsub(request: Request) -> PubSub:
     """
-    Provide the shared ConstraintConfigSchema stored on the FastAPI app.
+    Provide PubSub instance (unified mode only).
 
-    The app startup code must set:
-        app.state.constraint_schema = ConstraintConfigSchema(...)
+    Raises:
+        RuntimeError: If not in unified mode
     """
-    if not hasattr(request.app.state, "constraint_schema"):
-        raise RuntimeError("ConstraintConfigSchema is not initialized on app.state")
-
-    schema = request.app.state.constraint_schema
-    if schema is None:
-        raise RuntimeError("ConstraintConfigSchema on app.state is None")
-
-    return schema
+    return request.app.state.talos.get_pubsub()
 
 
 def get_constraint_service(
@@ -117,19 +104,11 @@ def _get_snapshot_db_manager_cached(db_path: str) -> SQLiteSnapshotDBManager:
 
 
 def get_snapshot_db_manager(request: Request) -> SQLiteSnapshotDBManager:
-    """
-    Provide SQLiteSnapshotDBManager using app.state.snapshot_db_path.
+    """Provide SQLiteSnapshotDBManager."""
+    if request.app.state.talos.snapshot_db_path is None:
+        raise RuntimeError("Snapshot DB path not configured")
 
-    The app startup code must set:
-        app.state.snapshot_db_path = "/path/to/snapshots.db"
-    """
-    if not hasattr(request.app.state, "snapshot_db_path"):
-        raise RuntimeError("snapshot_db_path is not configured on app.state")
-
-    db_path: str = request.app.state.snapshot_db_path
-    if not db_path:
-        raise RuntimeError("snapshot_db_path on app.state is empty")
-
+    db_path = request.app.state.talos.snapshot_db_path
     return _get_snapshot_db_manager_cached(db_path)
 
 
@@ -151,10 +130,10 @@ def get_snapshot_repository(request: Request) -> SnapshotRepository:
     The app startup code must set:
         app.state.snapshot_db_path = "/path/to/snapshots.db"
     """
-    if not hasattr(request.app.state, "snapshot_db_path"):
+    if not hasattr(request.app.state.talos, "snapshot_db_path"):
         raise RuntimeError("snapshot_db_path is not configured on app.state")
 
-    db_path: str = request.app.state.snapshot_db_path
+    db_path: str = request.app.state.talos.snapshot_db_path
     if not db_path:
         raise RuntimeError("snapshot_db_path on app.state is empty")
 

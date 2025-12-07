@@ -32,6 +32,22 @@ class SubscribersConfig(BaseModel):
     def __getitem__(self, key: str) -> bool:
         return getattr(self, key, True)
 
+    def get(self, key: str, default: bool = False) -> bool:
+        """Dict-like get method for compatibility."""
+        return getattr(self, key, default)
+
+    def items(self):
+        return self.model_dump().items()
+
+    def keys(self):
+        return self.model_dump().keys()
+
+    def values(self):
+        return self.model_dump().values()
+
+    def __iter__(self):
+        return iter(self.model_dump())
+
 
 class SystemConfig(BaseModel):
     """System configuration (full)"""

@@ -44,6 +44,8 @@ class AsyncDeviceManager:
 
         self.driver_config_by_model: dict[str, dict] = {}
 
+        self._port_locks: dict[str, asyncio.Lock] = {}
+
     async def init(self):
         config: dict = ConfigManager().load_yaml_file(self.config_path)
 
@@ -59,7 +61,9 @@ class AsyncDeviceManager:
             # cast slave_id to int to be safe for pymodbus
             slave_id: int = int(device_config["slave_id"])
             port: str = device_config["port"]
-            device_type: str = device_config["type"]
+
+            if port not in self._port_locks:
+                self._port_locks[port] = asyncio.Lock()
 
             if port not in self.client_dict:
                 client = AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)
@@ -80,6 +84,7 @@ class AsyncDeviceManager:
             model_modes: dict = model_config.get("modes", {})
             instance_modes_override: dict = device_config.get("modes", {})  # optional per-instance MV switch, etc.
             final_modes: dict = _deep_merge_dicts(model_modes, instance_modes_override)
+            device_type: str = device_config["type"]
 
             device = AsyncGenericModbusDevice(
                 model=model,
@@ -102,7 +107,18 @@ class AsyncDeviceManager:
         result: dict[str, Any] = {}
         for device in self.device_list:
             key = f"{device.model}_{device.slave_id}"
-            result[key] = await device.read_all()
+
+            port: str = self._get_device_port(device)
+            lock: asyncio.Lock | None = self._port_locks.get(port)
+
+            if lock:
+                async with lock:
+                    result[key] = await device.read_all()
+            else:
+                # Fallback: no lock (shouldn't happen)
+                logger.warning(f"No lock found for port {port}")
+                result[key] = await device.read_all()
+
         return result
 
     # TODO: Determine if slave_id should be str or int
@@ -196,12 +212,20 @@ class AsyncDeviceManager:
             logger.warning(f"Device {device_id} not found in device manager")
             return False
 
+        port: str = self._get_device_port(device)
+        lock: asyncio.Lock = self._port_locks.get(port)
+
         try:
             if not device.register_map:
                 return False
 
             first_param = next(iter(device.register_map.keys()))
-            value = await device.read_value(first_param)
+
+            if lock:
+                async with lock:
+                    value = await device.read_value(first_param)
+            else:
+                value = await device.read_value(first_param)
 
             return value != DEFAULT_MISSING_VALUE
 
@@ -247,6 +271,9 @@ class AsyncDeviceManager:
             logger.warning(f"Device {device_id} not found in device manager")
             return False, "Device not found", {}
 
+        port: str = self._get_device_port(device)
+        lock: asyncio.Lock = self._port_locks.get(port)
+
         # Get readable parameters
         readable_params = [name for name, cfg in device.register_map.items() if cfg.get("readable", False)]
 
@@ -267,11 +294,14 @@ class AsyncDeviceManager:
         for param_name in test_param_list:
             try:
 
-                value = await asyncio.wait_for(device.read_value(param_name), timeout=0.8)
+                if lock:
+                    async with lock:
+                        value = await asyncio.wait_for(device.read_value(param_name), timeout=0.8)
+                else:
+                    value = await asyncio.wait_for(device.read_value(param_name), timeout=0.8)
 
                 is_valid = value != DEFAULT_MISSING_VALUE
                 results.append((param_name, is_valid))
-
             except asyncio.TimeoutError:
                 logger.debug(f"[{device_id}] Parameter '{param_name}' timeout")
                 results.append((param_name, False))
@@ -309,3 +339,10 @@ class AsyncDeviceManager:
 
         error_msg = f"Low response rate: {passed_count}/{len(results)} " f"parameters responded ({success_rate:.0%})"
         return False, error_msg, details
+
+    def _get_device_port(self, device: AsyncGenericModbusDevice) -> str:
+        """Get the port for a device."""
+        for port, client in self.client_dict.items():
+            if device.client == client:
+                return port
+        return "unknown"

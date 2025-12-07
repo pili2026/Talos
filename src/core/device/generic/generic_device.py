@@ -81,27 +81,47 @@ class AsyncGenericModbusDevice:
         return str(self.device_type).lower() in {"inverter", "vfd", "inverter_vfd"}
 
     async def read_all(self) -> dict[str, Any]:
-        """Read all readable pins."""
+        """Read all readable pins with early failure detection."""
+
         # 1) First check connectivity using default bus
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
             return self._default_offline_snapshot()
 
-        # 2) If connected, read all pins
-        # Note: Each pin may use a different bus (different register_type)
+        # 2) If connected, read all pins with early failure detection
         result: dict[str, Any] = {}
+        consecutive_failures = 0  # ← 新增：追蹤連續失敗
+        max_early_failures = 3  # ← 新增：容忍值
+
         for name, cfg in self.register_map.items():
             if not cfg.get("readable"):
                 continue
+
             try:
                 result[name] = await self.read_value(name)
+
+                # ========== 新增：檢查是否失敗 ==========
+                if result[name] == DEFAULT_MISSING_VALUE:
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 0  # 成功則重置
+
             except Exception as e:
                 self.logger.warning(f"Failed to read {name}: {e}; set -1")
                 result[name] = DEFAULT_MISSING_VALUE
+                consecutive_failures += 1  # ← 新增
+
+            # ========== 新增：快速失敗檢測 ==========
+            if consecutive_failures >= max_early_failures and len(result) <= 5:
+                self.logger.warning(
+                    f"[{self.model}:{self.slave_id}] "
+                    f"Early failure detected ({consecutive_failures} consecutive failures), "
+                    "returning offline snapshot"
+                )
+                return self._default_offline_snapshot()  # ← 使用現有方法
 
         # 3) Process computed fields (if any)
         result = self.computed_processor.compute(result)
-
         return result
 
     async def read_value(self, name: str) -> float | int:

@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from api.app_state import TalosAppState
+
 env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(dotenv_path=env_path)
@@ -61,6 +63,8 @@ def create_application() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+
+    app.state.talos = TalosAppState()
 
     # Configure CORS
     app.add_middleware(

@@ -11,6 +11,7 @@ class ConnectionManager:
 
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
+        self.device_map: dict[WebSocket, str] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -18,8 +19,9 @@ class ConnectionManager:
         logger.info(f"New WebSocket connection. Total: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
+        device_id = self.device_map.pop(websocket, "UNKNOWN")
         self.active_connections.discard(websocket)
-        logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
+        logger.info(f"[{device_id}] WebSocket disconnected. Total: {len(self.active_connections)}")
 
     async def send_personal_message(self, message: dict, websocket: WebSocket):
         try:

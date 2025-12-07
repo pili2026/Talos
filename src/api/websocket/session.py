@@ -17,6 +17,7 @@ from api.websocket.message_builder import MessageBuilder
 from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.monitoring_handler import MonitoringTaskHandler
 from api.websocket.parameter_paser import ParameterParseError, parse_parameter_list
+from core.util.device_health_manager import DeviceHealthManager
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class WebSocketDeviceSession:
         config_repo: ConfigRepositoryProtocol,
         manager: ConnectionManagerProtocol,
         monitoring_config: MonitoringConfig | None = None,
+        health_manager: DeviceHealthManager | None = None,
     ):
         """
         Initialize WebSocket device session.
@@ -90,48 +92,70 @@ class WebSocketDeviceSession:
         self.config_repo = config_repo
         self.manager = manager
         self.monitoring_config = monitoring_config or MonitoringConfig()
+        self.health_manager = health_manager
 
     async def run(self, parameters: str | None = None, interval: float | None = None) -> None:
         """
         Run the complete WebSocket session.
-
-        Handles:
-        1. Connection management
-        2. Parameter parsing
-        3. Connection testing
-        4. Monitoring and control tasks
-        5. Cleanup
-
-        Args:
-            parameters: Comma-separated parameter names (optional)
-            interval: Update interval in seconds (optional)
-
-        Example:
-            >>> await session.run(parameters="freq,current", interval=1.0)
         """
-        # Connect
         await self.manager.connect(self.websocket)
 
-        await self.websocket.send_json(
-            MessageBuilder.connection_status(
-                status="connecting", device_id=self.device_id, message="Test device connectivity..."
-            )
-        )
-
         try:
-            # Parse parameters
+            if self.health_manager and not self.health_manager.is_healthy(self.device_id):
+                await self.websocket.send_json(
+                    MessageBuilder.error(
+                        code="DEVICE_UNHEALTHY",
+                        message=(
+                            f"Device {self.device_id} is currently offline or unhealthy. "
+                            "Please check device status and try again later."
+                        ),
+                    )
+                )
+                await self.websocket.close(code=1003)
+                logger.warning(f"[WebSocket] Rejected connection to unhealthy device: {self.device_id}")
+                return
+
+            await self.websocket.send_json(
+                MessageBuilder.connection_status(
+                    status="connecting",
+                    device_id=self.device_id,
+                    message="Test device connectivity...",
+                )
+            )
+
             param_list: list[str] | None = await self._parse_parameters(parameters)
             if param_list is None:
-                return  # Error already sent
+                return
 
-            # Test connection
+            tester = DeviceConnectionTester(parameter_service=self.service)
+            is_online, error_msg = await tester.test_connection(
+                device_id=self.device_id,
+                test_parameters=param_list,
+            )
+            if not is_online:
+                await self.websocket.send_json(
+                    MessageBuilder.connection_status(
+                        status="device_offline",
+                        device_id=self.device_id,
+                        message="The device is not responding. Please check the device's power and connections.",
+                        error_details=error_msg,
+                    )
+                )
+                await self.websocket.close(code=1011)
+
+                if self.health_manager:
+                    await self.health_manager.mark_failure(self.device_id)
+
+                return
+
+            if self.health_manager:
+                await self.health_manager.mark_success(self.device_id)
+
             if not await self._test_connection(param_list):
-                return  # Error already sent
+                return
 
-            # Use config defaults if not specified
             actual_interval: float = interval or self.monitoring_config.default_single_device_interval
 
-            # Send connection established
             await self.websocket.send_json(
                 MessageBuilder.connection_status(
                     status="connected",
@@ -143,7 +167,6 @@ class WebSocketDeviceSession:
                 )
             )
 
-            # Run monitoring and control tasks
             await self._run_tasks(param_list, actual_interval)
 
         except WebSocketDisconnect:

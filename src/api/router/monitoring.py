@@ -16,7 +16,7 @@ from api.websocket.message_builder import MessageBuilder
 from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.monitoring_handler import MultiDeviceMonitoringHandler
 from api.websocket.parameter_paser import ParameterParseError, parse_device_list, parse_multi_device_parameters
-from api.websocket.session import WebSocketDeviceSession, WebSocketSessionFactory
+from api.websocket.session import WebSocketDeviceSession
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -62,11 +62,17 @@ async def monitor_single_device(
     """
     # Get dependencies
     config_repo = ConfigRepository()
-    async_device_manager = getattr(websocket.app.state, "async_device_manager", None)
 
-    if async_device_manager is None:
+    # ========== Modified: Use TalosAppState API ==========
+    try:
+        async_device_manager = websocket.app.state.talos.get_device_manager()
+        health_manager = websocket.app.state.talos.health_manager
+    except Exception as e:
+        # CRITICAL: Must accept WebSocket before sending any messages
+        await websocket.accept()
         await websocket.send_json(MessageBuilder.service_unavailable())
         await websocket.close(code=1011)
+        logger.error(f"Failed to get device manager: {e}")
         return
 
     service = ParameterService(async_device_manager, config_repo)
@@ -79,47 +85,10 @@ async def monitor_single_device(
         config_repo=config_repo,
         manager=manager,
         monitoring_config=monitoring_config,
+        health_manager=health_manager,
     )
 
     await session.run(parameters=parameters, interval=interval)
-
-
-@router.websocket("/device/{device_id}/v2")
-async def monitor_single_device_v2(
-    websocket: WebSocket,
-    device_id: str,
-    parameters: str | None = Query(None),
-    interval: float = Query(
-        monitoring_config.default_single_device_interval,
-        ge=monitoring_config.min_interval,
-        le=monitoring_config.max_interval,
-    ),
-):
-    """
-    Alternative implementation using WebSocketSessionFactory.
-
-    Even more concise - just 3 lines of business logic!
-    """
-    config_repo = ConfigRepository()
-    async_device_manager = getattr(websocket.app.state, "async_device_manager", None)
-
-    if async_device_manager is None:
-        await websocket.send_json(MessageBuilder.service_unavailable())
-        await websocket.close(code=1011)
-        return
-
-    service = ParameterService(async_device_manager, config_repo)
-
-    # Create factory with shared dependencies
-    factory = WebSocketSessionFactory(
-        service=service,
-        config_repo=config_repo,
-        manager=manager,
-        monitoring_config=monitoring_config,
-    )
-
-    # Run session - that's it!
-    await factory.run_session(websocket, device_id, parameters, interval)
 
 
 @router.websocket("/devices")
@@ -151,11 +120,14 @@ async def monitor_multiple_devices(
         return
 
     config_repo = ConfigRepository()
-    async_device_manager = getattr(websocket.app.state, "async_device_manager", None)
 
-    if async_device_manager is None:
+    # ========== Modified: Use TalosAppState API ==========
+    try:
+        async_device_manager = websocket.app.state.talos.get_device_manager()
+    except Exception as e:
         await websocket.send_json(MessageBuilder.service_unavailable())
         await websocket.close(code=1011)
+        logger.error(f"Failed to get device manager: {e}")
         return
 
     service = ParameterService(async_device_manager, config_repo)

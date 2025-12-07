@@ -3,12 +3,14 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from core.evaluator.constraint_evaluator import ConstraintEvaluator
-from core.util.decorator.retry import async_retry
+from core.device.generic.generic_device import AsyncGenericModbusDevice
+from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.pubsub_topic import PubSubTopic
-from core.util.time_util import TIMEZONE_INFO, sleep_exact_interval, sleep_until_next_tick
+from core.util.time_util import TIMEZONE_INFO
 from device_manager import AsyncDeviceManager
+
+logger = logging.getLogger("AsyncDeviceMonitor")
 
 
 class AsyncDeviceMonitor:
@@ -17,67 +19,145 @@ class AsyncDeviceMonitor:
         async_device_manager: AsyncDeviceManager,
         pubsub: PubSub,
         interval: float = 1.0,
+        health_manager: DeviceHealthManager | None = None,
     ):
-        self.async_device_manager = async_device_manager
+        self.device_manager = async_device_manager
         self.pubsub = pubsub
         self.interval = interval
-        self.logger = logging.getLogger(__class__.__name__)
-        self.constraint_evaluate = ConstraintEvaluator(pubsub)
+        self.health_manager = health_manager or DeviceHealthManager()
 
-        self.device_configs = {
-            f"{device.model}_{device.slave_id}": {
-                "device_id": f"{device.model}_{device.slave_id}",
-                "model": device.model,
-                "type": device.device_type,
-                "slave_id": device.slave_id,
-            }
-            for device in self.async_device_manager.device_list
-        }
+        self._recovery_check_interval = 60
+        self._last_recovery_check = 0
+
+        # Register all devices for health tracking
+        for device in self.device_manager.device_list:
+            device_id = f"{device.model}_{device.slave_id}"
+            self.health_manager.register_device(device_id)
 
     async def run(self):
-        self.logger.info("Starting device monitor loop...")
-        # 1) Poll once at startup (immediately have data available)
-        await self._poll_once()
+        """Main monitoring loop with health tracking."""
+        logger.info("Starting device monitor loop...")
 
-        # 2) Align to the next tick (rounded by interval, e.g., on the minute / every 10 seconds)
-        await sleep_until_next_tick(self.interval, tz=TIMEZONE_INFO)
+        try:
+            while True:
+                start_time = asyncio.get_event_loop().time()
+                logger.info("[Monitor] Starting new cycle")
 
-        # 3) Afterwards, maintain a stable rhythm using monotonic clock
-        next_mark = None
-        while True:
+                try:
+                    snapshots = await self._read_all_devices()
+                    logger.info(f"[Monitor] Read {len(snapshots)} snapshots")
+
+                    # Publish snapshots
+                    for snapshot in snapshots:
+                        await self.pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, snapshot)
+
+                except Exception as e:
+                    logger.error(f"Error in monitor loop: {e}", exc_info=True)
+
+                # Calculate sleep time
+                elapsed = asyncio.get_event_loop().time() - start_time
+                sleep_time = max(0, self.interval - elapsed)
+
+                logger.info(f"[Monitor] Cycle completed in {elapsed:.2f}s, sleeping {sleep_time:.2f}s")
+                await asyncio.sleep(sleep_time)
+
+        except asyncio.CancelledError:
+            logger.info("Device monitor stopped")
+            raise
+
+    async def _read_all_devices(self) -> list[dict[str, Any]]:
+        """Read all devices with health tracking."""
+
+        logger.info(f"[Monitor] _read_all_devices() called, devices: {len(self.device_manager.device_list)}")
+
+        snapshots = []
+        current_time = datetime.now(tz=TIMEZONE_INFO).timestamp()
+
+        should_check_recovery = current_time - self._last_recovery_check > self._recovery_check_interval
+        if should_check_recovery:
+            logger.info("[Monitor] Performing recovery check for unhealthy devices")
+            self._last_recovery_check = current_time
+
+        for device in self.device_manager.device_list:
+            device_id = f"{device.model}_{device.slave_id}"
+            logger.info(f"[Monitor] Processing device: {device_id}")
+
+            is_healthy = self.health_manager.is_healthy(device_id)
+            logger.info(f"[Monitor] {device_id} health status: {is_healthy}")
+
+            # ========== Check health before reading ==========
+            if not is_healthy and not should_check_recovery:
+                logger.info(f"[Monitor] Skipping unhealthy device: {device_id}")
+                snapshot = self._create_offline_snapshot(device_id)
+                snapshots.append(snapshot)
+                continue
+
+            logger.info(f"[Monitor] Attempting to read {device_id}")
+            # ========== Try to read device ==========
             try:
-                await self._poll_once()
-                next_mark = await sleep_exact_interval(self.interval, next_mark)
+                snapshot: dict[str, Any] = await self._read_device(device)
+
+                # Mark success if got valid data
+                if snapshot.get("is_online", False):
+                    await self.health_manager.mark_success(device_id)
+                else:
+                    logger.warning(f"[Monitor] Device {device_id} read failed, marking as unhealthy")
+                    await self.health_manager.mark_failure(device_id)
+
+                snapshots.append(snapshot)
+
             except Exception as e:
-                self.logger.exception(f"Error during polling loop: {e}")
-                next_mark = await sleep_exact_interval(self.interval, next_mark)
+                logger.warning(f"[Monitor] Failed to read {device_id}: {e}")
+                await self.health_manager.mark_failure(device_id)
 
-    async def _poll_once(self):
-        raw_data: dict = await self.async_device_manager.read_all_from_all_devices()
-        tasks = [self._handle_device(device_id, snapshot) for device_id, snapshot in raw_data.items()]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
-        for device_id, result in zip(raw_data.keys(), results):
-            if isinstance(result, Exception):
-                self.logger.error(f"[{device_id}] Task failed: {result}")
+                # Create offline snapshot
+                snapshot = self._create_offline_snapshot(device_id)
+                snapshots.append(snapshot)
 
-    @async_retry(logger=logging.getLogger("AsyncDeviceMonitor"))
-    async def _handle_device(self, device_id: str, snapshot: dict):
-        config = self.device_configs.get(device_id)
-        if config is None:
-            self.logger.warning(f"[{device_id}] No config found, skipping.")
-            return
+        return snapshots
 
-        pretty_map: dict[Any, str] = {k: f"{v:.3f}" if v is not None else "None" for k, v in snapshot.items()}
-        self.logger.info(f"[{device_id}] Snapshot: {pretty_map}")
+    async def _read_device(self, device: AsyncGenericModbusDevice) -> dict[str, Any]:
+        """Read a single device."""
+        device_id: str = f"{device.model}_{device.slave_id}"
 
-        payload = {
-            "device_id": config["device_id"],
-            "model": config["model"],
-            "type": config["type"],
-            "slave_id": config["slave_id"],
-            "sampling_ts": datetime.now(TIMEZONE_INFO),
-            "values": snapshot,
-            "device": self.async_device_manager.get_device_by_model_and_slave_id(config["model"], config["slave_id"]),
+        try:
+            result = await device.read_all()
+
+            # Check if we got valid data
+            is_online: bool = any(v != -1 and v is not None for v in result.values() if isinstance(v, (int, float)))
+            logger.info(f"[{device_id}] read_all result: {result}")
+            logger.info(f"[{device_id}] is_online: {is_online}")
+
+            return {
+                "device_id": device_id,
+                "model": device.model,
+                "slave_id": device.slave_id,
+                "type": device.device_type,
+                "is_online": is_online,
+                "sampling_ts": datetime.now(tz=TIMEZONE_INFO),
+                "data": result,
+            }
+
+        except Exception as e:
+            logger.error(f"[Monitor] Error reading {device_id}: {e}")
+            raise
+
+    def _create_offline_snapshot(self, device_id: str) -> dict[str, Any]:
+        """Create snapshot for offline device."""
+        model, slave_id = device_id.rsplit("_", 1)
+
+        device: AsyncGenericModbusDevice | None = self.device_manager.get_device_by_model_and_slave_id(
+            model, int(slave_id)
+        )
+        device_type: str = device.device_type if device else "UNKNOWN"
+
+        return {
+            "device_id": device_id,
+            "model": model,
+            "slave_id": int(slave_id),
+            "type": device_type,
+            "is_online": False,
+            "sampling_ts": datetime.now(tz=TIMEZONE_INFO),
+            "data": {},
+            "error": "Device offline or unhealthy",
         }
-
-        await self.pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, payload)
