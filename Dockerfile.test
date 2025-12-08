@@ -1,0 +1,27 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /tmp
+
+RUN chmod +x /app/docker-entrypoint.sh
+
+EXPOSE 8000
+
+# EntryPoint Description:
+# 1. Check if `/tmp/ttyV0` exists (it should be created by the host's socat and mounted via docker-compose volumes).
+# 2. Use environment variables to override various config paths; otherwise, use the built-in `res/*.yml`.
+# 3. Execute `src/main_with_api.py`
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

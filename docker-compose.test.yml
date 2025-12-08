@@ -3,21 +3,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: talos-core
+    container_name: talos-service
     tty: true
     stdin_open: true
     restart: unless-stopped
-    devices:
-      - "/dev/ttyMODBUS0:/dev/ttyMODBUS0"
 
     ports:
       - "8000:8000"
 
     volumes:
       - "./res:/app/res:ro"
+      - "/tmp:/tmp"
+      - "/dev/pts:/dev/pts"
 
     environment:
       - PYTHONPATH=${PYTHONPATH}
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - LOG_LEVEL=INFO
+
