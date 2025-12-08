@@ -1,0 +1,35 @@
+services:
+  talos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: talos-prod
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+    ports:
+      - "8000:8000"
+
+    # Expose the real serial device to the container
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+      # On other hardware, change this to /dev/ttyAP0, /dev/ttyS0, etc.
+
+    environment:
+      # Enable production mode: entrypoint will map /tmp/ttyV0 -> MODBUS_PORT
+      MODBUS_PORT: "/dev/ttyUSB0"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      LOG_LEVEL: "INFO"
+
+      # Optional: override config paths if you mount external configs
+      # MODBUS_DEVICE: "/config/modbus_device.yml"
+      # INSTANCE_CONFIG: "/config/device_instance_config.yml"
+
+    # Optional: mount external configs for a specific site
+    # volumes:
+    #   - "./config/site-a:/config:ro"
+
+    # In production on industrial PCs, privileged is often used to avoid permission issues
+    privileged: true

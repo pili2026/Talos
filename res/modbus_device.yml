@@ -1,5 +1,6 @@
-shared: &shared_config
-    port: /dev/ttyUSB0
+buses:
+  rtu0: &rtu0
+    port: /tmp/ttyV0
 
 devices:
   - model: DAE_PM210
