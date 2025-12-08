@@ -130,12 +130,13 @@ class AsyncDeviceMonitor:
 
             return {
                 "device_id": device_id,
+                "device": device,
                 "model": device.model,
                 "slave_id": device.slave_id,
                 "type": device.device_type,
                 "is_online": is_online,
                 "sampling_ts": datetime.now(tz=TIMEZONE_INFO),
-                "data": result,
+                "values": result,
             }
 
         except Exception as e:
@@ -153,11 +154,12 @@ class AsyncDeviceMonitor:
 
         return {
             "device_id": device_id,
+            "device": device,
             "model": model,
             "slave_id": int(slave_id),
             "type": device_type,
             "is_online": False,
             "sampling_ts": datetime.now(tz=TIMEZONE_INFO),
-            "data": {},
+            "values": {},
             "error": "Device offline or unhealthy",
         }
