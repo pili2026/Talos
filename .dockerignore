@@ -1,0 +1,81 @@
+.git
+.github
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Tests
+tests/
+test_*.py
+*_test.py
+pytest.ini
+.pytest_cache/
+
+# Config files (will be mounted from outside)
+res/
+config/
+*.yml
+*.yaml
+!requirements.txt
+!pyproject.toml
+!poetry.lock
+
+# Runtime data
+logs/
+data/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+docker-compose*.yml
+.dockerignore
+Dockerfile*
+
+# CI/CD
+.gitlab-ci.yml
+.github/
+
+# Deployment
+deployment/
+scripts/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
