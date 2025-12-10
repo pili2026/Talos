@@ -3,8 +3,8 @@ buses:
     port: /tmp/ttyV0
 
 devices:
-  - model: DAE_PM210
+  - model: ADTEK_CPM10
     type: power_meter
-    model_file: driver/dae_pm210.yml
-    <<: *shared_config
+    model_file: driver/adtek_cpm_10.yml
+    <<: *rtu0
     slave_id: 1
