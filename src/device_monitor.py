@@ -8,6 +8,7 @@ from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.pubsub_topic import PubSubTopic
 from core.util.time_util import TIMEZONE_INFO
+from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
 
 logger = logging.getLogger("AsyncDeviceMonitor")
@@ -20,11 +21,13 @@ class AsyncDeviceMonitor:
         pubsub: PubSub,
         interval: float = 1.0,
         health_manager: DeviceHealthManager | None = None,
+        virtual_device_manager: VirtualDeviceManager | None = None,
     ):
         self.device_manager = async_device_manager
         self.pubsub = pubsub
         self.interval = interval
         self.health_manager = health_manager or DeviceHealthManager()
+        self.virtual_device_manager = virtual_device_manager
 
         self._recovery_check_interval = 60
         self._last_recovery_check = 0
@@ -71,7 +74,7 @@ class AsyncDeviceMonitor:
         logger.info(f"[Monitor] _read_all_devices() called, devices: {len(self.device_manager.device_list)}")
 
         snapshots = []
-        current_time = datetime.now(tz=TIMEZONE_INFO).timestamp()
+        current_time: float = datetime.now(tz=TIMEZONE_INFO).timestamp()
 
         should_check_recovery = current_time - self._last_recovery_check > self._recovery_check_interval
         if should_check_recovery:
@@ -113,6 +116,8 @@ class AsyncDeviceMonitor:
                 # Create offline snapshot
                 snapshot = self._create_offline_snapshot(device_id)
                 snapshots.append(snapshot)
+
+        await self._process_virtual_devices(snapshots)
 
         return snapshots
 
@@ -163,3 +168,47 @@ class AsyncDeviceMonitor:
             "values": {},
             "error": "Device offline or unhealthy",
         }
+
+    async def _process_virtual_devices(self, snapshots: list[dict[str, Any]]) -> None:
+        """Process virtual devices and append them to the snapshots list."""
+        if not self.virtual_device_manager:
+            return
+
+        try:
+            # Convert list to dict format, ONLY include online devices
+            raw_snapshots_dict = {
+                snapshot["device_id"]: snapshot for snapshot in snapshots if snapshot.get("is_online", False)
+            }
+
+            # Compute virtual devices
+            virtual_snapshots_dict: dict[str, dict] = self.virtual_device_manager.compute_virtual_snapshots(
+                raw_snapshots_dict
+            )
+
+            if not virtual_snapshots_dict:
+                return
+
+            logger.info(
+                f"[Monitor] Computed {len(virtual_snapshots_dict)} virtual device(s): {list(virtual_snapshots_dict.keys())}"
+            )
+
+            # Convert and append
+            for device_id, virtual_snapshot in virtual_snapshots_dict.items():
+                virtual_snapshot_full = {
+                    "device_id": device_id,
+                    "device": None,
+                    "model": virtual_snapshot["model"],
+                    "slave_id": virtual_snapshot["slave_id"],
+                    "type": virtual_snapshot["type"],
+                    "is_online": True,
+                    "sampling_ts": virtual_snapshot["sampling_ts"],
+                    "values": virtual_snapshot["values"],
+                    "_is_virtual": True,
+                    "_virtual_config_id": virtual_snapshot.get("_virtual_config_id"),
+                    "_source_device_ids": virtual_snapshot.get("_source_device_ids", []),
+                }
+                snapshots.append(virtual_snapshot_full)
+                await self.health_manager.mark_success(device_id)
+
+        except Exception as e:
+            logger.error(f"[Monitor] Failed to compute virtual devices: {e}", exc_info=True)

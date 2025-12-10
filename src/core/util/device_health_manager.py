@@ -36,11 +36,11 @@ class DeviceHealthStatus:
         self.last_failure_time = datetime.now(TIMEZONE_INFO)
         self.consecutive_failures += 1
 
-        logger.info(f"Device failures: {self.consecutive_failures}, is_healthy: {self.is_healthy}")
-
-        # Mark unhealthy after 3 consecutive failures
+        # Mark unhealthy after 1 consecutive failures
         if self.consecutive_failures >= 1:
             self.is_healthy = False
+
+        logger.info(f"Device failures: {self.consecutive_failures}, is_healthy: {self.is_healthy}")
 
     def get_status_summary(self) -> dict:
         """Get status summary for API/logging."""

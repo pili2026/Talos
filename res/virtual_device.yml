@@ -1,0 +1,87 @@
+# Virtual Device Configuration
+# Used to define virtual devices that aggregate data from multiple physical devices.
+# Currently supports: aggregated power meters
+
+version: "1.0.0"
+
+virtual_devices:
+  # Loop0 Taipower main meter (sum of two ADTEK meters)
+  - id: "loop0_power_summary"
+    enabled: true
+    description: "Loop0 aggregated power meter (Taipower main meter - sum of two meters)"
+    
+    # Virtual device type
+    type: "aggregated_power_meter"
+    
+    # Source device configuration
+    source:
+      model: "ADTEK_CPM10"
+      slave_ids: []
+      # Optional: explicitly specify which slave_ids to aggregate
+      # slave_ids: [1, 2]
+      # If not provided or set to an empty list [], aggregate all devices of this model
+    
+    # Target virtual device configuration
+    target:
+      model: "ADTEK_CPM10"
+      slave_id: "auto"
+      # "auto" = automatically assigned as (max slave_id of all devices) + 1
+      # You may also explicitly specify it, e.g.: slave_id: 11
+    
+    # Aggregation rules
+    aggregation:
+      # Error handling strategy
+      error_handling: "fail_fast"
+      # fail_fast: if any source device read fails (-1), then the aggregated result is -1
+      # partial: use only successfully read values (future implementation)
+      
+      # List of fields to aggregate
+      fields:
+        # Voltage – average value
+        - name: "AverageVoltage"
+          method: "average"
+        
+        # Current – sum (because each meter measures different portions of the same line)
+        - name: "AverageCurrent"
+          method: "sum"
+        
+        # Per-phase current – sum
+        - name: "Phase_A_Current"
+          method: "sum"
+        
+        - name: "Phase_B_Current"
+          method: "sum"
+        
+        - name: "Phase_C_Current"
+          method: "sum"
+        
+        # Power – sum
+        - name: "Kw"
+          method: "sum"
+        
+        - name: "Kvar"
+          method: "sum"
+        
+        - name: "Kva"
+          method: "sum"
+        
+        # Energy – sum (ADTEK uses Kwh_SUM / Kvarh_SUM as composed fields)
+        - name: "Kwh_SUM"
+          method: "sum"
+        
+        - name: "Kvarh_SUM"
+          method: "sum"
+        
+        # Power factor – calculated from total KW and total KVA
+        # IMPORTANT: Do NOT average PF of two meters! Must recompute from aggregated power.
+        - name: "AveragePowerFactor"
+          method: "calculated_pf"
+
+# Notes:
+# 1. Virtual devices will automatically appear in DEVICE_SNAPSHOT events.
+# 2. Virtual devices will automatically be stored in SQLite snapshot storage.
+# 3. Virtual devices will automatically be included in the Legacy Sender payload uploaded to the cloud.
+# 4. The virtual device's slave_id must not conflict with physical devices  
+#    (using "auto" avoids conflict automatically).
+# 5. This is a temporary solution. Once Orion supports cloud-side aggregation,
+#    this feature will be removed.

@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import DeviceIdPolicyConfig, SystemConfig
+from core.schema.virtual_device_schema import VirtualDevicesConfigSchema
 from core.task.snapshot_cleanup_task import SnapshotCleanupTask
 from core.util.config_manager import ConfigManager
 from core.util.device_health_manager import DeviceHealthManager
@@ -17,12 +18,14 @@ from core.util.factory.notifier_factory import build_notifiers_and_routing
 from core.util.factory.sender_factory import build_sender_subscriber, init_sender
 from core.util.factory.snapshot_factory import build_snapshot_subscriber
 from core.util.factory.time_factory import build_time_control_subscriber
+from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
 from core.util.logger_config import setup_logging
 from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from core.util.sub_registry import SubscriberRegistry
+from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from repository.schema.snapshot_storage_schema import SnapshotStorageConfig
@@ -40,6 +43,7 @@ async def main(
     system_config_path: str,
     notifier_config_path: str,
     snapshot_storage_path: str,
+    virtual_device_config: str | None = None,
 ):
     setup_logging(log_to_file=True)
     quiet_pymodbus_logs()
@@ -75,11 +79,16 @@ async def main(
     async_device_manager = AsyncDeviceManager(modbus_device_path, constraint_config)
     await async_device_manager.init()
 
+    virtual_device_manager: VirtualDeviceManager | None = initialize_virtual_device_manager(
+        config_path=virtual_device_config, device_manager=async_device_manager
+    )
+
     monitor = AsyncDeviceMonitor(
         async_device_manager=async_device_manager,
         pubsub=pubsub,
         interval=system_config.MONITOR_INTERVAL_SECONDS,
         health_manager=health_manager,
+        virtual_device_manager=virtual_device_manager,
     )
 
     valid_device_ids: set[str] = {f"{device.model}_{device.slave_id}" for device in async_device_manager.device_list}
@@ -211,6 +220,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--snapshot_storage_config", default="res/snapshot_storage.yml", help="Path to snapshot storage config YAML"
     )
+    parser.add_argument(
+        "--virtual_device_config", type=str, default=None, help="Path to virtual device configuration file (optional)"
+    )
 
     args = parser.parse_args()
     asyncio.run(
@@ -224,5 +236,6 @@ if __name__ == "__main__":
             system_config_path=args.system_config,
             notifier_config_path=args.notifier_config,
             snapshot_storage_path=args.snapshot_storage_config,
+            virtual_device_config=args.virtual_device_config,
         )
     )

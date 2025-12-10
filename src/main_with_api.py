@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Talos Unified Service Entry Point
 
@@ -10,6 +9,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from typing import LiteralString
 
 import uvicorn
 from dotenv import load_dotenv
@@ -26,12 +26,14 @@ from core.util.factory.notifier_factory import build_notifiers_and_routing
 from core.util.factory.sender_factory import build_sender_subscriber, init_sender
 from core.util.factory.snapshot_factory import build_snapshot_subscriber
 from core.util.factory.time_factory import build_time_control_subscriber
+from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
 from core.util.logger_config import setup_logging
 from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from core.util.sub_registry import SubscriberRegistry
+from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from repository.schema.snapshot_storage_schema import SnapshotStorageConfig
@@ -56,6 +58,9 @@ def parse_arguments():
     parser.add_argument("--time_config", default="res/time_condition.yml", help="Time control configuration file")
     parser.add_argument("--sender_config", default="res/sender_config.yml", help="Data sender configuration file")
     parser.add_argument("--notifier_config", default="res/notifier_config.yml", help="Notifier configuration file")
+    parser.add_argument(
+        "--virtual_device_config", default=None, help="Path to virtual device configuration file (optional)"
+    )
     parser.add_argument("--api-host", default="0.0.0.0", help="API server host")
     parser.add_argument("--api-port", type=int, default=8000, help="API server port")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -94,6 +99,7 @@ async def main():
     logger.info(f"  Snapshot Storage: {args.snapshot_storage_config}")
     logger.info(f"  Sender Config:    {args.sender_config}")
     logger.info(f"  Notifier Config:  {args.notifier_config}")
+    logger.info(f"  Virtual Device Config:  {args.virtual_device_config}")
     logger.info("")
     logger.info("API Configuration:")
     logger.info(f"  Host: {args.api_host}")
@@ -114,8 +120,9 @@ async def main():
 
         logger.info(f"Monitor interval: {system_config.MONITOR_INTERVAL_SECONDS}s")
 
-        enabled_subs: list = [name for name, enabled in system_config.SUBSCRIBERS.items() if enabled]
-        logger.info("Enabled subscribers: %s", ", ".join(enabled_subs) if enabled_subs else "(none)")
+        enabled_sub_list: list = [name for name, enabled in system_config.SUBSCRIBERS.items() if enabled]
+        subscribers: LiteralString = ", ".join(enabled_sub_list) if enabled_sub_list else "(none)"
+        logger.info(f"Enabled subscribers: {subscribers}")
 
         # ========== Initialize Core Components ==========
         logger.info("")
@@ -135,11 +142,16 @@ async def main():
         await async_device_manager.init()
         logger.info(f"AsyncDeviceManager initialized ({len(async_device_manager.device_list)} devices)")
 
+        virtual_device_manager: VirtualDeviceManager | None = initialize_virtual_device_manager(
+            config_path=args.virtual_device_config, device_manager=async_device_manager
+        )
+
         monitor = AsyncDeviceMonitor(
             async_device_manager=async_device_manager,
             pubsub=pubsub,
             interval=system_config.MONITOR_INTERVAL_SECONDS,
             health_manager=health_manager,
+            virtual_device_manager=virtual_device_manager,
         )
         logger.info("Monitor initialized")
 
@@ -194,7 +206,7 @@ async def main():
         logger.info("Data sender built")
 
         # Snapshot Storage
-        snapshot_storage_raw = ConfigManager.load_yaml_file(args.snapshot_storage_config)
+        snapshot_storage_raw: dict = ConfigManager.load_yaml_file(args.snapshot_storage_config)
         snapshot_storage = SnapshotStorageConfig(**snapshot_storage_raw)
 
         # Note: main_with_api doesn't need repository (no cleanup task)
