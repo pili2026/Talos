@@ -21,8 +21,8 @@ COPY . .
 RUN mkdir -p /tmp
 
 # Make entrypoint executable
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/docker_entrypoint.sh
 
 EXPOSE 8000
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/app/docker_entrypoint.sh"]

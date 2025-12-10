@@ -40,7 +40,7 @@ async def build_snapshot_subscriber(
         >>> if sub:
         ...     cleanup_task = SnapshotCleanupTask(repository=repo, ...)
 
-        >>> # main_with_api.py usage (only needs subscriber)
+        >>> # main_service.py usage (only needs subscriber)
         >>> sub, _, _ = await build_snapshot_subscriber(...)
         >>> if sub:
         ...     subscriber_registry.register("SNAPSHOT_SAVER", sub.run)

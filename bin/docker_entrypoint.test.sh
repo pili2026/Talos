@@ -1,27 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[ENTRYPOINT] Starting Talos..."
+echo "[ENTRYPOINT] Starting Talos container..."
 
-# Detect mode based on MODBUS_PORT
-if [ -n "${MODBUS_PORT:-}" ]; then
-  echo "[TALOS] Detected production mode (MODBUS_PORT is set)"
-  echo "[TALOS] Real serial device: ${MODBUS_PORT}"
-
-  # Create logical port for Talos (/tmp/ttyV0) pointing to real device
-  echo "[TALOS] Mapping /tmp/ttyV0 -> ${MODBUS_PORT}"
-  ln -sf "${MODBUS_PORT}" /tmp/ttyV0
-
-  if [ ! -e "${MODBUS_PORT}" ]; then
-    echo "[TALOS] WARNING: Device ${MODBUS_PORT} does not exist inside container"
-  fi
+if [ -e /tmp/ttyV0 ]; then
+  echo "[TALOS] Using RTU port: /tmp/ttyV0"
 else
-  echo "[TALOS] Detected development mode (MODBUS_PORT is NOT set)"
-  echo "[TALOS] Expecting /tmp/ttyV0 to be created by socat on the host and mounted via volume"
+  echo "[TALOS] WARNING: /tmp/ttyV0 not found, RTU may not work"
+  echo "[TALOS] Current /tmp contents:"
+  ls -l /tmp || true
 fi
-
-echo "[TALOS] Current /tmp contents:"
-ls -l /tmp || true
 
 echo "[TALOS] Config paths:"
 echo "  MODBUS_DEVICE           = ${MODBUS_DEVICE:-res/modbus_device.yml}"

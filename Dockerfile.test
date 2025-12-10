@@ -16,12 +16,12 @@ COPY . .
 
 RUN mkdir -p /tmp
 
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/docker_entrypoint.test.sh
 
 EXPOSE 8000
 
 # EntryPoint Description:
 # 1. Check if `/tmp/ttyV0` exists (it should be created by the host's socat and mounted via docker-compose volumes).
 # 2. Use environment variables to override various config paths; otherwise, use the built-in `res/*.yml`.
-# 3. Execute `src/main_with_api.py`
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+# 3. Execute `src/main_service.py`
+ENTRYPOINT ["/app/docker_entrypoint.test.sh"]

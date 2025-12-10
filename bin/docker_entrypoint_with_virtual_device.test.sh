@@ -21,13 +21,14 @@ echo "  SYSTEM_CONFIG           = ${SYSTEM_CONFIG:-res/system_config.yml}"
 echo "  TIME_CONFIG             = ${TIME_CONFIG:-res/time_condition.yml}"
 echo "  SENDER_CONFIG           = ${SENDER_CONFIG:-res/sender_config.yml}"
 echo "  NOTIFIER_CONFIG         = ${NOTIFIER_CONFIG:-res/notifier_config.yml}"
+echo "  VIRTUAL_DEVICE_CONFIG   = ${VIRTUAL_DEVICE_CONFIG:-res/virtual_device.yml}"
 echo "  API_HOST                = ${API_HOST:-0.0.0.0}"
 echo "  API_PORT                = ${API_PORT:-8000}"
 echo "  LOG_LEVEL               = ${LOG_LEVEL:-INFO}"
 
-echo "[TALOS] Launching main_with_api.py ..."
+echo "[TALOS] Launching main_service.py ..."
 
-python src/main_with_api.py \
+python src/main_service.py \
   --modbus_device "${MODBUS_DEVICE:-res/modbus_device.yml}" \
   --instance_config "${INSTANCE_CONFIG:-res/device_instance_config.yml}" \
   --alert_config "${ALERT_CONFIG:-res/alert_condition.yml}" \
@@ -37,6 +38,7 @@ python src/main_with_api.py \
   --time_config "${TIME_CONFIG:-res/time_condition.yml}" \
   --sender_config "${SENDER_CONFIG:-res/sender_config.yml}" \
   --notifier_config "${NOTIFIER_CONFIG:-res/notifier_config.yml}" \
+  --virtual_device_config  "${VIRTUAL_DEVICE_CONFIG:-res/virtual_device.yml}" \
   --api-host "${API_HOST:-0.0.0.0}" \
   --api-port "${API_PORT:-8000}" \
   --log-level "${LOG_LEVEL:-INFO}"

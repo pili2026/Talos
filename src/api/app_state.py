@@ -19,7 +19,7 @@ class TalosAppState(BaseModel):
     This class defines all shared state in the FastAPI application.
     State is initialized differently based on deployment mode:
 
-    - Unified mode (main_with_api.py):
+    - Unified mode (main_service.py):
       All components are initialized by Core and injected here.
 
     - Standalone mode (uvicorn api.app:app):
@@ -86,7 +86,7 @@ class TalosAppState(BaseModel):
         """
         if not self.is_unified_mode():
             raise RuntimeError(
-                f"{feature} requires unified mode. " f"Start with main_with_api.py instead of standalone API."
+                f"{feature} requires unified mode. " f"Start with main_service.py instead of standalone API."
             )
 
     def get_pubsub(self) -> PubSub:

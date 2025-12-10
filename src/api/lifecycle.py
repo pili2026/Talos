@@ -112,7 +112,7 @@ async def shutdown_event(app: FastAPI) -> None:
     logger.info("=" * 60)
 
     if app.state.talos.is_unified_mode():
-        logger.info("UNIFIED MODE: Cleanup handled by main_with_api.py")
+        logger.info("UNIFIED MODE: Cleanup handled by main_service.py")
         return
 
     # Standalone mode: cleanup
