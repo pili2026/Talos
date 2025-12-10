@@ -42,7 +42,7 @@ class ControlSubscriber:
             try:
                 self.logger.info(
                     f"[{control_action.model}_{control_action.slave_id}] "
-                    f"Apply control from [{control_action.source}]: "
+                    f"Apply control from [{control_action.action_origin}]: "
                     f"set {control_action.target} = {control_action.value} "
                     f"({control_action.reason})"
                 )
