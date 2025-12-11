@@ -445,7 +445,7 @@ def convert_dissolved_oxygen_snapshot(gateway_id: str, slave_id: str | int, valu
     # TODO: Wait to confirmation
     data = {
         "oxygen_pct": round(to_float(values.get("O2_PCT")), 2),
-        "temperature_c": round(to_float(values.get("TEMP_C")), 2),
+        "temperature": round(to_float(values.get("TEMP_C")), 2),
     }
 
     return [{"DeviceID": device_id, "Data": data}]
