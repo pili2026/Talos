@@ -17,6 +17,7 @@ from api.websocket.monitoring_config import MonitoringConfig
 from api.websocket.monitoring_handler import MultiDeviceMonitoringHandler
 from api.websocket.parameter_paser import ParameterParseError, parse_device_list, parse_multi_device_parameters
 from api.websocket.session import WebSocketDeviceSession
+from api.websocket.subscription_session import SubscriptionSession
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ async def monitor_single_device(
     ),
 ):
     """
+    Direct device monitoring (has RTU conflicts).
     Monitor and control a single device via WebSocket.
 
     All complexity abstracted into:
@@ -103,6 +105,7 @@ async def monitor_multiple_devices(
     ),
 ):
     """
+    Direct device monitoring (has RTU conflicts).
     Monitor real-time data for multiple devices.
     """
     await manager.connect(websocket)
@@ -153,3 +156,61 @@ async def monitor_multiple_devices(
 
     finally:
         manager.disconnect(websocket)
+
+
+@router.websocket("/subscribe/device/{device_id}")
+async def subscribe_single_device(
+    websocket: WebSocket,
+    device_id: str,
+):
+    """
+    Full-duplex: Subscribe to device + Control commands.
+
+    Receive (from server):
+        - Device snapshot updates (1s interval)
+        - Write command results
+
+    Send (to server):
+        - {"action": "write", "parameter": "DOut01", "value": 1}
+        - {"action": "ping"}
+
+    Zero RTU conflict (reads from PubSub).
+    """
+    try:
+        logger.info(f"[WebSocket] Endpoint called for device: {device_id}")
+        pubsub = websocket.app.state.talos.get_pubsub()
+        async_device_manager = websocket.app.state.talos.get_device_manager()
+        config_repo = ConfigRepository()
+
+        parameter_service = ParameterService(async_device_manager, config_repo)
+
+        session = SubscriptionSession(
+            websocket=websocket, pubsub=pubsub, parameter_service=parameter_service, device_filter=device_id
+        )
+
+        await session.run()
+
+    except Exception as e:
+        logger.error(f"Subscription failed for {device_id}: {e}", exc_info=True)
+
+
+@router.websocket("/subscribe/dashboard")
+async def subscribe_all_devices(websocket: WebSocket):
+    """
+    Dashboard: All devices monitoring (read-only).
+
+    Receive:
+        - All device snapshot updates
+
+    No control commands (Dashboard is monitoring only).
+    """
+    try:
+        pubsub = websocket.app.state.talos.get_pubsub()
+
+        # TODO: Dashboard need not control function currently.
+        session = SubscriptionSession(websocket=websocket, pubsub=pubsub, parameter_service=None, device_filter=None)
+
+        await session.run()
+
+    except Exception as e:
+        logger.error(f"Dashboard subscription failed: {e}", exc_info=True)

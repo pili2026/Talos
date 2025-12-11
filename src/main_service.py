@@ -212,8 +212,7 @@ async def main():
         # Note: main_with_api doesn't need repository (no cleanup task)
         # but we receive it from factory to keep API consistent
         snapshot_saver_subscriber, _, _ = await build_snapshot_subscriber(
-            snapshot_config_path=args.snapshot_storage_config,
-            pubsub=pubsub,
+            snapshot_config_path=args.snapshot_storage_config, pubsub=pubsub
         )
 
         if snapshot_saver_subscriber:
