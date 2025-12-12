@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 
@@ -22,10 +23,13 @@ class AsyncGenericModbusDevice:
         register_type: str,
         register_map: dict,
         device_type: str,
+        *,
+        port: str,
         constraint_policy: ConstraintPolicy | None = None,
         table_dict: dict | None = None,
         mode_dict: dict | None = None,
         write_hooks: list | dict | None = None,
+        port_lock: asyncio.Lock | None = None,
     ):
         self.model = model
         self.logger = logging.getLogger(f"Device.{self.model}")
@@ -36,13 +40,18 @@ class AsyncGenericModbusDevice:
         self.register_type = register_type
         self.slave_id = slave_id
 
+        # store port identity so monitor can reliably find lock without "guessing"
+        self.port = str(port)
+
+        # shared per-port lock injected by DeviceManager
+        self._port_lock = port_lock
+
         # normalize slave_id to int for bus
-        slave_id = (
+        bus_slave_id = (
             int(self.slave_id) if isinstance(self.slave_id, str) and self.slave_id.isdigit() else int(self.slave_id)
         )
-        self.bus = ModbusBus(client=client, slave_id=slave_id, register_type=register_type)
+        self.bus = ModbusBus(client=client, slave_id=bus_slave_id, register_type=register_type, lock=self._port_lock)
 
-        # Create bus cache for different register types
         # This allows pins to override register_type at pin-level
         self._bus_cache: dict[str, ModbusBus] = {register_type: self.bus}  # default bus
 
@@ -84,14 +93,15 @@ class AsyncGenericModbusDevice:
         """Read all readable pins with early failure detection."""
 
         # 1) First check connectivity using default bus
+        # NOTE: ensure_connected() is now lock-protected inside ModbusBus
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
             return self._default_offline_snapshot()
 
         # 2) If connected, read all pins with early failure detection
         result: dict[str, Any] = {}
-        consecutive_failures = 0  # ← 新增：追蹤連續失敗
-        max_early_failures = 3  # ← 新增：容忍值
+        consecutive_failures = 0
+        max_early_failures = 2
 
         for name, cfg in self.register_map.items():
             if not cfg.get("readable"):
@@ -100,25 +110,23 @@ class AsyncGenericModbusDevice:
             try:
                 result[name] = await self.read_value(name)
 
-                # ========== 新增：檢查是否失敗 ==========
                 if result[name] == DEFAULT_MISSING_VALUE:
                     consecutive_failures += 1
                 else:
-                    consecutive_failures = 0  # 成功則重置
+                    consecutive_failures = 0
 
             except Exception as e:
                 self.logger.warning(f"Failed to read {name}: {e}; set -1")
                 result[name] = DEFAULT_MISSING_VALUE
-                consecutive_failures += 1  # ← 新增
+                consecutive_failures += 1
 
-            # ========== 新增：快速失敗檢測 ==========
             if consecutive_failures >= max_early_failures and len(result) <= 5:
                 self.logger.warning(
                     f"[{self.model}:{self.slave_id}] "
                     f"Early failure detected ({consecutive_failures} consecutive failures), "
                     "returning offline snapshot"
                 )
-                return self._default_offline_snapshot()  # ← 使用現有方法
+                return self._default_offline_snapshot()
 
         # 3) Process computed fields (if any)
         result = self.computed_processor.compute(result)
@@ -142,27 +150,23 @@ class AsyncGenericModbusDevice:
 
         # 1) Read raw value based on register_type
         if pin_register_type == "coil":
-            # Read Coil (FC 01)
             try:
                 raw_value: int = await bus.read_coil(offset)
-                # Check for read failure first
                 if raw_value == DEFAULT_MISSING_VALUE:
                     self.logger.warning(
-                        f"[{self.model}:{self.slave_id}] " f"Parameter '{name}' (coil) read failed (offset={offset})"
+                        f"[{self.model}:{self.slave_id}] Parameter '{name}' (coil) read failed (offset={offset})"
                     )
                     return DEFAULT_MISSING_VALUE
                 value: int = 1 if raw_value else 0
             except Exception as e:
                 self.logger.warning(
-                    f"[{self.model}:{self.slave_id}] " f"Parameter '{name}' (coil) read failed (offset={offset}) - {e}"
+                    f"[{self.model}:{self.slave_id}] Parameter '{name}' (coil) read failed (offset={offset}) - {e}"
                 )
                 return DEFAULT_MISSING_VALUE
 
         elif pin_register_type == "discrete_input":
-            # Read Discrete Input (FC 02)
             try:
                 raw_value: int = await bus.read_discrete_input(offset)
-                # Check for read failure first
                 if raw_value == DEFAULT_MISSING_VALUE:
                     self.logger.warning(
                         f"[{self.model}:{self.slave_id}] "
@@ -178,10 +182,8 @@ class AsyncGenericModbusDevice:
                 return DEFAULT_MISSING_VALUE
 
         else:
-            # Original holding/input register logic
+            # holding/input path
             value: int | float = await self._read_raw(config)
-
-            # Record holding/input register read failure
             if value == DEFAULT_MISSING_VALUE:
                 self.logger.warning(
                     f"[{self.model}:{self.slave_id}] "
@@ -234,7 +236,6 @@ class AsyncGenericModbusDevice:
         pin_register_type: str = pin_config.get("register_type", self.register_type)
 
         if pin_register_type == "coil":
-            # Write Single Coil (FC 05)
             bool_value = bool(value != 0)
             try:
                 await bus.write_coil(pin_config["offset"], bool_value)
@@ -251,7 +252,6 @@ class AsyncGenericModbusDevice:
             await self._write_bit(name, pin_config, int(bit_index), int(value))
             return
 
-        # Whole-word / analog path
         raw = self._scaled_raw_value(pin_config, value)
         await self._write_word(name, pin_config, raw)
 
@@ -267,13 +267,11 @@ class AsyncGenericModbusDevice:
     # -----------------
 
     async def _write_word(self, name: str, pin_cfg: dict, raw_value: int) -> None:
-        """Write a full 16-bit word."""
         await self.bus.write_u16(pin_cfg["offset"], int(raw_value))
         self.hooks.on_write(name, pin_cfg)
         self.logger.info(f"[{self.model}] Write {raw_value} to {name} (offset={pin_cfg['offset']})")
 
     async def _write_bit(self, name: str, pin_cfg: dict, bit_index: int, bit_value: int) -> None:
-        """Read-modify-write a single bit within a 16-bit register."""
         try:
             current = await self.bus.read_u16(pin_cfg["offset"])
         except Exception as e:
@@ -300,18 +298,17 @@ class AsyncGenericModbusDevice:
                 f"(offset={pin_cfg['offset']}): {current:#06x} -> {new_word:#06x}"
             )
 
-    # replace your method with this version
     async def _read_raw(self, reg_config: dict) -> float | int:
         """
         Read raw value(s) from Modbus according to the register configuration.
         - Supports 48-bit composed values via `composed_of` (HI|MD|LO words).
         - Chooses word count by format (u16/i16 → 1 word; u32/f32 → 2 words).
-        """
-        if not await self.bus.ensure_connected():
-            self.logger.warning("[OFFLINE] bus not connected; return -1 for raw read")
-            return DEFAULT_MISSING_VALUE
 
-        # --- 48-bit composed path: composed_of = [hi_key, md_key, lo_key] ---
+        NOTE:
+        - Do NOT call ensure_connected() here to avoid connect storms.
+        - read_u16/read_regs already perform connect attempts under port lock.
+        """
+
         if reg_config.get("composed_of"):
             sub_registers = reg_config["composed_of"]
             if not isinstance(sub_registers, (list, tuple)) or len(sub_registers) != 3:
@@ -324,21 +321,17 @@ class AsyncGenericModbusDevice:
                 if "offset" not in pin_cfg:
                     self.logger.error(f"[{self.model}] composed_of sub key '{sub_key}' missing 'offset'")
                     return DEFAULT_MISSING_VALUE
-                # Each part is a single 16-bit word
                 word = await self.bus.read_u16(pin_cfg["offset"])
                 register_value_list.append(int(word) & 0xFFFF)
 
-            # Expect order: HI | MD | LO
             hi, md, lo = register_value_list
             return (hi << HI_SHIFT) | (md << MD_SHIFT) | lo
 
-        # --- normal path: determine word count by format ---
         fmt = reg_config.get("format", DecodeFormat.U16)
         word_count: int = AsyncGenericModbusDevice._required_word_count(fmt)
 
         try:
             registers = await self.bus.read_regs(reg_config["offset"], word_count)
-            # Safety: ensure we got enough words
             if not isinstance(registers, (list, tuple)) or len(registers) < word_count:
                 self.logger.error(f"[{self.model}] read_regs returned insufficient words for {fmt}: {registers}")
                 return DEFAULT_MISSING_VALUE
@@ -348,7 +341,6 @@ class AsyncGenericModbusDevice:
             )
             return DEFAULT_MISSING_VALUE
 
-        # Decode using the high-level decoder (supports u32_le/u32_be/f32_le/f32_be/etc.)
         return self.decoder.decode_registers(fmt, list(registers))
 
     async def _resolve_dynamic_scale(self, scale_from: str) -> float:
@@ -390,50 +382,32 @@ class AsyncGenericModbusDevice:
         return cfg
 
     def _default_offline_snapshot(self) -> dict[str, float | int]:
-        # All readable fields → -1
-        snap: dict[str, float | int] = {
-            name: DEFAULT_MISSING_VALUE for name, cfg in self.register_map.items() if cfg.get("readable")
-        }
-        return snap
+        return {name: DEFAULT_MISSING_VALUE for name, cfg in self.register_map.items() if cfg.get("readable")}
 
     def _scaled_raw_value(self, pin_cfg: dict, value: int | float) -> int:
-        """Apply static scale and cast to int word."""
         scale = float(pin_cfg.get("scale", 1.0))
         return int(round(float(value) / scale))
 
     def _get_bus_for_pin(self, pin_name: str) -> ModbusBus:
-        """
-        Get the ModbusBus instance for a specific pin.
-
-        If the pin has a 'register_type' attribute, use that to select the bus.
-        Otherwise, use the default register_type.
-
-        Lazily creates bus instances as needed and caches them.
-
-        Args:
-            pin_name: Name of the pin
-
-        Returns:
-            ModbusBus instance for the pin's register_type
-        """
         pin_def: dict = self.register_map.get(pin_name)
         if not pin_def:
-            # Pin not found, return default bus
             return self.bus
 
-        # Get pin-level register_type (if specified)
         pin_register_type: str = pin_def.get("register_type", self.register_type)
 
-        # Return cached bus if exists
         if pin_register_type in self._bus_cache:
             return self._bus_cache[pin_register_type]
 
-        # Create new bus for this register_type
-        slave_id = (
+        bus_slave_id = (
             int(self.slave_id) if isinstance(self.slave_id, str) and self.slave_id.isdigit() else int(self.slave_id)
         )
 
-        new_bus = ModbusBus(self.client, slave_id, pin_register_type)
+        new_bus = ModbusBus(
+            client=self.client,
+            slave_id=bus_slave_id,
+            register_type=pin_register_type,
+            lock=self._port_lock,
+        )
         self._bus_cache[pin_register_type] = new_bus
 
         self.logger.info(
@@ -445,19 +419,12 @@ class AsyncGenericModbusDevice:
 
     @staticmethod
     def _required_word_count(fmt: str | DecodeFormat) -> int:
-        """
-        Return number of 16-bit Modbus registers required for the given data format.
-        - 1 word: u16 / i16
-        - 2 words: u32 (le/be), f32 (le/be/swap variants)
-        """
-        # Normalize to enum
         if isinstance(fmt, str):
             try:
                 fmt = DecodeFormat(fmt.lower())
             except ValueError:
-                return 1  # Unknown format, assume 1 word
+                return 1
 
-        # Match-case for word count
         match fmt:
             case (
                 DecodeFormat.U32

@@ -2,7 +2,6 @@ import asyncio
 import inspect
 import logging
 import os
-from typing import Any
 
 from pymodbus.client import AsyncModbusSerialClient
 
@@ -97,29 +96,14 @@ class AsyncDeviceManager:
                 table_dict=model_tables,
                 mode_dict=final_modes,
                 write_hooks=model_config.get("write_hooks", []),
+                port_lock=self._port_locks[port],
+                port=port,
             )
+
             self.device_list.append(device)
 
         # Apply startup frequencies after all devices are initialized
         await self._apply_startup_frequency()
-
-    async def read_all_from_all_devices(self) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for device in self.device_list:
-            key = f"{device.model}_{device.slave_id}"
-
-            port: str = self._get_device_port(device)
-            lock: asyncio.Lock | None = self._port_locks.get(port)
-
-            if lock:
-                async with lock:
-                    result[key] = await device.read_all()
-            else:
-                # Fallback: no lock (shouldn't happen)
-                logger.warning(f"No lock found for port {port}")
-                result[key] = await device.read_all()
-
-        return result
 
     # TODO: Determine if slave_id should be str or int
     def get_device_by_model_and_slave_id(self, model: str, slave_id: str | int) -> AsyncGenericModbusDevice | None:

@@ -184,6 +184,11 @@ class LegacySenderAdapter:
     # -------------------------
 
     async def _warmup_send_once(self, timeout_sec: int = 15, debounce_s: int = 1) -> None:
+        """
+        Perform an initial warm-up send after the first snapshot arrives.
+
+        This sends a single full payload and persists it as ONE outbox file.
+        """
         try:
             await asyncio.wait_for(self._first_snapshot_event.wait(), timeout=timeout_sec)
         except asyncio.TimeoutError:
@@ -195,19 +200,16 @@ class LegacySenderAdapter:
 
         latest_by_device = await self._collect_latest_by_device_unlocked()
 
-        all_data: list[dict] = []
+        all_items: list[dict] = []
         sent_candidates_sampling_ts: dict[str, datetime] = {}
         label_now = datetime.now(TIMEZONE_INFO)
-
-        # --- List of files persisted in this round (only deleted after success) ---
-        outbox_files: list[str] = []
 
         for dev_id, snap in latest_by_device.items():
             last_label = self.__last_label_ts_by_device.get(dev_id, self._epoch)
             if label_now <= last_label:
                 continue
 
-            snap: dict = self._apply_pt_ct_ratios(snap)
+            snap = self._apply_pt_ct_ratios(snap)
 
             snap_ts: datetime = snap["sampling_ts"]
             age_sec = (label_now - snap_ts).total_seconds()
@@ -222,6 +224,7 @@ class LegacySenderAdapter:
                 snapshot=snap,
                 device_manager=self.device_manager,
             )
+
             if converted:
                 age_ms = int(age_sec * 1000)
                 for it in converted:
@@ -233,33 +236,30 @@ class LegacySenderAdapter:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
 
-                    # persist each item first → OutboxStore
-                    fp = await self._store.persist_item({"DeviceID": it["DeviceID"], "Data": it["Data"]})
-                    outbox_files.append(fp)
-
-                all_data.extend(converted)
+                all_items.extend(converted)
                 sent_candidates_sampling_ts[dev_id] = snap_ts
 
-        # Treat GW heartbeat also as an item to be resent
+        # Add gateway heartbeat
         gw_item = await self._make_gw_heartbeat(label_now)
-        all_data.append(gw_item)
-        fp_gw = await self._store.persist_item(gw_item)
-        outbox_files.append(fp_gw)
+        all_items.append(gw_item)
 
-        payload = self._store.wrap_items_as_payload(all_data, label_now)
-        logger.info(f"Warm-up: {payload}")
+        # ---- Build payload ONCE ----
+        payload = self._store.wrap_items_as_payload(all_items, label_now)
+
+        # ---- Persist ONE payload file ----
+        outbox_file = await self._store.persist_payload(payload)
+
+        logger.info(f"Warm-up send: {len(all_items)} items")
 
         ok = await self._post_with_retry(payload)
-        if ok and sent_candidates_sampling_ts:
-            for dev_id in sent_candidates_sampling_ts:
-                self.__last_label_ts_by_device[dev_id] = label_now
-            self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
-            await self._prune_buckets()
+        if ok:
+            self._store.delete(outbox_file)
 
-        # delete persisted files only after success
-        if ok and outbox_files:
-            for fp in outbox_files:
-                self._store.delete(fp)
+            if sent_candidates_sampling_ts:
+                for dev_id in sent_candidates_sampling_ts:
+                    self.__last_label_ts_by_device[dev_id] = label_now
+                self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
+                await self._prune_buckets()
 
         self._first_send_done = True
 
@@ -289,7 +289,7 @@ class LegacySenderAdapter:
             return snap
 
         try:
-            logger.info(f"[DAE_PM210] {device_id}: Calculating averages (meter already applied PT/CT)")
+            logger.debug(f"[DAE_PM210] {device_id}: Calculating averages (meter already applied PT/CT)")
 
             # ========== Determine effective phase count (based on voltage) ==========
             phase_v = [
@@ -298,7 +298,7 @@ class LegacySenderAdapter:
                 float(values.get("Phase_C_Voltage", 0) or 0),
             ]
 
-            logger.info(f"[DAE_PM210] {device_id}: Phase voltages: {phase_v}")
+            logger.debug(f"[DAE_PM210] {device_id}: Phase voltages: {phase_v}")
 
             # If all phase voltages are zero, fall back to line voltages
             if all(v == 0 for v in phase_v):
@@ -307,7 +307,7 @@ class LegacySenderAdapter:
                     float(values.get("Line_BC_Voltage", 0) or 0),
                     float(values.get("Line_CA_Voltage", 0) or 0),
                 ]
-                logger.info(f"[DAE_PM210] {device_id}: Fallback to line voltages: {phase_v}")
+                logger.debug(f"[DAE_PM210] {device_id}: Fallback to line voltages: {phase_v}")
 
             # Count number of active phases (non-zero voltages)
             active_phase_count = sum(1 for v in phase_v if v != 0)
@@ -321,7 +321,7 @@ class LegacySenderAdapter:
             active_v = [v for v in phase_v if v != 0]
             if active_v:
                 values["AverageVoltage"] = sum(active_v) / len(active_v)
-                logger.info(
+                logger.debug(
                     f"[DAE_PM210] {device_id}: AverageVoltage = {values['AverageVoltage']:.2f}V "
                     f"(calculated from {len(active_v)} active phases)"
                 )
@@ -335,11 +335,11 @@ class LegacySenderAdapter:
             i2 = float(values.get("Phase_B_Current", 0) or 0)
             i3 = float(values.get("Phase_C_Current", 0) or 0)
 
-            logger.info(f"[DAE_PM210] {device_id}: Phase currents: [{i1}, {i2}, {i3}]")
+            logger.debug(f"[DAE_PM210] {device_id}: Phase currents: [{i1}, {i2}, {i3}]")
 
             values["AverageCurrent"] = (i1 + i2 + i3) / active_phase_count
 
-            logger.info(
+            logger.debug(
                 f"[DAE_PM210] {device_id}: AverageCurrent = {values['AverageCurrent']:.2f}A "
                 f"(sum of all phases / {active_phase_count})"
             )
@@ -348,7 +348,7 @@ class LegacySenderAdapter:
             # are kept as-is because meter already applied PT/CT ratios
 
             logger.info(
-                f"[DAE_PM210] {device_id}: ✅ Final - "
+                f"[DAE_PM210] {device_id}: Final - "
                 f"Voltage={values.get('AverageVoltage', 0):.2f}V, "
                 f"Current={values.get('AverageCurrent', 0):.2f}A"
             )
@@ -512,14 +512,16 @@ class LegacySenderAdapter:
         return candidate
 
     async def _send_at_label_time(self, label_time: datetime) -> None:
+        """
+        Scheduled send at a fixed label timestamp.
+
+        All legacy items from this tick are persisted as ONE payload file.
+        """
         latest_by_device = await self._collect_latest_by_device_unlocked()
 
         all_items: list[dict] = []
         sent_candidates_ts: dict[str, datetime] = {}
         visible_deadline = label_time + timedelta(seconds=self.tick_grace_sec)
-
-        # --- List of files persisted in this round (only deleted after success) ---
-        outbox_files: list[str] = []
 
         for dev_id, snap in latest_by_device.items():
             snap_ts: datetime = snap["sampling_ts"]
@@ -533,13 +535,14 @@ class LegacySenderAdapter:
             if label_time <= last_label:
                 continue
 
-            snap: dict = self._apply_pt_ct_ratios(snap)
+            snap = self._apply_pt_ct_ratios(snap)
 
             converted = convert_snapshot_to_legacy_payload(
                 gateway_id=self.gateway_id,
                 snapshot=snap,
                 device_manager=self.device_manager,
             )
+
             if converted:
                 age_ms = int(age_sec * 1000)
                 for it in converted:
@@ -551,33 +554,30 @@ class LegacySenderAdapter:
                         it["Data"]["is_stale"] = 1
                         it["Data"]["stale_age_ms"] = age_ms
 
-                    # persist each item first → OutboxStore
-                    fp = await self._store.persist_item({"DeviceID": it["DeviceID"], "Data": it["Data"]})
-                    outbox_files.append(fp)
-
                 all_items.extend(converted)
                 sent_candidates_ts[dev_id] = snap_ts
 
-        # Treat GW heartbeat also as an item to be resent
+        # Add gateway heartbeat
         gw_item = await self._make_gw_heartbeat(label_time)
         all_items.append(gw_item)
-        fp_gw = await self._store.persist_item(gw_item)
-        outbox_files.append(fp_gw)
 
+        # ---- Build payload ONCE ----
         payload = self._store.wrap_items_as_payload(all_items, label_time)
-        logger.debug(f"Scheduled send:  {payload}")
+
+        # ---- Persist ONE payload file ----
+        outbox_file = await self._store.persist_payload(payload)
+
+        logger.debug(f"Scheduled send: {len(all_items)} items")
 
         ok = await self._post_with_retry(payload)
-        if ok and sent_candidates_ts:
-            for dev_id in list(sent_candidates_ts):
-                self.__last_label_ts_by_device[dev_id] = label_time
-            self.__last_sent_ts_by_device.update(sent_candidates_ts)
-            await self._prune_buckets()
+        if ok:
+            self._store.delete(outbox_file)
 
-        # delete persisted files only after success
-        if ok and outbox_files:
-            for fp in outbox_files:
-                self._store.delete(fp)
+            if sent_candidates_ts:
+                for dev_id in sent_candidates_ts:
+                    self.__last_label_ts_by_device[dev_id] = label_time
+                self.__last_sent_ts_by_device.update(sent_candidates_ts)
+                await self._prune_buckets()
 
     async def _make_gw_heartbeat(self, at: datetime) -> dict:
         cpu_temp_task = asyncio.create_task(self._system_info.get_cpu_temperature())
@@ -700,7 +700,7 @@ class LegacySenderAdapter:
         and each group is sent ONCE as a merged PushIMAData payload using that ts.
         Returns: (total files processed, total files successfully deleted)
         """
-        files = self._store.pick_batch(batch, min_age_sec=0.0)
+        files: list[str] = self._store.pick_batch(batch, min_age_sec=0.0)
         if not files:
             return 0, 0
 
@@ -757,13 +757,13 @@ class LegacySenderAdapter:
                 ts_key = ts_dt.strftime(
                     "%Y%m%d%H%M%S"
                 )  # Use second-level time as the key to make the outer timestamp consistent
-                g = item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
-                g["items"].append(json_obj)
-                g["paths"].append(file_path)
+                item_group: dict = item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
+                item_group["items"].append(json_obj)
+                item_group["paths"].append(file_path)
             else:
                 # Unable to determine the structure, treat it as a separate raw packet and use the file name time/now as the Timestamp
-                ts_dt = self._ts_from_filename(file_name) or datetime.now(TIMEZONE_INFO)
-                ts_key = f"RAW-{ts_dt.strftime('%Y%m%d%H%M%S')}#{file_name}"
+                ts_dt: datetime = self._ts_from_filename(file_name) or datetime.now(TIMEZONE_INFO)
+                ts_key: str = f"RAW-{ts_dt.strftime('%Y%m%d%H%M%S')}#{file_name}"
                 item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
                 # Wrap it into a single item of Data using raw (keep it as is)
                 item_groups[ts_key]["items"].append(json_obj if isinstance(json_obj, dict) else {"_raw": raw})
@@ -794,11 +794,11 @@ class LegacySenderAdapter:
 
         # Stage 3: send grouped single-items (one request per Timestamp)
         # Send in order of ts to ensure FIFO
-        for ts_key, group in sorted(item_groups.items(), key=lambda kv: kv[1]["ts"]):
-            ts_dt = group["ts"]
+        for ts_key, item_group in sorted(item_groups.items(), key=lambda kv: kv[1]["ts"]):
+            ts_dt = item_group["ts"]
             items = []
             # Filter out the previously inserted RAW styles and only accept legal items
-            for it in group["items"]:
+            for it in item_group["items"]:
                 if isinstance(it, dict) and "DeviceID" in it:
                     items.append(it)
                 else:
@@ -810,7 +810,7 @@ class LegacySenderAdapter:
 
             payload = self._store.wrap_items_as_payload(items, ts_dt)
             logger.info(f"[ResendWorker] {payload}")
-            file_paths = group["paths"]
+            file_paths = item_group["paths"]
 
             try:
                 ok, status, text = await transport.send(payload)

@@ -57,6 +57,34 @@ class OutboxStore:
             await f.write(json.dumps(item, ensure_ascii=False))
         return fp
 
+    async def persist_payload(self, payload: dict) -> str:
+        """
+        Persist a FULL PushIMAData payload as a single outbox file.
+
+        This guarantees "save first, upload later" semantics and reduces
+        disk I/O from O(items) to O(1) per scheduler tick.
+        """
+        now = datetime.now(self.tz)
+        base = now.strftime("%Y%m%d%H%M%S")
+        ms = f"{int(now.microsecond / 1000):03d}"
+        suffix = os.urandom(2).hex()
+
+        fp = os.path.join(self.dir, f"resend_{base}_{ms}_{suffix}.json")
+
+        async with aiofiles.open(fp, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(payload, ensure_ascii=False))
+
+        return fp
+
+    async def persist_batch(self, items: list[dict], label_ts: datetime) -> str:
+        """
+        Persist a batch of legacy items as a FULL PushIMAData payload.
+
+        This is a thin wrapper around persist_payload().
+        """
+        payload = self.wrap_items_as_payload(items, label_ts)
+        return await self.persist_payload(payload)
+
     def wrap_items_as_payload(self, items: list[dict], ts: datetime) -> dict:
         return {
             "FUNC": "PushIMAData",
