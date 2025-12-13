@@ -99,40 +99,72 @@ class AsyncGenericModbusDevice:
         return str(self.device_type).lower() in {"inverter", "vfd", "inverter_vfd"}
 
     async def read_all(self) -> dict[str, Any]:
-        # 1) connectivity check
+        """
+        Bulk read implementation.
+
+        Rules:
+        - Only holding/input pins that are bulk-eligible are grouped into contiguous ranges.
+        - Each range triggers exactly one Modbus request via ModbusBus.read_regs().
+        - If a range read fails, all pins covered by that range return DEFAULT_MISSING_VALUE.
+        - Non-bulk-eligible pins fall back to read_value() (coil, discrete_input, composed_of, scale_from, etc.).
+        - Computed fields are applied at the end.
+        """
+
+        # 1) connectivity check (default bus)
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
             return self._default_offline_snapshot()
 
         result: dict[str, Any] = {}
 
-        # 2) bulk read ranges
+        # 2) bulk read ranges (holding/input only)
         ranges = self._build_bulk_ranges(max_regs_per_req=120)
         for r in ranges:
+            # r.register_type is expected to be "holding" or "input"
             bus = self._bus_cache.get(r.register_type)
-            if not bus:
+            if bus is None:
+                # Create a bus for this register type (share the same lock)
+                bus_slave_id = (
+                    int(self.slave_id)
+                    if isinstance(self.slave_id, str) and self.slave_id.isdigit()
+                    else int(self.slave_id)
+                )
                 bus = ModbusBus(
-                    client=self.client, slave_id=int(self.slave_id), register_type=r.register_type, lock=self._port_lock
+                    client=self.client,
+                    slave_id=bus_slave_id,
+                    register_type=r.register_type,
+                    lock=self._port_lock,
                 )
                 self._bus_cache[r.register_type] = bus
 
             try:
                 regs = await bus.read_regs(r.start, r.count)
                 regs = list(regs)
-            except Exception as e:
+            except Exception as exc:
                 self.logger.warning(
-                    f"[{self.model}:{self.slave_id}] Bulk read failed rt={r.register_type} start={r.start} count={r.count}: {e}"
+                    f"[{self.model}:{self.slave_id}] Bulk read failed "
+                    f"rt={r.register_type} start={r.start} count={r.count}: {exc}"
                 )
-                # 該 range 覆蓋的 pin 全部給 -1
                 for name, cfg in r.items:
                     result[name] = DEFAULT_MISSING_VALUE
                 continue
 
+            # Map range registers back to pins
             for name, cfg in r.items:
-                offset = int(cfg["offset"])
+                try:
+                    offset = int(cfg["offset"])
+                except Exception:
+                    result[name] = DEFAULT_MISSING_VALUE
+                    continue
+
                 fmt = cfg.get("format", DecodeFormat.U16)
                 wc = self._required_word_count(fmt)
+
                 rel = offset - r.start
+                if rel < 0:
+                    result[name] = DEFAULT_MISSING_VALUE
+                    continue
+
                 chunk = regs[rel : rel + wc]
                 if len(chunk) < wc:
                     result[name] = DEFAULT_MISSING_VALUE
@@ -142,16 +174,17 @@ class AsyncGenericModbusDevice:
                 value = self._apply_post_process(cfg, raw)
                 result[name] = value
 
-        # 3) fallback: non-eligible pins (coil/discrete_input/composed_of/scale_from...)
+        # 3) fallback: pins not covered by bulk (coil/discrete_input/composed_of/scale_from/unsupported formats...)
         for name, cfg in self.register_map.items():
             if not cfg.get("readable"):
                 continue
             if name in result:
                 continue
+
             try:
                 result[name] = await self.read_value(name)
-            except Exception as e:
-                self.logger.warning(f"Failed to read {name}: {e}; set -1")
+            except Exception as exc:
+                self.logger.warning(f"[{self.model}:{self.slave_id}] Fallback read failed: {name}: {exc}; set -1")
                 result[name] = DEFAULT_MISSING_VALUE
 
         # 4) computed fields

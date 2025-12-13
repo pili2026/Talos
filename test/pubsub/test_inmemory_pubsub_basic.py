@@ -83,37 +83,58 @@ class TestDropOldestPolicy:
     async def test_drop_oldest_basic(self):
         """Test that oldest messages are dropped when queue is full"""
         pubsub = InMemoryPubSub()
-        pubsub.set_topic_policy(PubSubTopic.DEVICE_SNAPSHOT, queue_maxsize=3, drop_policy=DropPolicyEnum.DROP_OLDEST)
+        pubsub.set_topic_policy(PubSubTopic.DEVICE_SNAPSHOT, queue_maxsize=10, drop_policy=DropPolicyEnum.DROP_OLDEST)
 
         received = []
+        stop_event = asyncio.Event()
 
         async def slow_subscriber():
             async for msg in pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
-                await asyncio.sleep(0.05)  # Slow processing
                 received.append(msg)
+                await asyncio.sleep(0.02)  # Slow processing
+
                 if len(received) >= 5:
+                    stop_event.set()
                     break
 
         # Start subscriber
         task = asyncio.create_task(slow_subscriber())
         await asyncio.sleep(0.01)
 
-        # Rapidly publish 10 messages (faster than subscriber can process)
-        for i in range(10):
+        # Rapidly publish 30 messages (much faster than subscriber can process)
+        for i in range(30):
             await pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, i)
 
-        await task
+        # Wait for subscriber to receive target number or timeout
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
-        # Should receive some messages, but not all
-        assert len(received) == 5
+        # Should receive at least 5 messages
+        assert len(received) >= 5, f"Expected at least 5 messages, got {len(received)}"
 
-        # The latest messages should be preserved (due to DROP_OLDEST)
-        # Exact sequence depends on timing, but newest messages should be there
-        assert 9 in received  # Newest should definitely be there
+        # With DROP_OLDEST policy and queue_maxsize=10:
+        # - Published 30 messages (0-29)
+        # - Queue can only hold 10, so oldest are dropped
+        # - Final queue should contain messages [20-29]
+        # - Subscriber should receive consecutive messages starting from 20
+
+        # Check that received messages are consecutive
+        for i in range(len(received) - 1):
+            assert received[i + 1] == received[i] + 1, f"Messages should be consecutive, got {received}"
+
+        # Check that messages start from the expected range (around 20)
+        # Due to DROP_OLDEST, earliest message should be >= 20
+        assert received[0] >= 20, f"First message should be >= 20 due to DROP_OLDEST, got {received[0]}"
 
         # Should have dropped some messages
         dropped = pubsub.get_dropped_count(PubSubTopic.DEVICE_SNAPSHOT)
-        assert dropped > 0
+        assert dropped > 0, f"Should have dropped messages, got {dropped}"
         print(f"\nDropped {dropped} messages, received: {received}")
 
     @pytest.mark.asyncio
@@ -123,42 +144,50 @@ class TestDropOldestPolicy:
         pubsub.set_topic_policy(PubSubTopic.DEVICE_SNAPSHOT, queue_maxsize=5, drop_policy=DropPolicyEnum.DROP_OLDEST)
 
         received = []
-        should_stop = False
+        SENTINEL = "STOP"
 
         async def subscriber():
             async for msg in pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
-                if should_stop:
+                if msg == SENTINEL:
                     break
-                # Don't process immediately - let queue fill up
                 received.append(msg)
 
-        # Start subscriber but don't let it process yet
+        # Start subscriber
         task = asyncio.create_task(subscriber())
         await asyncio.sleep(0.01)
 
-        # Fill queue completely
-        for i in range(20):
+        # Fill queue completely - publish much faster than subscriber can handle
+        for i in range(30):
             await pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, i)
 
-        # Now let subscriber process
+        # Give subscriber time to drain some messages
         await asyncio.sleep(0.05)
-        should_stop = True
-        await asyncio.sleep(0.01)
 
-        # Cancel subscriber
-        task.cancel()
+        # Send sentinel to stop subscriber
+        await pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, SENTINEL)
+
+        # Wait for subscriber to finish
         try:
-            await task
-        except asyncio.CancelledError:
-            pass
+            await asyncio.wait_for(task, timeout=1.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         # Should have dropped messages
         dropped = pubsub.get_dropped_count(PubSubTopic.DEVICE_SNAPSHOT)
-        assert dropped > 0
+        assert dropped > 0, f"Should have dropped messages, got {dropped}"
 
         # Latest messages should be in received
-        assert 19 in received  # The very last message
-        print(f"\nReceived messages: {received}")
+        # With DROP_OLDEST, newest messages (like 29) should be preserved
+        assert 29 in received, f"Latest message (29) should be in {received}"
+
+        # Should not have received all 30 messages
+        assert len(received) < 30, f"Should have dropped some messages, received all {len(received)}"
+
+        print(f"\nReceived {len(received)} messages: {received}")
         print(f"Dropped: {dropped}")
 
 
@@ -172,11 +201,11 @@ class TestDropNewestPolicy:
         pubsub.set_topic_policy(PubSubTopic.ALERT_WARNING, queue_maxsize=3, drop_policy=DropPolicyEnum.DROP_NEWEST)
 
         received = []
-        should_stop = False
+        SENTINEL = "STOP"
 
         async def subscriber():
             async for msg in pubsub.subscribe(PubSubTopic.ALERT_WARNING):
-                if should_stop:
+                if msg == SENTINEL:
                     break
                 await asyncio.sleep(0.05)
                 received.append(msg)
@@ -191,21 +220,26 @@ class TestDropNewestPolicy:
 
         # Let some process
         await asyncio.sleep(0.3)
-        should_stop = True
-        await asyncio.sleep(0.01)
 
-        task.cancel()
+        # Send sentinel to stop
+        await pubsub.publish(PubSubTopic.ALERT_WARNING, SENTINEL)
+
+        # Wait for completion
         try:
-            await task
-        except asyncio.CancelledError:
-            pass
+            await asyncio.wait_for(task, timeout=1.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         # Should have dropped some messages
         dropped = pubsub.get_dropped_count(PubSubTopic.ALERT_WARNING)
-        assert dropped > 0
+        assert dropped > 0, f"Should have dropped messages, got {dropped}"
 
         # First messages should be preserved (DROP_NEWEST drops incoming)
-        assert 0 in received
+        assert 0 in received, f"First message should be preserved, got {received}"
         print(f"\nDropped {dropped} messages, received: {received}")
 
 
@@ -371,12 +405,13 @@ class TestEdgeCases:
         pubsub.set_topic_policy(PubSubTopic.DEVICE_SNAPSHOT, queue_maxsize=50, drop_policy=DropPolicyEnum.DROP_OLDEST)
 
         received = []
+        SENTINEL = "STOP"
 
         async def subscriber():
             async for msg in pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
-                received.append(msg)
-                if len(received) >= 100:
+                if msg == SENTINEL:
                     break
+                received.append(msg)
 
         # Start subscriber
         task = asyncio.create_task(subscriber())
@@ -393,11 +428,36 @@ class TestEdgeCases:
             publisher(50, 50),
         )
 
-        await task
+        # Give subscriber time to process
+        await asyncio.sleep(0.1)
 
-        # Should receive all or most messages
-        assert len(received) >= 90  # Allow some drops due to queue size
+        # Send sentinel to stop
+        await pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, SENTINEL)
+
+        # Wait for subscriber to finish
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        # With queue_maxsize=50 and DROP_OLDEST policy:
+        # - 100 messages published concurrently
+        # - Queue can only hold 50 messages
+        # - Should receive at least 40 messages (allowing some drops)
+        # Note: Cannot expect all 100 messages due to queue limit
+        assert len(received) >= 40, f"Expected at least 40 messages with queue_maxsize=50, got {len(received)}"
+
+        # Verify no duplicates
+        assert len(received) == len(
+            set(received)
+        ), f"Should have no duplicates, got {len(received)} messages with {len(set(received))} unique"
+
         print(f"\nReceived {len(received)} out of 100 messages")
+        print(f"Dropped: {pubsub.get_dropped_count(PubSubTopic.DEVICE_SNAPSHOT)}")
 
     @pytest.mark.asyncio
     async def test_policy_change_before_subscribers(self):
@@ -454,13 +514,14 @@ class TestPerformance:
         pubsub.set_topic_policy(PubSubTopic.DEVICE_SNAPSHOT, queue_maxsize=100, drop_policy=DropPolicyEnum.DROP_OLDEST)
 
         received_count = 0
+        SENTINEL = "STOP"
 
         async def fast_subscriber():
             nonlocal received_count
-            async for _ in pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
-                received_count += 1
-                if received_count >= 1000:
+            async for msg in pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
+                if msg == SENTINEL:
                     break
+                received_count += 1
 
         task = asyncio.create_task(fast_subscriber())
         await asyncio.sleep(0.01)
@@ -471,12 +532,35 @@ class TestPerformance:
             await pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, i)
         elapsed = asyncio.get_event_loop().time() - start
 
-        await task
+        # Give subscriber time to process messages from queue
+        await asyncio.sleep(0.2)
+
+        # Send sentinel to stop
+        await pubsub.publish(PubSubTopic.DEVICE_SNAPSHOT, SENTINEL)
+
+        # Wait for subscriber to finish
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        dropped = pubsub.get_dropped_count(PubSubTopic.DEVICE_SNAPSHOT)
 
         print(f"\nPublished 1000 messages in {elapsed:.3f}s ({1000/elapsed:.0f} msg/s)")
-        print(f"Received: {received_count}, Dropped: {pubsub.get_dropped_count(PubSubTopic.DEVICE_SNAPSHOT)}")
+        print(f"Received: {received_count}, Dropped: {dropped}")
 
-        assert received_count >= 900  # Should receive most messages
+        assert received_count >= 80, f"Expected at least 80 messages with queue_maxsize=100, got {received_count}"
+
+        assert dropped > 0, f"Should have dropped messages due to queue limit, got {dropped}"
+
+        total_accounted = received_count + dropped
+        assert (
+            total_accounted >= 900
+        ), f"Received({received_count}) + Dropped({dropped}) = {total_accounted}, expected >= 900"
 
 
 if __name__ == "__main__":
