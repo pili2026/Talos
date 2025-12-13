@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from pymodbus.client import AsyncModbusSerialClient
@@ -12,6 +13,14 @@ from core.device.generic.scales import ScaleService
 from core.model.device_constant import DEFAULT_MISSING_VALUE, HI_SHIFT, MD_SHIFT, REG_RW_ON_OFF
 from core.util.data_decoder import DecodeFormat
 from core.util.value_decoder import ValueDecoder
+
+
+@dataclass(frozen=True)
+class BulkRange:
+    register_type: str
+    start: int
+    count: int
+    items: list[tuple[str, dict]]  # (pin_name, cfg)
 
 
 class AsyncGenericModbusDevice:
@@ -90,45 +99,62 @@ class AsyncGenericModbusDevice:
         return str(self.device_type).lower() in {"inverter", "vfd", "inverter_vfd"}
 
     async def read_all(self) -> dict[str, Any]:
-        """Read all readable pins with early failure detection."""
-
-        # 1) First check connectivity using default bus
-        # NOTE: ensure_connected() is now lock-protected inside ModbusBus
+        # 1) connectivity check
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
             return self._default_offline_snapshot()
 
-        # 2) If connected, read all pins with early failure detection
         result: dict[str, Any] = {}
-        consecutive_failures = 0
-        max_early_failures = 2
 
+        # 2) bulk read ranges
+        ranges = self._build_bulk_ranges(max_regs_per_req=120)
+        for r in ranges:
+            bus = self._bus_cache.get(r.register_type)
+            if not bus:
+                bus = ModbusBus(
+                    client=self.client, slave_id=int(self.slave_id), register_type=r.register_type, lock=self._port_lock
+                )
+                self._bus_cache[r.register_type] = bus
+
+            try:
+                regs = await bus.read_regs(r.start, r.count)
+                regs = list(regs)
+            except Exception as e:
+                self.logger.warning(
+                    f"[{self.model}:{self.slave_id}] Bulk read failed rt={r.register_type} start={r.start} count={r.count}: {e}"
+                )
+                # 該 range 覆蓋的 pin 全部給 -1
+                for name, cfg in r.items:
+                    result[name] = DEFAULT_MISSING_VALUE
+                continue
+
+            for name, cfg in r.items:
+                offset = int(cfg["offset"])
+                fmt = cfg.get("format", DecodeFormat.U16)
+                wc = self._required_word_count(fmt)
+                rel = offset - r.start
+                chunk = regs[rel : rel + wc]
+                if len(chunk) < wc:
+                    result[name] = DEFAULT_MISSING_VALUE
+                    continue
+
+                raw = self.decoder.decode_registers(fmt, chunk)
+                value = self._apply_post_process(cfg, raw)
+                result[name] = value
+
+        # 3) fallback: non-eligible pins (coil/discrete_input/composed_of/scale_from...)
         for name, cfg in self.register_map.items():
             if not cfg.get("readable"):
                 continue
-
+            if name in result:
+                continue
             try:
                 result[name] = await self.read_value(name)
-
-                if result[name] == DEFAULT_MISSING_VALUE:
-                    consecutive_failures += 1
-                else:
-                    consecutive_failures = 0
-
             except Exception as e:
                 self.logger.warning(f"Failed to read {name}: {e}; set -1")
                 result[name] = DEFAULT_MISSING_VALUE
-                consecutive_failures += 1
 
-            if consecutive_failures >= max_early_failures and len(result) <= 5:
-                self.logger.warning(
-                    f"[{self.model}:{self.slave_id}] "
-                    f"Early failure detected ({consecutive_failures} consecutive failures), "
-                    "returning offline snapshot"
-                )
-                return self._default_offline_snapshot()
-
-        # 3) Process computed fields (if any)
+        # 4) computed fields
         result = self.computed_processor.compute(result)
         return result
 
@@ -438,3 +464,83 @@ class AsyncGenericModbusDevice:
                 return 2
             case _:
                 return 1
+
+    def _apply_post_process(self, config: dict, value: int | float) -> int | float:
+        # 2) bit extraction (only for holding/input registers)
+        if config.get("bit") is not None:
+            value = self.decoder.extract_bit(value, config["bit"])
+
+        # 3) linear formula
+        if config.get("formula"):
+            value = self.decoder.apply_linear_formula(value, config["formula"])
+
+        # 4) constant scale
+        value = self.decoder.apply_scale(value, config.get("scale", 1.0))
+
+        # 6) value precision
+        precision: int = config.get("precision")
+        if precision:
+            value = round(value, precision)
+
+        return value
+
+    def _is_bulk_eligible(self, config_raw: dict) -> bool:
+        if not config_raw.get("readable"):
+            return False
+        if config_raw.get("register_type") in {"coil", "discrete_input"}:
+            return False
+        if config_raw.get("composed_of"):
+            return False
+        if config_raw.get("scale_from"):
+            return False
+        # holding/input only
+        pin_rt = config_raw.get("register_type", self.register_type)
+        return pin_rt in {"holding", "input", self.register_type}
+
+    def _build_bulk_ranges(self, max_regs_per_req: int = 120) -> list[BulkRange]:
+        items: list[tuple[str, dict, int, int, str]] = []
+        for name, config_raw in self.register_map.items():
+            if not self._is_bulk_eligible(config_raw):
+                continue
+            rt = config_raw.get("register_type", self.register_type)
+            offset = int(config_raw.get("offset"))
+            fmt = config_raw.get("format", DecodeFormat.U16)
+            wc = self._required_word_count(fmt)
+            items.append((name, config_raw, offset, wc, rt))
+
+        items.sort(key=lambda x: (x[4], x[2]))  # (rt, offset)
+
+        ranges: list[BulkRange] = []
+        cur_rt: str | None = None
+        cur_start = 0
+        cur_end = 0
+        cur_items: list[tuple[str, dict]] = []
+
+        for name, config_raw, offset, wc, rt in items:
+            start = offset
+            end = offset + wc  # end is exclusive
+
+            if cur_rt is None:
+                cur_rt = rt
+                cur_start = start
+                cur_end = end
+                cur_items = [(name, config_raw)]
+                continue
+
+            # new register_type or not contiguous or would exceed max_regs_per_req
+            if rt != cur_rt or start != cur_end or (end - cur_start) > max_regs_per_req:
+                ranges.append(BulkRange(cur_rt, cur_start, cur_end - cur_start, cur_items))
+                cur_rt = rt
+                cur_start = start
+                cur_end = end
+                cur_items = [(name, config_raw)]
+                continue
+
+            # merge
+            cur_end = end
+            cur_items.append((name, config_raw))
+
+        if cur_rt is not None:
+            ranges.append(BulkRange(cur_rt, cur_start, cur_end - cur_start, cur_items))
+
+        return ranges

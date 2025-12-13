@@ -4,6 +4,13 @@ from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
+LOG_LEVEL_MAP = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+}
+
 
 class ISO8601Formatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):

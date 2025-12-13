@@ -58,7 +58,7 @@ class SnapshotSaverSubscriber:
                 - sampling_ts: datetime
                 - values: dict
         """
-        # Insert snapshot immediately (no batching in Phase 1)
+        # Insert snapshot immediately
         await self.repository.insert_snapshot(snapshot)
 
         logger.debug(f"[SnapshotSaver] Saved snapshot for device_id={snapshot['device_id']}")

@@ -27,9 +27,10 @@ from core.util.factory.sender_factory import build_sender_subscriber, init_sende
 from core.util.factory.snapshot_factory import build_snapshot_subscriber
 from core.util.factory.time_factory import build_time_control_subscriber
 from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
-from core.util.logger_config import setup_logging
+from core.util.logger_config import LOG_LEVEL_MAP, setup_logging
 from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
+from core.util.pubsub.pubsub_util import PUBSUB_POLICIES, pubsub_drop_metrics_loop
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from core.util.sub_registry import SubscriberRegistry
@@ -79,7 +80,7 @@ async def main():
     install_asyncio_noise_suppressor()
 
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=LOG_LEVEL_MAP.get(args.log_level, logging.INFO),
         format="%(asctime)s [%(levelname)8s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
@@ -116,7 +117,7 @@ async def main():
         system_config = SystemConfig(**system_config_raw)
 
         load_device_id_policy(system_config)
-        policy = get_policy()
+        device_id_policy = get_policy()
 
         logger.info(f"Monitor interval: {system_config.MONITOR_INTERVAL_SECONDS}s")
 
@@ -131,6 +132,18 @@ async def main():
 
         pubsub = InMemoryPubSub()
         logger.info("PubSub initialized (InMemoryPubSub)")
+
+        # Apply topic policies
+        for topic, topic_policy in PUBSUB_POLICIES.items():
+            try:
+                pubsub.set_topic_policy_model(topic, topic_policy)
+            except Exception as exc:
+                logger.warning(f"[PubSub] Failed to set topic policy: topic={topic}, policy={topic_policy }, err={exc}")
+
+        logger.info("[PubSub] Topic policies applied")
+
+        # Start monitoring task
+        asyncio.create_task(pubsub_drop_metrics_loop(pubsub, list(PUBSUB_POLICIES.keys())))
 
         health_manager = DeviceHealthManager()
         logger.info("DeviceHealthManager initialized")
@@ -152,7 +165,11 @@ async def main():
             interval=system_config.MONITOR_INTERVAL_SECONDS,
             health_manager=health_manager,
             virtual_device_manager=virtual_device_manager,
+            device_timeout_sec=system_config.MONITOR_DEVICE_TIMEOUT_SEC,
+            read_concurrency=system_config.MONITOR_READ_CONCURRENCY,
+            log_each_device=system_config.MONITOR_LOG_EACH_DEVICE,
         )
+
         logger.info("Monitor initialized")
 
         valid_device_ids = {f"{d.model}_{d.slave_id}" for d in async_device_manager.device_list}
@@ -201,7 +218,7 @@ async def main():
             pubsub=pubsub,
             async_device_manager=async_device_manager,
             sender_config_path=args.sender_config,
-            series_number=policy._config.SERIES,
+            series_number=device_id_policy._config.SERIES,
         )
         logger.info("Data sender built")
 

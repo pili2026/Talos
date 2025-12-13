@@ -42,7 +42,7 @@ class ModbusBus:
 
     async def read_regs(self, offset: int, count: int) -> list[int]:
         """Read multiple registers (holding/input)."""
-        async with await self._lock_context():
+        async with self._lock_context():
             if not self.client.connected and not await self.client.connect():
                 logger.error(f"[Bus] connect failed (slave={self.slave_id}), return missing values")
                 return [DEFAULT_MISSING_VALUE] * count
@@ -70,7 +70,7 @@ class ModbusBus:
 
     async def write_u16(self, offset: int, value: int) -> bool:
         """Write a single 16-bit register (holding)."""
-        async with await self._lock_context():
+        async with self._lock_context():
             if not self.client.connected and not await self.client.connect():
                 logger.error(f"[Bus] connect failed (slave={self.slave_id})")
                 return False
@@ -94,7 +94,7 @@ class ModbusBus:
         return coils[0]
 
     async def read_coils(self, offset: int, count: int) -> list[int]:
-        async with await self._lock_context():
+        async with self._lock_context():
             if not self.client.connected and not await self.client.connect():
                 logger.error(f"[Bus] connect failed (slave={self.slave_id}), return missing values")
                 return [DEFAULT_MISSING_VALUE] * count
@@ -116,7 +116,7 @@ class ModbusBus:
                 return [DEFAULT_MISSING_VALUE] * count
 
     async def write_coil(self, offset: int, value: bool) -> bool:
-        async with await self._lock_context():
+        async with self._lock_context():
             if not self.client.connected and not await self.client.connect():
                 logger.error(f"[Bus] connect failed (slave={self.slave_id})")
                 return False
@@ -133,7 +133,7 @@ class ModbusBus:
                 return False
 
     async def write_coils(self, offset: int, values: list[bool]) -> bool:
-        async with await self._lock_context():
+        async with self._lock_context():
             if not self.client.connected and not await self.client.connect():
                 logger.error(f"[Bus] connect failed (slave={self.slave_id})")
                 return False
@@ -156,7 +156,7 @@ class ModbusBus:
         return inputs[0]
 
     async def read_discrete_inputs(self, offset: int, count: int) -> list[int]:
-        async with await self._lock_context():
+        async with self._lock_context():
             if not self.client.connected and not await self.client.connect():
                 logger.error(f"[Bus] connect failed (slave={self.slave_id}), return missing values")
                 return [DEFAULT_MISSING_VALUE] * count
@@ -214,7 +214,7 @@ class ModbusBus:
         if self.client.connected:
             return True
 
-        async with await self._lock_context():
+        async with self._lock_context():
             if self.client.connected:
                 return True
 
@@ -223,7 +223,7 @@ class ModbusBus:
                 logger.error(f"[Bus] connect failed (slave={self.slave_id})")
             return is_ok
 
-    async def _lock_context(self):
+    def _lock_context(self):
         """
         Internal helper: use lock if provided, else a no-op context.
         """

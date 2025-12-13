@@ -39,6 +39,7 @@ async def test_read_and_write_flow():
             "RW_ON_OFF": {"offset": 10, "readable": True, "writable": True, "format": "u16"},
         },
         device_type="inverter",
+        port="MockPort",
     )
 
     # read with scale 0.1 → 100 * 0.1 = 10.0

@@ -56,7 +56,12 @@ class SystemConfig(BaseModel):
         extra="allow",
     )
 
-    MONITOR_INTERVAL_SECONDS: float = Field(default=10.0, description="Monitoring interval (seconds)")
+    MONITOR_INTERVAL_SECONDS: float = Field(default=1.0, gt=0, description="Monitoring interval (seconds)")
+    MONITOR_READ_CONCURRENCY: int = Field(
+        default=50, ge=1, le=500, description="Max concurrent device read tasks in monitor loop."
+    )
+    MONITOR_DEVICE_TIMEOUT_SEC: float = Field(default=3.0, gt=0, le=60, description="Per-device read timeout seconds.")
+    MONITOR_LOG_EACH_DEVICE: bool = Field(default=False, description="Log per-device online status (debug)")
     PATHS: PathsConfig = Field(default_factory=PathsConfig)
     DEVICE_ID_POLICY: DeviceIdPolicyConfig = Field(default_factory=DeviceIdPolicyConfig)
     SUBSCRIBERS: SubscribersConfig = Field(default_factory=SubscribersConfig)

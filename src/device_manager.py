@@ -15,11 +15,17 @@ logger = logging.getLogger("DeviceManager")
 
 
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
-    """Shallow-safe deep merge for 2-level dicts (enough for modes tables)."""
+    """
+    Shallow-safe deep merge for 2-level dicts (enough for modes tables).
+    - base/override must be dict
+    - if both values are dict -> merge nested
+    - otherwise override wins
+    """
     if not isinstance(base, dict):
         base = {}
     if not isinstance(override, dict):
         return dict(base)
+
     out = dict(base)
     for k, v in override.items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
@@ -32,8 +38,22 @@ def _deep_merge_dicts(base: dict, override: dict) -> dict:
 
 
 class AsyncDeviceManager:
+    """
+    - DeviceManager is responsible for:
+        * loading device configs
+        * building clients + per-port locks
+        * building devices and caching model configs
+        * applying startup frequency
+        * shutdown / connectivity tests
+    - Health/backoff/cooldown is NOT managed here.
+      That is owned by DeviceHealthManager + AsyncDeviceMonitor.
+    """
+
     def __init__(
-        self, config_path: str, constraint_config_schema: ConstraintConfigSchema, model_base_path: str = "./res"
+        self,
+        config_path: str,
+        constraint_config_schema: ConstraintConfigSchema,
+        model_base_path: str = "./res",
     ):
         self.device_list: list[AsyncGenericModbusDevice] = []
         self.client_dict: dict[str, AsyncModbusSerialClient] = {}
@@ -41,21 +61,23 @@ class AsyncDeviceManager:
         self.constraint_config_schema = constraint_config_schema
         self.model_base_path = model_base_path
 
+        # model_name -> loaded YAML config (cached)
         self.driver_config_by_model: dict[str, dict] = {}
 
+        # port -> asyncio.Lock (single source of truth for RS-485 serialization)
         self._port_locks: dict[str, asyncio.Lock] = {}
 
-    async def init(self):
-        config: dict = ConfigManager().load_yaml_file(self.config_path)
+    async def init(self) -> None:
+        config_raw: dict = ConfigManager().load_yaml_file(self.config_path)
 
-        for device_config in config.get("devices", []):
+        for device_config in config_raw.get("devices", []):
             model_path: str = os.path.join(self.model_base_path, device_config["model_file"])
-            model_config: dict = ConfigManager().load_yaml_file(model_path)
+            model_config_raw: dict = ConfigManager().load_yaml_file(model_path)
 
-            model: str = model_config["model"]
+            model: str = model_config_raw["model"]
             if model not in self.driver_config_by_model:
                 # NOTE: Check model_config reference to avoid re-loading same model file
-                self.driver_config_by_model[model] = model_config
+                self.driver_config_by_model[model] = model_config_raw
 
             # cast slave_id to int to be safe for pymodbus
             slave_id: int = int(device_config["slave_id"])
@@ -75,27 +97,27 @@ class AsyncDeviceManager:
             instance_constraints: dict[str, ConstraintConfig] = ConfigManager.get_instance_constraints_from_schema(
                 self.constraint_config_schema, model, slave_id
             )
-
             constraint_policy = ConstraintPolicy(instance_constraints, logger)
 
             # pass tables/modes into device; allow per-device override of modes in devices[].modes
-            model_tables: dict = model_config.get("tables", {})
-            model_modes: dict = model_config.get("modes", {})
+            model_tables: dict = model_config_raw.get("tables", {})
+            model_modes: dict = model_config_raw.get("modes", {})
             instance_modes_override: dict = device_config.get("modes", {})  # optional per-instance MV switch, etc.
             final_modes: dict = _deep_merge_dicts(model_modes, instance_modes_override)
+
             device_type: str = device_config["type"]
 
             device = AsyncGenericModbusDevice(
                 model=model,
                 client=self.client_dict[port],
                 slave_id=slave_id,
-                register_type=model_config.get("register_type", "holding"),
-                register_map=model_config["register_map"],
+                register_type=model_config_raw.get("register_type", "holding"),
+                register_map=model_config_raw["register_map"],
                 constraint_policy=constraint_policy,
                 device_type=device_type,
                 table_dict=model_tables,
                 mode_dict=final_modes,
-                write_hooks=model_config.get("write_hooks", []),
+                write_hooks=model_config_raw.get("write_hooks", []),
                 port_lock=self._port_locks[port],
                 port=port,
             )
@@ -113,8 +135,8 @@ class AsyncDeviceManager:
                 return device
         return None
 
-    async def _apply_startup_frequency(self):
-        """Set startup frequency for all devices"""
+    async def _apply_startup_frequency(self) -> None:
+        """Set startup frequency for all devices."""
         if not self.constraint_config_schema:
             logger.warning("No constraint config available, skipping startup frequency setup")
             return
@@ -131,9 +153,9 @@ class AsyncDeviceManager:
             else:
                 logger.debug(f"[{device.model}_{device.slave_id}] No startup frequency configured")
 
-    async def _set_device_startup_frequency(self, device: AsyncGenericModbusDevice, frequency: float):
-        """Set the startup frequency for a single device"""
-        device_id = f"{device.model}_{device.slave_id}"
+    async def _set_device_startup_frequency(self, device: AsyncGenericModbusDevice, frequency: float) -> None:
+        """Set the startup frequency for a single device."""
+        device_id: str = self._device_key(device)
 
         try:
             final_frequency = frequency
@@ -153,16 +175,15 @@ class AsyncDeviceManager:
             await device.write_value("RW_HZ", final_frequency)
             logger.info(f"[{device_id}] Set startup frequency to {final_frequency} Hz")
 
-        except Exception as e:
-            logger.warning(f"[{device_id}] Failed to set startup frequency: {e}")
+        except Exception as exc:
+            logger.warning(f"[{device_id}] Failed to set startup frequency: {exc}")
 
     def _is_frequency_within_constraints(self, device: AsyncGenericModbusDevice, frequency: float) -> bool:
-        """Check whether the frequency is within the device’s constraint range"""
+        """Check whether the frequency is within the device’s constraint range."""
         return device.constraints.allow("RW_HZ", frequency)
 
     async def shutdown(self) -> None:
         """Close all underlying Modbus clients and clear cached devices."""
-
         for client in self.client_dict.values():
             try:
                 result = client.close()
@@ -178,11 +199,10 @@ class AsyncDeviceManager:
         """
         Test if a device is online by attempting to read a register.
 
-        Args:
-            device_id: Device identifier in format "MODEL_SLAVEID"
-
-        Returns:
-            bool: True if device is online, False otherwise
+        NOTE (Phase 1):
+        - Do NOT acquire port lock here.
+        - ModbusBus already serializes I/O using the shared per-port lock.
+        - Double-lock will deadlock (asyncio.Lock is not re-entrant).
         """
         try:
             model, slave_id_str = device_id.rsplit("_", 1)
@@ -196,21 +216,12 @@ class AsyncDeviceManager:
             logger.warning(f"Device {device_id} not found in device manager")
             return False
 
-        port: str = self._get_device_port(device)
-        lock: asyncio.Lock = self._port_locks.get(port)
-
         try:
             if not device.register_map:
                 return False
 
             first_param = next(iter(device.register_map.keys()))
-
-            if lock:
-                async with lock:
-                    value = await device.read_value(first_param)
-            else:
-                value = await device.read_value(first_param)
-
+            value = await device.read_value(first_param)
             return value != DEFAULT_MISSING_VALUE
 
         except Exception as exc:
@@ -218,88 +229,62 @@ class AsyncDeviceManager:
             return False
 
     async def fast_test_device_connection(
-        self, device_id: str, test_param_count: int = 5, min_success_rate: float = 0.3
+        self,
+        device_id: str,
+        test_param_count: int = 5,
+        min_success_rate: float = 0.3,
     ) -> tuple[bool, str | None, dict]:
         """
-        Fast connection test with reduced timeout and parallel testing.
+        Fast connection test with reduced timeout.
 
-        Designed for WebSocket connection validation - fails fast if device is offline.
-
-        Args:
-            device_id: Device identifier in format "MODEL_SLAVEID"
-            test_param_count: Number of parameters to test (default: 5, max: 10)
-            min_success_rate: Minimum success rate to pass test (default: 0.3 = 30%)
-
-        Returns:
-            Tuple of (success, error_message, details):
-            - success: True if device passes test
-            - error_message: Reason for failure (None if success)
-            - details: Dict with test statistics
-
-        Example:
-            >>> success, error, details = await manager.fast_test_device_connection("VFD_01_1")
-            >>> print(f"Success: {success}, Details: {details}")
-            Success: True, Details: {'tested': 5, 'passed': 5, 'rate': 1.0}
+        NOTE (Phase 1):
+        - Do NOT acquire port lock here.
+        - ModbusBus already serializes I/O using the shared per-port lock.
+        - Double-lock will deadlock (asyncio.Lock is not re-entrant).
         """
         try:
-            # Parse device_id
             model, slave_id_str = device_id.rsplit("_", 1)
             slave_id = int(slave_id_str)
         except ValueError:
             logger.error(f"Invalid device_id format: {device_id}")
             return False, "Invalid device ID format", {}
 
-        # Get device
         device = self.get_device_by_model_and_slave_id(model, slave_id)
         if not device:
             logger.warning(f"Device {device_id} not found in device manager")
             return False, "Device not found", {}
 
-        port: str = self._get_device_port(device)
-        lock: asyncio.Lock = self._port_locks.get(port)
-
-        # Get readable parameters
         readable_params = [name for name, cfg in device.register_map.items() if cfg.get("readable", False)]
-
         if not readable_params:
             logger.error(f"[{device_id}] No readable parameters available for testing")
             return False, "No readable parameters", {}
 
-        # Limit test count
         test_count: int = min(test_param_count, len(readable_params), 10)
-        test_param_list: list = readable_params[:test_count]
+        test_param_list: list[str] = readable_params[:test_count]
 
-        logger.info(f"[{device_id}] Fast connection test starting: " f"testing {test_count} parameters")
+        logger.info(f"[{device_id}] Fast connection test starting: testing {test_count} parameters")
 
-        # Test parameters with short timeout
-        results = []
-        start_time = asyncio.get_event_loop().time()
+        results: list[tuple[str, bool]] = []
+        loop = asyncio.get_event_loop()
+        start_time = loop.time()
 
         for param_name in test_param_list:
             try:
-
-                if lock:
-                    async with lock:
-                        value = await asyncio.wait_for(device.read_value(param_name), timeout=0.8)
-                else:
-                    value = await asyncio.wait_for(device.read_value(param_name), timeout=0.8)
-
+                value = await asyncio.wait_for(device.read_value(param_name), timeout=0.8)
                 is_valid = value != DEFAULT_MISSING_VALUE
                 results.append((param_name, is_valid))
             except asyncio.TimeoutError:
                 logger.debug(f"[{device_id}] Parameter '{param_name}' timeout")
                 results.append((param_name, False))
-            except Exception as e:
-                logger.debug(f"[{device_id}] Parameter '{param_name}' error: {e}")
+            except Exception as exc:
+                logger.debug(f"[{device_id}] Parameter '{param_name}' error: {exc}")
                 results.append((param_name, False))
 
-        elapsed = asyncio.get_event_loop().time() - start_time
+        elapsed = loop.time() - start_time
 
-        # Calculate success rate
         passed_count = sum(1 for _, is_valid in results if is_valid)
         success_rate = passed_count / len(results)
 
-        # Prepare details
         details = {
             "tested": len(results),
             "passed": passed_count,
@@ -310,18 +295,16 @@ class AsyncDeviceManager:
             "results": {name: "pass" if valid else "fail" for name, valid in results},
         }
 
-        # Log result
         logger.info(
             f"[{device_id}] Fast connection test completed: "
             f"{passed_count}/{len(results)} passed ({success_rate:.0%}) "
             f"in {elapsed:.2f}s"
         )
 
-        # Check if passed
         if success_rate >= min_success_rate:
             return True, None, details
 
-        error_msg = f"Low response rate: {passed_count}/{len(results)} " f"parameters responded ({success_rate:.0%})"
+        error_msg = f"Low response rate: {passed_count}/{len(results)} parameters responded ({success_rate:.0%})"
         return False, error_msg, details
 
     def _get_device_port(self, device: AsyncGenericModbusDevice) -> str:
@@ -330,3 +313,6 @@ class AsyncDeviceManager:
             if device.client == client:
                 return port
         return "unknown"
+
+    def _device_key(self, device: AsyncGenericModbusDevice) -> str:
+        return f"{device.model}_{device.slave_id}"

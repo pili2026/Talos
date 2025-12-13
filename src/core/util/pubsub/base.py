@@ -1,16 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
+
+from core.util.pubsub.pubsub_topic import PubSubTopic
 
 
 class PubSub(ABC):
     @abstractmethod
-    async def publish(self, topic: str, data: any):
-        pass
+    async def publish(self, topic: PubSubTopic, data: Any) -> None:
+        raise NotImplementedError
 
     @abstractmethod
-    def subscribe(self, topic: str) -> AsyncGenerator[any, None]:
-        pass
+    async def subscribe(self, topic: PubSubTopic) -> AsyncGenerator[Any, None]:
+        raise NotImplementedError
 
     @abstractmethod
-    async def close(self):
-        pass
+    async def close(self) -> None:
+        raise NotImplementedError

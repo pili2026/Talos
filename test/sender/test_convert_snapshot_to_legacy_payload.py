@@ -364,4 +364,4 @@ class TestParameterPassingPatterns:
 
         assert len(result) == 1
         payload = result[0]["Data"]
-        assert payload == {"oxygen_pct": 12.35, "temperature_c": 23.99}
+        assert payload == {"oxygen_pct": 12.35, "temperature": 23.99}
