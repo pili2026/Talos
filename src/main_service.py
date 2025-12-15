@@ -116,6 +116,15 @@ async def main():
         system_config_raw = ConfigManager.load_yaml_file(args.system_config)
         system_config = SystemConfig(**system_config_raw)
 
+        poll_interval: float = system_config.MONITOR_INTERVAL_SECONDS
+        logger.info(f"Monitor interval: {poll_interval}s")
+
+        health_params: dict = DeviceHealthManager().calculate_health_params(poll_interval)
+        logger.info(f"Health Manager params: {health_params}")
+
+        health_manager = DeviceHealthManager(**health_params)
+        logger.info("DeviceHealthManager initialized")
+
         load_device_id_policy(system_config)
         device_id_policy = get_policy()
 
@@ -144,9 +153,6 @@ async def main():
 
         # Start monitoring task
         asyncio.create_task(pubsub_drop_metrics_loop(pubsub, list(PUBSUB_POLICIES.keys())))
-
-        health_manager = DeviceHealthManager()
-        logger.info("DeviceHealthManager initialized")
 
         constraint_config_raw = ConfigManager.load_yaml_file(args.instance_config)
         constraint_schema = ConstraintConfigSchema(**constraint_config_raw)

@@ -96,8 +96,13 @@ class AsyncDeviceMonitor:
                 w.cancel()
 
     # ------------------------------------------------------------------
-
     async def _run_one_cycle(self) -> list[dict[str, Any]]:
+        """
+        Run one monitoring cycle with sequential device processing per port.
+
+        Critical for RS-485: Devices on same port must be processed sequentially
+        with delay to prevent response frame confusion.
+        """
         devices = self.device_manager.device_list
         now_ts = datetime.now(tz=TIMEZONE_INFO).timestamp()
 
@@ -108,14 +113,32 @@ class AsyncDeviceMonitor:
 
         result_map: dict[str, dict[str, Any]] = {}
 
+        # Group devices by port (critical for RS-485)
+        devices_by_port: dict[str, list] = {}
         for d in devices:
-            await self._queue.put((d, should_recover, result_map))
+            port = d.port
+            if port not in devices_by_port:
+                devices_by_port[port] = []
+            devices_by_port[port].append(d)
 
-        await self._queue.join()
+        # Process devices sequentially per port with delay
+        for port, port_devices in devices_by_port.items():
+            logger.debug(f"[Monitor] Processing {len(port_devices)} devices on port {port}")
 
-        snapshots = list(result_map.values())
-        await self._process_virtual_devices(snapshots)
-        return snapshots
+            for i, d in enumerate(port_devices):
+                # Put device in queue
+                await self._queue.put((d, should_recover, result_map))
+
+                # Wait for this device to complete
+                await self._queue.join()
+
+                # Add delay between devices on same port
+                # Skip delay after last device
+                if i < len(port_devices) - 1:
+                    await asyncio.sleep(0.15)  # 150ms delay
+
+        await self._process_virtual_devices(list(result_map.values()))
+        return list(result_map.values())
 
     # ------------------------------------------------------------------
 
