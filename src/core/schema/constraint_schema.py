@@ -15,11 +15,16 @@ class InstanceConfig(BaseModel):
     constraints: dict[str, ConstraintConfig] | None = None
     use_default_constraints: bool | None = Field(default=True)
 
+    pins: dict[str, dict] | None = None
+    model_config = ConfigDict(extra="allow")
+
 
 class DeviceConfig(BaseModel):
     initialization: InitializationConfig | None = None
     default_constraints: dict[str, ConstraintConfig] | None = None
     instances: dict[str, InstanceConfig] | None = None
+
+    pins: dict[str, dict] | None = None
 
 
 class ConstraintConfigSchema(BaseModel):

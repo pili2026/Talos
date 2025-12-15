@@ -1,0 +1,81 @@
+model: "JY_DAM0404"
+type: "io_module"
+
+# Default register_type is kept for compatibility.
+# Actual per-pin register_type is defined at pin-level.
+register_type: discrete_input
+
+register_map:
+  # ==================== Digital Inputs (FC02: Discrete Input) ====================
+  DIn01:
+    offset: 0
+    register_type: discrete_input
+    readable: true
+    writable: false
+    format: u16
+    unit: ""
+    description: "Digital Input 1"
+
+  DIn02:
+    offset: 1
+    register_type: discrete_input
+    readable: true
+    writable: false
+    format: u16
+    unit: ""
+    description: "Digital Input 2"
+
+  DIn03:
+    offset: 2
+    register_type: discrete_input
+    readable: true
+    writable: false
+    format: u16
+    unit: ""
+    description: "Digital Input 3"
+
+  DIn04:
+    offset: 3
+    register_type: discrete_input
+    readable: true
+    writable: false
+    format: u16
+    unit: ""
+    description: "Digital Input 4"
+
+  # ==================== Digital Outputs (FC01/05: Coil) ====================
+  DOut01:
+    offset: 0
+    register_type: coil
+    readable: true
+    writable: true
+    format: u16
+    unit: ""
+    description: "Digital Output 1 / Relay 1"
+
+  DOut02:
+    offset: 1
+    register_type: coil
+    readable: true
+    writable: true
+    format: u16
+    unit: ""
+    description: "Digital Output 2 / Relay 2"
+
+  DOut03:
+    offset: 2
+    register_type: coil
+    readable: true
+    writable: true
+    format: u16
+    unit: ""
+    description: "Digital Output 3 / Relay 3"
+
+  DOut04:
+    offset: 3
+    register_type: coil
+    readable: true
+    writable: true
+    format: u16
+    unit: ""
+    description: "Digital Output 4 / Relay 4"

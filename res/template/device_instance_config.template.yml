@@ -1,7 +1,22 @@
+# device_instance_config.template.yml
+# Per-device instance override template.
+#
+# Purpose:
+# - Provide per-model defaults (initialization / constraints / pins metadata baseline)
+# - Provide per-slave overrides (constraints / pins delta overrides)
+#
+# Override semantics (pins):
+# - If a field is provided in instance.pins.<PIN>, it overrides model-level pins.<PIN>.
+# - If a field is omitted, it falls back to model-level pins.<PIN> (if present).
+# - Driver YAML remains "hardware mapping"; instance config is "site semantics".
+
 global_defaults:
   initialization:
     startup_frequency: 50.0
 
+# -------------------------------------------------------------------
+# Inverters
+# -------------------------------------------------------------------
 LITEON_EVO6800:
   default_constraints:
     RW_HZ: { min: 30, max: 55 }
@@ -19,3 +34,79 @@ TECO_VFD:
     RW_HZ: { min: 55, max: 59 }
   instances:
     "5": {}
+
+# -------------------------------------------------------------------
+# AI Module - BAT08 (Scheme A: model baseline pins + instance delta)
+# -------------------------------------------------------------------
+BAT08:
+  default_constraints: {}
+
+  # Baseline pins (example: room1 baseline)
+  # Instances can override only the fields they need (e.g., formula N3 offset).
+  pins:
+    AIn01: { name: Temp1, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
+    AIn02: { name: Temp2, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
+    AIn03: { name: Pressure3, formula: [0, 0.00097656, 0.0], type: pressure, unit: "bar", precision: 3 }
+    AIn04: { name: Temp4, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
+    AIn05: { name: Temp5, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
+    AIn06: { name: Pressure6, formula: [0, 0.00097656, 0.0], type: pressure, unit: "bar", precision: 3 }
+    AIn07: { name: Temp7, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
+    AIn08: { name: Temp8, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
+
+  instances:
+    # room1 baseline device
+    "16": {}
+
+    # room5: only override the N3 term for selected pins (others inherit baseline)
+    "17":
+      pins:
+        AIn01: { formula: [0, 0.01220703125, -1.5] }
+        AIn02: { formula: [0, 0.01220703125, -1.4] }
+        AIn04: { formula: [0, 0.01220703125, 3.0] }
+        AIn05: { formula: [0, 0.01220703125, 1.0] }
+
+    "19":
+      pins:
+        AIn01: { formula: [0, 0.01220703125, -1.0] }
+        AIn02: { formula: [0, 0.01220703125, -1.0] }
+
+    "20":
+      pins:
+        AIn01: { formula: [0, 0.01220703125, -1.4] }
+        AIn02: { formula: [0, 0.01220703125, -1.0] }
+        AIn04: { formula: [0, 0.01220703125, -1.0] }
+        AIn05: { formula: [0, 0.01220703125, -1.0] }
+
+# -------------------------------------------------------------------
+# IO Module - JY_DAM0404 (Room semantics via pins metadata)
+# Notes:
+# - Driver defines DI/DO mapping (offset/register_type).
+# - Instance config defines semantic labels (e.g., MC1/Alert).
+# - DI is 0/1 so formula is usually unnecessary; keep it simple.
+# -------------------------------------------------------------------
+JY_DAM0404:
+  default_constraints: {}
+
+  # Optional model-level baseline metadata. Instances can override remark/name as needed.
+  pins:
+    DIn01: { name: "RelayOld", remark: "" }
+    DIn02: { name: "RelayOld", remark: "" }
+    DIn03: { name: "RelayOld", remark: "" }
+    DIn04: { name: "RelayOld", remark: "" }
+
+  instances:
+    # room2 - slave 18
+    "18":
+      pins:
+        DIn01: { remark: "MC1" }
+        DIn02: { remark: "Alert" }
+        DIn03: { remark: "MC2" }
+        DIn04: { remark: "Alert" }
+
+    # room2 - slave 21 (same mapping example)
+    "21":
+      pins:
+        DIn01: { remark: "MC1" }
+        DIn02: { remark: "Alert" }
+        DIn03: { remark: "MC2" }
+        DIn04: { remark: "Alert" }

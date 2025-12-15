@@ -37,6 +37,36 @@ def _deep_merge_dicts(base: dict, override: dict) -> dict:
     return out
 
 
+def _merge_register_map_with_pins(
+    driver_register_map: dict, pins_override: dict, logger: logging.Logger, device_id: str
+) -> dict:
+    """
+    Merge per-instance pin overrides into driver register_map.
+
+    - Only updates existing pins; unknown pins are warned and skipped.
+    - Does NOT mutate the original driver_register_map (important for cached model configs).
+    """
+    base = driver_register_map or {}
+    out: dict = {k: (dict(v) if isinstance(v, dict) else v) for k, v in base.items()}
+
+    if not pins_override:
+        return out
+
+    for pin_name, override_cfg in pins_override.items():
+        if pin_name not in out:
+            logger.warning(f"[{device_id}] pins override refers to unknown pin '{pin_name}', skip")
+            continue
+        if not isinstance(out.get(pin_name), dict) or not isinstance(override_cfg, dict):
+            logger.warning(f"[{device_id}] pins override invalid type for '{pin_name}', skip")
+            continue
+
+        merged = dict(out[pin_name])
+        merged.update(override_cfg)  # override wins
+        out[pin_name] = merged
+
+    return out
+
+
 class AsyncDeviceManager:
     """
     - DeviceManager is responsible for:
@@ -106,13 +136,25 @@ class AsyncDeviceManager:
             final_modes: dict = _deep_merge_dicts(model_modes, instance_modes_override)
 
             device_type: str = device_config["type"]
+            device_id: str = f"{model}_{slave_id}"
+
+            pins_override: dict = ConfigManager.get_instance_pins_from_schema(
+                self.constraint_config_schema, model, slave_id
+            )
+
+            final_register_map: dict = _merge_register_map_with_pins(
+                driver_register_map=model_config_raw["register_map"],
+                pins_override=pins_override,
+                logger=logger,
+                device_id=device_id,
+            )
 
             device = AsyncGenericModbusDevice(
                 model=model,
                 client=self.client_dict[port],
                 slave_id=slave_id,
                 register_type=model_config_raw.get("register_type", "holding"),
-                register_map=model_config_raw["register_map"],
+                register_map=final_register_map,
                 constraint_policy=constraint_policy,
                 device_type=device_type,
                 table_dict=model_tables,
