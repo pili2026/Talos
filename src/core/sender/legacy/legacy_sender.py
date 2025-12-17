@@ -139,8 +139,8 @@ class LegacySenderAdapter:
           - _resend_worker_loop(): background resend
         """
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=5.0)
-            logger.info("[Sender] Shared HTTP client created (timeout=5.0s)")
+            self._client = httpx.AsyncClient(timeout=10.0)
+            logger.info("[Sender] Shared HTTP client created (timeout=10.0s)")
 
         if self._transport is None:
             self._transport = ResendTransport(self.ima_url, self._client, self._is_ok)

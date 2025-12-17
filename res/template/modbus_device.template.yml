@@ -1,81 +1,94 @@
-shared: &shared_config
+buses:
+  rtu0: &rtu0
     port: /dev/ttyUSB0
 
 devices:
   - model: LITEON_EVO6800
     type: inverter
     model_file: driver/liteon_evo6800_inverter.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 1
 
   - model: TECO_VFD
     type: inverter
     model_file: driver/teco_inverter.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 2
 
   - model: SD400
     type: ai_module
     model_file: driver/sd_400.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 3
 
   - model: SD500
     type: di_module
     model_file: driver/sd_500.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 4
 
   - model: IMA_C
     type: di_module
     model_file: driver/ima_c.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 5
 
   - model: ADAM-4117
     type: ai_module
     model_file: driver/adam_4117.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 6
 
   - model: SUTO_FLOW
     type: flow_meter
     model_file: driver/suto_flow.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 8
 
   - model: ADTEK_CPM10
     type: power_meter
     model_file: driver/adtek_cpm_10.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 9
 
   - model: JY_DAM0204
     type: di_module
     model_file: driver/jy_dam0204.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 10
 
   - model: DAE_PM210
     type: power_meter
     model_file: driver/dae_pm210.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 11
 
   - model: DO750
     type: sensor
     model_file: driver/do750.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 12 
 
   - model: GTA_A26A
     type: panel_meter
     model_file: driver/gta_a26a.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 13
 
   - model: JY_DAM0816D
     type: di_module
     model_file: driver/jy_dam0816d.yml
-    <<: *shared_config
+    <<: *rtu0
     slave_id: 14
+
+  - model: BAT08
+    type: ai_module
+    model_file: driver/bat_08.yml
+    <<: *rtu0
+    slave_id: 15
+
+  - model: JY_DAM0404
+    type: di_module
+    model_file: driver/jy_dam0404.yml
+    <<: *rtu0
+    slave_id: 16
