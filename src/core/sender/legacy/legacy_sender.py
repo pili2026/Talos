@@ -411,7 +411,7 @@ class LegacySenderAdapter:
                     else:
                         logger.warning(f"[POST] not ok (status={status}) preview={text[:200]!r}")
                 except Exception as e:
-                    logger.warning(f"[POST] attempt {i+1} failed: {e}")
+                    logger.exception(f"[POST] attempt {i+1} failed: {e}")
 
                 if i < len(backoffs):
                     await asyncio.sleep(backoffs[i])
