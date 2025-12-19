@@ -8,6 +8,14 @@ description: >
   - Supports combined 32-bit energy counter (KWH).
   - Control registers (RW_*) allow frequency setpoint, on/off, and reset operations.
 
+health_check:
+  strategy: single_register
+  registers: [HZ]
+  register_type: holding
+  retry_on_failure: 1
+  timeout_sec: 0.5
+  reason: "HZ is the most reliable status indicator"
+
 register_map:
   KWH:
     offset: 7688

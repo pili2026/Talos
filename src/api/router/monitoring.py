@@ -7,7 +7,7 @@ Single-device endpoint reduced from ~200 lines to ~40 lines.
 
 import logging
 
-from fastapi import APIRouter, Query, WebSocket
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from api.repository.config_repository import ConfigRepository
 from api.service.parameter_service import ParameterService
@@ -27,6 +27,9 @@ monitoring_config = MonitoringConfig()
 
 # Connection manager
 manager = ConnectionManager()
+
+# WebSocket close code for service unavailable
+WS_UNAVAILABLE = 1013  # Try Again Later
 
 
 # ===== WebSocket Endpoints =====
@@ -166,51 +169,69 @@ async def subscribe_single_device(
     """
     Full-duplex: Subscribe to device + Control commands.
 
-    Receive (from server):
-        - Device snapshot updates (1s interval)
-        - Write command results
-
-    Send (to server):
-        - {"action": "write", "parameter": "DOut01", "value": 1}
-        - {"action": "ping"}
-
     Zero RTU conflict (reads from PubSub).
+    Unified mode only.
     """
+    talos = websocket.app.state.talos
+
+    # Standalone API mode: PubSub not available → reject gracefully
+    if talos.is_standalone_mode():
+        await websocket.accept()
+        await websocket.close(
+            code=WS_UNAVAILABLE,
+            reason="Subscription requires unified mode (Core + API). Start via main_service.py.",
+        )
+        logger.info(f"[WebSocket] Subscribe rejected (standalone mode): device_id={device_id}")
+        return
+
     try:
-        logger.info(f"[WebSocket] Endpoint called for device: {device_id}")
-        pubsub = websocket.app.state.talos.get_pubsub()
-        async_device_manager = websocket.app.state.talos.get_device_manager()
+        logger.info(f"[WebSocket] Subscribe endpoint called: device_id={device_id}")
+
+        pubsub = talos.get_pubsub()
+        async_device_manager = talos.get_device_manager()
         config_repo = ConfigRepository()
 
         parameter_service = ParameterService(async_device_manager, config_repo)
 
         session = SubscriptionSession(
-            websocket=websocket, pubsub=pubsub, parameter_service=parameter_service, device_filter=device_id
+            websocket=websocket,
+            pubsub=pubsub,
+            parameter_service=parameter_service,
+            device_filter=device_id,
         )
 
         await session.run()
 
+    except WebSocketDisconnect:
+        # Normal disconnect by client; do not treat as error
+        logger.info(f"[WebSocket] Subscribe disconnected: device_id={device_id}")
     except Exception as e:
         logger.error(f"Subscription failed for {device_id}: {e}", exc_info=True)
+        # Best-effort close if still connected
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 @router.websocket("/subscribe/dashboard")
 async def subscribe_all_devices(websocket: WebSocket):
-    """
-    Dashboard: All devices monitoring (read-only).
+    talos = websocket.app.state.talos
 
-    Receive:
-        - All device snapshot updates
+    if talos.is_standalone_mode():
+        await websocket.accept()
+        await websocket.close(
+            code=WS_UNAVAILABLE,
+            reason="Dashboard subscription requires unified mode (Core + API).",
+        )
+        logger.info("[WebSocket] Dashboard subscribe rejected (standalone mode)")
+        return
 
-    No control commands (Dashboard is monitoring only).
-    """
-    try:
-        pubsub = websocket.app.state.talos.get_pubsub()
-
-        # TODO: Dashboard need not control function currently.
-        session = SubscriptionSession(websocket=websocket, pubsub=pubsub, parameter_service=None, device_filter=None)
-
-        await session.run()
-
-    except Exception as e:
-        logger.error(f"Dashboard subscription failed: {e}", exc_info=True)
+    pubsub = talos.get_pubsub()
+    session = SubscriptionSession(
+        websocket=websocket,
+        pubsub=pubsub,
+        parameter_service=None,
+        device_filter=None,
+    )
+    await session.run()
