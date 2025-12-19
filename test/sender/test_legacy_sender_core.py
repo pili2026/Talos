@@ -21,13 +21,13 @@ class TestSnapshotHandling:
     async def test_when_snapshot_received_then_stored_in_correct_window(self, sender_adapter):
         """Test that snapshot is stored in the correct time window bucket"""
         # Arrange
-        sampling_ts = datetime(2025, 1, 1, 12, 0, 30, tzinfo=TIMEZONE_INFO)
+        sampling_datetime = datetime(2025, 1, 1, 12, 0, 30, tzinfo=TIMEZONE_INFO)
         snapshot = {
             "device_id": "device_001",
             "model": "TECO_VFD",
             "slave_id": "1",
             "type": "inverter",
-            "sampling_ts": sampling_ts,
+            "sampling_datetime": sampling_datetime,
             "values": {"HZ": 50.0},
         }
 
@@ -35,7 +35,7 @@ class TestSnapshotHandling:
         await sender_adapter.handle_snapshot(snapshot)
 
         # Assert
-        window_start = LegacySenderAdapter._window_start(sampling_ts, int(sender_adapter.send_interval_sec))
+        window_start = LegacySenderAdapter._window_start(sampling_datetime, int(sender_adapter.send_interval_sec))
         assert window_start in sender_adapter._latest_per_window
         assert "device_001" in sender_adapter._latest_per_window[window_start]
         assert sender_adapter._latest_per_window[window_start]["device_001"]["device_id"] == "device_001"
@@ -48,12 +48,12 @@ class TestSnapshotHandling:
 
         snapshot1 = {
             "device_id": "device_001",
-            "sampling_ts": base_time + timedelta(seconds=10),
+            "sampling_datetime": base_time + timedelta(seconds=10),
             "values": {"HZ": 40.0},
         }
         snapshot2 = {
             "device_id": "device_001",
-            "sampling_ts": base_time + timedelta(seconds=30),
+            "sampling_datetime": base_time + timedelta(seconds=30),
             "values": {"HZ": 50.0},
         }
 
@@ -71,7 +71,7 @@ class TestSnapshotHandling:
         # Arrange
         assert not sender_adapter._first_snapshot_event.is_set()
 
-        snapshot = {"device_id": "device_001", "sampling_ts": datetime.now(TIMEZONE_INFO), "values": {}}
+        snapshot = {"device_id": "device_001", "sampling_datetime": datetime.now(TIMEZONE_INFO), "values": {}}
 
         # Act
         await sender_adapter.handle_snapshot(snapshot)
@@ -84,14 +84,14 @@ class TestSnapshotHandling:
         """Test that naive datetime is converted to timezone-aware"""
         # Arrange
         naive_time = datetime(2025, 1, 1, 12, 0, 0)  # No tzinfo
-        snapshot = {"device_id": "device_001", "sampling_ts": naive_time, "values": {}}
+        snapshot = {"device_id": "device_001", "sampling_datetime": naive_time, "values": {}}
 
         # Act
         await sender_adapter.handle_snapshot(snapshot)
 
         # Assert
         latest = await sender_adapter._collect_latest_by_device_unlocked()
-        stored_ts = latest["device_001"]["sampling_ts"]
+        stored_ts = latest["device_001"]["sampling_datetime"]
         assert stored_ts.tzinfo is not None
         assert stored_ts.tzinfo == TIMEZONE_INFO
 
@@ -103,16 +103,16 @@ class TestDeduplication:
     """Test deduplication logic to prevent resending same data"""
 
     @pytest.mark.asyncio
-    async def test_when_same_sampling_ts_then_not_included_in_send(self, sender_adapter):
-        """Test that snapshot with same sampling_ts is not resent"""
+    async def test_when_same_sampling_datetime_then_not_included_in_send(self, sender_adapter):
+        """Test that snapshot with same sampling_datetime is not resent"""
         # Arrange
         device_id = "device_001"
-        sampling_ts = datetime.now(TIMEZONE_INFO)
+        sampling_datetime = datetime.now(TIMEZONE_INFO)
 
         # Mark as already sent
-        sender_adapter._LegacySenderAdapter__last_sent_ts_by_device[device_id] = sampling_ts
+        sender_adapter._LegacySenderAdapter__last_sent_ts_by_device[device_id] = sampling_datetime
 
-        snapshot = {"device_id": device_id, "sampling_ts": sampling_ts, "values": {"HZ": 50.0}}
+        snapshot = {"device_id": device_id, "sampling_datetime": sampling_datetime, "values": {"HZ": 50.0}}
 
         await sender_adapter.handle_snapshot(snapshot)
 
@@ -120,7 +120,7 @@ class TestDeduplication:
         latest = await sender_adapter._collect_latest_by_device_unlocked()
 
         # Simulate send check (simplified)
-        should_send = snapshot["sampling_ts"] > sender_adapter._LegacySenderAdapter__last_sent_ts_by_device.get(
+        should_send = snapshot["sampling_datetime"] > sender_adapter._LegacySenderAdapter__last_sent_ts_by_device.get(
             device_id, sender_adapter._epoch
         )
 
@@ -128,8 +128,8 @@ class TestDeduplication:
         assert should_send is False
 
     @pytest.mark.asyncio
-    async def test_when_newer_sampling_ts_then_included_in_send(self, sender_adapter):
-        """Test that snapshot with newer sampling_ts is sent"""
+    async def test_when_newer_sampling_datetime_then_included_in_send(self, sender_adapter):
+        """Test that snapshot with newer sampling_datetime is sent"""
         # Arrange
         device_id = "device_001"
         old_ts = datetime.now(TIMEZONE_INFO) - timedelta(seconds=60)
@@ -137,12 +137,12 @@ class TestDeduplication:
 
         sender_adapter._LegacySenderAdapter__last_sent_ts_by_device[device_id] = old_ts
 
-        snapshot = {"device_id": device_id, "sampling_ts": new_ts, "values": {"HZ": 50.0}}
+        snapshot = {"device_id": device_id, "sampling_datetime": new_ts, "values": {"HZ": 50.0}}
 
         await sender_adapter.handle_snapshot(snapshot)
 
         # Act
-        should_send = snapshot["sampling_ts"] > sender_adapter._LegacySenderAdapter__last_sent_ts_by_device.get(
+        should_send = snapshot["sampling_datetime"] > sender_adapter._LegacySenderAdapter__last_sent_ts_by_device.get(
             device_id, sender_adapter._epoch
         )
 
@@ -180,7 +180,7 @@ class TestBucketPruning:
         device_id = "device_001"
         old_ts = datetime.now(TIMEZONE_INFO) - timedelta(seconds=120)
 
-        snapshot = {"device_id": device_id, "sampling_ts": old_ts, "values": {}}
+        snapshot = {"device_id": device_id, "sampling_datetime": old_ts, "values": {}}
         await sender_adapter.handle_snapshot(snapshot)
 
         # Mark as sent
@@ -198,16 +198,16 @@ class TestBucketPruning:
         """Test that empty buckets are removed"""
         # Arrange
         device_id = "device_001"
-        sampling_ts = datetime.now(TIMEZONE_INFO)
+        sampling_datetime = datetime.now(TIMEZONE_INFO)
 
-        snapshot = {"device_id": device_id, "sampling_ts": sampling_ts, "values": {}}
+        snapshot = {"device_id": device_id, "sampling_datetime": sampling_datetime, "values": {}}
         await sender_adapter.handle_snapshot(snapshot)
 
-        window_start = LegacySenderAdapter._window_start(sampling_ts, int(sender_adapter.send_interval_sec))
+        window_start = LegacySenderAdapter._window_start(sampling_datetime, int(sender_adapter.send_interval_sec))
         assert window_start in sender_adapter._latest_per_window
 
         # Mark as sent and prune
-        sender_adapter._LegacySenderAdapter__last_sent_ts_by_device[device_id] = sampling_ts
+        sender_adapter._LegacySenderAdapter__last_sent_ts_by_device[device_id] = sampling_datetime
 
         # Act
         await sender_adapter._prune_buckets()
@@ -290,7 +290,7 @@ class TestWarmupLogic:
                 "model": "TECO_VFD",
                 "slave_id": "1",
                 "type": "inverter",
-                "sampling_ts": datetime.now(TIMEZONE_INFO),
+                "sampling_datetime": datetime.now(TIMEZONE_INFO),
                 "values": {"HZ": 50.0},
             }
 

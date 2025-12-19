@@ -47,7 +47,7 @@ class SnapshotRepository:
             model=snapshot["model"],
             slave_id=str(snapshot["slave_id"]),
             device_type=snapshot["type"],
-            sampling_ts=snapshot["sampling_ts"],
+            sampling_datetime=snapshot["sampling_datetime"],
             created_at=datetime.now(tz=TIMEZONE_INFO),
             values_json=json.dumps(value_dict),
             is_online=is_online,
@@ -58,7 +58,8 @@ class SnapshotRepository:
             await session.commit()
 
         logger.debug(
-            f"[Snapshot] Inserted device={snapshot['device_id']} " f"ts={snapshot['sampling_ts']} online={is_online}"
+            f"[Snapshot] Inserted device={snapshot['device_id']} "
+            f"ts={snapshot['sampling_datetime']} online={is_online}"
         )
 
     # --------------------------------------------------------------
@@ -70,7 +71,7 @@ class SnapshotRepository:
             stmt = (
                 select(Snapshot)
                 .where(Snapshot.device_id == device_id)
-                .order_by(desc(Snapshot.sampling_ts))
+                .order_by(desc(Snapshot.sampling_datetime))
                 .limit(limit)
             )
             result = await session.execute(stmt)
@@ -87,10 +88,10 @@ class SnapshotRepository:
                 select(Snapshot)
                 .where(
                     Snapshot.device_id == device_id,
-                    Snapshot.sampling_ts >= start_time,
-                    Snapshot.sampling_ts <= end_time,
+                    Snapshot.sampling_datetime >= start_time,
+                    Snapshot.sampling_datetime <= end_time,
                 )
-                .order_by(Snapshot.sampling_ts)
+                .order_by(Snapshot.sampling_datetime)
                 .limit(limit)
                 .offset(offset)
             )
@@ -108,13 +109,13 @@ class SnapshotRepository:
         """
         Get total count of snapshots in time range (for pagination metadata).
 
-        This query is optimized to use the composite index (device_id, sampling_ts).
+        This query is optimized to use the composite index (device_id, sampling_datetime).
         """
         async with self.db.get_async_session() as session:
             stmt = select(func.count(Snapshot.id)).where(
                 Snapshot.device_id == device_id,
-                Snapshot.sampling_ts >= start_time,
-                Snapshot.sampling_ts <= end_time,
+                Snapshot.sampling_datetime >= start_time,
+                Snapshot.sampling_datetime <= end_time,
             )
             result = await session.execute(stmt)
             count = result.scalar() or 0
@@ -133,14 +134,14 @@ class SnapshotRepository:
             stmt = text(
                 """
                 SELECT
-                    sampling_ts,
+                    sampling_datetime,
                     json_extract(values_json, :json_path) AS value,
                     is_online
                 FROM snapshots
                 WHERE device_id = :device_id
-                  AND sampling_ts >= :start_time
-                  AND sampling_ts <= :end_time
-                ORDER BY sampling_ts ASC
+                  AND sampling_datetime >= :start_time
+                  AND sampling_datetime <= :end_time
+                ORDER BY sampling_datetime ASC
                 LIMIT :limit
                 """
             )
@@ -158,14 +159,16 @@ class SnapshotRepository:
 
             rows = r.fetchall()
 
-        return [{"sampling_ts": row[0], "value": row[1], "is_online": row[2]} for row in rows]
+        return [{"sampling_datetime": row[0], "value": row[1], "is_online": row[2]} for row in rows]
 
     async def get_all_recent(self, minutes: int) -> list[dict[str, Any]]:
         """Fetch all snapshots in the last N minutes."""
         cutoff = datetime.now(tz=TIMEZONE_INFO) - timedelta(minutes=minutes)
 
         async with self.db.get_async_session() as session:
-            stmt = select(Snapshot).where(Snapshot.sampling_ts >= cutoff).order_by(desc(Snapshot.sampling_ts))
+            stmt = (
+                select(Snapshot).where(Snapshot.sampling_datetime >= cutoff).order_by(desc(Snapshot.sampling_datetime))
+            )
             result = await session.execute(stmt)
             snapshots = result.scalars().all()
 
@@ -179,7 +182,7 @@ class SnapshotRepository:
         cutoff = datetime.now(tz=TIMEZONE_INFO) - timedelta(days=retention_days)
 
         async with self.db.get_async_session() as session:
-            stmt = delete(Snapshot).where(Snapshot.sampling_ts < cutoff)
+            stmt = delete(Snapshot).where(Snapshot.sampling_datetime < cutoff)
             result = await session.execute(stmt)
             await session.commit()
             deleted = result.rowcount
@@ -202,8 +205,8 @@ class SnapshotRepository:
             count = (await session.execute(count_stmt)).scalar() or 0
 
             if count > 0:
-                earliest = (await session.execute(select(func.min(Snapshot.sampling_ts)))).scalar()
-                latest = (await session.execute(select(func.max(Snapshot.sampling_ts)))).scalar()
+                earliest = (await session.execute(select(func.min(Snapshot.sampling_datetime)))).scalar()
+                latest = (await session.execute(select(func.max(Snapshot.sampling_datetime)))).scalar()
             else:
                 earliest = None
                 latest = None
@@ -228,7 +231,7 @@ class SnapshotRepository:
             "model": s.model,
             "slave_id": s.slave_id,
             "device_type": s.device_type,
-            "sampling_ts": s.sampling_ts,
+            "sampling_datetime": s.sampling_datetime,
             "created_at": s.created_at,
             "values": json.loads(s.values_json),
             "is_online": s.is_online,

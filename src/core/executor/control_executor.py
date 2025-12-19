@@ -3,6 +3,7 @@ import logging
 from core.device.generic.generic_device import AsyncGenericModbusDevice
 from core.model.device_constant import REG_RW_ON_OFF
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
+from core.util.device_health_manager import DeviceHealthManager
 from device_manager import AsyncDeviceManager
 
 # Default target mapping (aligned with your config)
@@ -18,8 +19,9 @@ VALUE_TOLERANCE: float = 0.0
 
 
 class ControlExecutor:
-    def __init__(self, device_manager: AsyncDeviceManager):
+    def __init__(self, device_manager: AsyncDeviceManager, health_manager: DeviceHealthManager | None = None):
         self.device_manager = device_manager
+        self.health_manager = health_manager
         self.logger = logging.getLogger(__class__.__name__)
 
     async def execute(self, action_list: list[ControlActionSchema]):
@@ -28,6 +30,15 @@ class ControlExecutor:
         written_targets: dict[str, tuple[float | int, int, str]] = {}
 
         for action in action_list:
+            device_id: str = f"{action.model}_{action.slave_id}"
+
+            if self.health_manager and not self.health_manager.is_healthy(device_id):
+                self.logger.debug(
+                    f"[EXEC] [SKIP] {device_id} is offline, skip control action "
+                    f"(type={action.type}, target={action.target}, value={action.value})"
+                )
+                continue
+
             # Basic context check
             if not action.model or not action.slave_id:
                 self.logger.warning(

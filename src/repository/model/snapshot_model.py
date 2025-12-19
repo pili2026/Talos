@@ -35,7 +35,7 @@ class Snapshot(Base):
     device_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 
     # Timestamps
-    sampling_ts: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    sampling_datetime: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(tz=TIMEZONE_INFO)
     )
@@ -48,13 +48,13 @@ class Snapshot(Base):
 
     # Composite indexes for efficient queries
     __table_args__ = (
-        Index("idx_device_ts", "device_id", "sampling_ts"),
-        Index("idx_ts", "sampling_ts"),
+        Index("idx_device_ts", "device_id", "sampling_datetime"),
+        Index("idx_ts", "sampling_datetime"),
         Index("idx_type", "device_type"),
     )
 
     def __repr__(self) -> str:
         return (
             f"<Snapshot(id={self.id}, device_id={self.device_id}, "
-            f"sampling_ts={self.sampling_ts}, is_online={self.is_online})>"
+            f"sampling_datetime={self.sampling_datetime}, is_online={self.is_online})>"
         )

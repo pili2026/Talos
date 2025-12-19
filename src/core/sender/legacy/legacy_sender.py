@@ -111,21 +111,21 @@ class LegacySenderAdapter:
         and trigger warm-up once the first snapshot arrives.
         """
         device_id = snapshot_map.get("device_id")
-        sampling_ts: datetime | None = snapshot_map.get("sampling_ts")
+        sampling_datetime: datetime | None = snapshot_map.get("sampling_datetime")
 
-        if not device_id or not sampling_ts:
-            logger.warning(f"[LegacySender] Missing device_id or sampling_ts in snapshot: {snapshot_map}")
+        if not device_id or not sampling_datetime:
+            logger.warning(f"[LegacySender] Missing device_id or sampling_datetime in snapshot: {snapshot_map}")
             return
 
         # Ensure tz-aware (normalize to Asia/Taipei)
-        if sampling_ts.tzinfo is None:
-            sampling_ts = sampling_ts.replace(tzinfo=TIMEZONE_INFO)
+        if sampling_datetime.tzinfo is None:
+            sampling_datetime = sampling_datetime.replace(tzinfo=TIMEZONE_INFO)
         else:
-            sampling_ts = sampling_ts.astimezone(TIMEZONE_INFO)
+            sampling_datetime = sampling_datetime.astimezone(TIMEZONE_INFO)
 
-        wstart = LegacySenderAdapter._window_start(sampling_ts, int(self.send_interval_sec), tz=TIMEZONE_INFO)
+        wstart = LegacySenderAdapter._window_start(sampling_datetime, int(self.send_interval_sec), tz=TIMEZONE_INFO)
         async with self._lock:
-            self._latest_per_window[wstart][device_id] = {**snapshot_map, "sampling_ts": sampling_ts}
+            self._latest_per_window[wstart][device_id] = {**snapshot_map, "sampling_datetime": sampling_datetime}
 
         if not self._first_snapshot_event.is_set():
             self._first_snapshot_event.set()
@@ -201,7 +201,7 @@ class LegacySenderAdapter:
         latest_by_device = await self._collect_latest_by_device_unlocked()
 
         all_items: list[dict] = []
-        sent_candidates_sampling_ts: dict[str, datetime] = {}
+        sent_candidates_sampling_datetime: dict[str, datetime] = {}
         label_now = datetime.now(TIMEZONE_INFO)
 
         for dev_id, snap in latest_by_device.items():
@@ -211,7 +211,7 @@ class LegacySenderAdapter:
 
             snap = self._apply_pt_ct_ratios(snap)
 
-            snap_ts: datetime = snap["sampling_ts"]
+            snap_ts: datetime = snap["sampling_datetime"]
             age_sec = (label_now - snap_ts).total_seconds()
             is_stale = 1 if age_sec > self.fresh_window_sec else 0
 
@@ -229,7 +229,7 @@ class LegacySenderAdapter:
                 age_ms = int(age_sec * 1000)
                 for it in converted:
                     it.setdefault("Data", {})
-                    it["Data"]["sampling_ts"] = snap_ts.isoformat()
+                    it["Data"]["sampling_datetime"] = snap_ts.isoformat()
                     it["Data"]["report_ts"] = label_now.isoformat()
                     it["Data"]["sample_age_ms"] = age_ms
                     if is_stale:
@@ -237,7 +237,7 @@ class LegacySenderAdapter:
                         it["Data"]["stale_age_ms"] = age_ms
 
                 all_items.extend(converted)
-                sent_candidates_sampling_ts[dev_id] = snap_ts
+                sent_candidates_sampling_datetime[dev_id] = snap_ts
 
         # Add gateway heartbeat
         gw_item = await self._make_gw_heartbeat(label_now)
@@ -255,10 +255,10 @@ class LegacySenderAdapter:
         if ok:
             self._store.delete(outbox_file)
 
-            if sent_candidates_sampling_ts:
-                for dev_id in sent_candidates_sampling_ts:
+            if sent_candidates_sampling_datetime:
+                for dev_id in sent_candidates_sampling_datetime:
                     self.__last_label_ts_by_device[dev_id] = label_now
-                self.__last_sent_ts_by_device.update(sent_candidates_sampling_ts)
+                self.__last_sent_ts_by_device.update(sent_candidates_sampling_datetime)
                 await self._prune_buckets()
 
         self._first_send_done = True
@@ -367,7 +367,7 @@ class LegacySenderAdapter:
             for bucket in self._latest_per_window.values():
                 for dev_id, snap in bucket.items():
                     prev = latest_by_device.get(dev_id)
-                    if (not prev) or (snap["sampling_ts"] > prev["sampling_ts"]):
+                    if (not prev) or (snap["sampling_datetime"] > prev["sampling_datetime"]):
                         latest_by_device[dev_id] = snap
         return latest_by_device
 
@@ -380,7 +380,7 @@ class LegacySenderAdapter:
             for wstart in list(self._latest_per_window.keys()):
                 bucket = self._latest_per_window[wstart]
                 for dev_id in list(bucket.keys()):
-                    snap_ts = bucket[dev_id]["sampling_ts"]
+                    snap_ts = bucket[dev_id]["sampling_datetime"]
                     last_ts = self.__last_sent_ts_by_device.get(dev_id, self._epoch)
                     if snap_ts <= last_ts:
                         bucket.pop(dev_id, None)
@@ -427,7 +427,7 @@ class LegacySenderAdapter:
 
     @staticmethod
     def _window_start(ts: datetime, interval_sec: int, tz: ZoneInfo = TIMEZONE_INFO) -> datetime:
-        """Align `sampling_ts` to the start of its tumbling window (for internal cache indexing only; does not affect sending)."""
+        """Align `sampling_datetime` to the start of its tumbling window (for internal cache indexing only; does not affect sending)."""
         timestamp_tz = ts.astimezone(tz).replace(microsecond=0)
         interval = int(interval_sec)
         second: int = (timestamp_tz.second // interval) * interval
@@ -524,7 +524,7 @@ class LegacySenderAdapter:
         visible_deadline = label_time + timedelta(seconds=self.tick_grace_sec)
 
         for dev_id, snap in latest_by_device.items():
-            snap_ts: datetime = snap["sampling_ts"]
+            snap_ts: datetime = snap["sampling_datetime"]
             if snap_ts > visible_deadline:
                 continue
 
@@ -547,7 +547,7 @@ class LegacySenderAdapter:
                 age_ms = int(age_sec * 1000)
                 for it in converted:
                     it.setdefault("Data", {})
-                    it["Data"]["sampling_ts"] = snap_ts.isoformat()
+                    it["Data"]["sampling_datetime"] = snap_ts.isoformat()
                     it["Data"]["report_ts"] = label_time.isoformat()
                     it["Data"]["sample_age_ms"] = age_ms
                     if is_stale:

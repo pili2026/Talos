@@ -102,7 +102,7 @@ class VirtualDeviceManager:
                     "device_id": "ADTEK_CPM10_1",
                     "model": "ADTEK_CPM10",
                     "slave_id": 1,
-                    "sampling_ts": datetime(...),
+                    "sampling_datetime": datetime(...),
                     "values": {"Kw": 100, "Kva": 120, ...}
                 },
                 "ADTEK_CPM10_2": {...}
@@ -114,7 +114,7 @@ class VirtualDeviceManager:
                     "device_id": "ADTEK_CPM10_3",
                     "model": "ADTEK_CPM10",
                     "slave_id": 3,
-                    "sampling_ts": datetime(...),
+                    "sampling_datetime": datetime(...),
                     "values": {"Kw": 250, "Kva": 300, ...},
                     "_is_virtual": True,
                     ...
@@ -235,14 +235,14 @@ class VirtualDeviceManager:
         # Build virtual snapshot
         virtual_device_id: str = f"{virtual_device_config.target.model}_{target_slave_id}"
 
-        sampling_ts: datetime | None = self._get_latest_sampling_ts(source_device_id_list, raw_snapshots)
+        sampling_datetime: datetime | None = self._get_latest_sampling_datetime(source_device_id_list, raw_snapshots)
 
         virtual_snapshot = {
             "device_id": virtual_device_id,
             "model": virtual_device_config.target.model,
             "slave_id": target_slave_id,
             "type": "power_meter",
-            "sampling_ts": sampling_ts,
+            "sampling_datetime": sampling_datetime,
             "values": aggregated_values,
             # Metadata for debugging and tracking
             "_is_virtual": True,
@@ -465,7 +465,7 @@ class VirtualDeviceManager:
 
         return pf
 
-    def _get_latest_sampling_ts(
+    def _get_latest_sampling_datetime(
         self,
         source_device_ids: list[str],
         raw_snapshots: dict[str, dict],
@@ -487,7 +487,7 @@ class VirtualDeviceManager:
 
         for device_id in source_device_ids:
             snapshot = raw_snapshots.get(device_id, {})
-            ts = snapshot.get("sampling_ts")
+            ts = snapshot.get("sampling_datetime")
             if ts:
                 timestamps.append(ts)
 

@@ -123,6 +123,7 @@ async def test_device_manager_should_apply_bat08_pins_override(monkeypatch, tmp_
         "devices": [
             {
                 "id": "bat08_16",
+                "model": "BAT08",
                 "model_file": "bat08.yml",
                 "port": "/tmp/ttyFAKE0",
                 "slave_id": "16",
@@ -130,6 +131,7 @@ async def test_device_manager_should_apply_bat08_pins_override(monkeypatch, tmp_
             },
             {
                 "id": "bat08_17",
+                "model": "BAT08",
                 "model_file": "bat08.yml",
                 "port": "/tmp/ttyFAKE0",
                 "slave_id": "17",
@@ -137,6 +139,7 @@ async def test_device_manager_should_apply_bat08_pins_override(monkeypatch, tmp_
             },
             {
                 "id": "bat08_19",
+                "model": "BAT08",
                 "model_file": "bat08.yml",
                 "port": "/tmp/ttyFAKE0",
                 "slave_id": "19",
@@ -144,6 +147,7 @@ async def test_device_manager_should_apply_bat08_pins_override(monkeypatch, tmp_
             },
             {
                 "id": "bat08_20",
+                "model": "BAT08",
                 "model_file": "bat08.yml",
                 "port": "/tmp/ttyFAKE0",
                 "slave_id": "20",
@@ -158,7 +162,7 @@ async def test_device_manager_should_apply_bat08_pins_override(monkeypatch, tmp_
     instance_raw = {
         "BAT08": {
             "default_constraints": {},
-            # ✅ model-level baseline (room1)
+            # model-level baseline (room1)
             "pins": {
                 "AIn01": {
                     "name": "Temp1",
@@ -218,7 +222,6 @@ async def test_device_manager_should_apply_bat08_pins_override(monkeypatch, tmp_
                 },
             },
             "instances": {
-                # room1 本身不用 pins
                 "16": {},
                 "17": {
                     "pins": {

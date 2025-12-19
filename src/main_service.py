@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
+from core.task.snapshot_cleanup_task import SnapshotCleanupTask
 from core.util.config_manager import ConfigManager
 from core.util.device_health_manager import DeviceHealthManager
 from core.util.device_id_policy import get_policy, load_device_id_policy
@@ -27,6 +28,7 @@ from core.util.factory.sender_factory import build_sender_subscriber, init_sende
 from core.util.factory.snapshot_factory import build_snapshot_subscriber
 from core.util.factory.time_factory import build_time_control_subscriber
 from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
+from core.util.health_check_util import apply_startup_frequencies_with_health_check, initialize_health_check_configs
 from core.util.logger_config import LOG_LEVEL_MAP, setup_logging
 from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
@@ -38,6 +40,7 @@ from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from repository.schema.snapshot_storage_schema import SnapshotStorageConfig
+from repository.util.db_manager import SQLiteSnapshotDBManager
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -107,10 +110,13 @@ async def main():
     logger.info(f"  Port: {args.api_port}")
     logger.info("=" * 80)
 
+    cleanup_task_handle: asyncio.Task | None = None
+    snapshot_db_manager: SQLiteSnapshotDBManager | None = None
+
     try:
         # ========== Load System Configuration ==========
         logger.info("")
-        logger.info("Phase 1: Loading System Configuration")
+        logger.info("Loading System Configuration")
         logger.info("-" * 80)
 
         system_config_raw = ConfigManager.load_yaml_file(args.system_config)
@@ -119,16 +125,8 @@ async def main():
         poll_interval: float = system_config.MONITOR_INTERVAL_SECONDS
         logger.info(f"Monitor interval: {poll_interval}s")
 
-        health_params: dict = DeviceHealthManager().calculate_health_params(poll_interval)
-        logger.info(f"Health Manager params: {health_params}")
-
-        health_manager = DeviceHealthManager(**health_params)
-        logger.info("DeviceHealthManager initialized")
-
         load_device_id_policy(system_config)
         device_id_policy = get_policy()
-
-        logger.info(f"Monitor interval: {system_config.MONITOR_INTERVAL_SECONDS}s")
 
         enabled_sub_list: list = [name for name, enabled in system_config.SUBSCRIBERS.items() if enabled]
         subscribers: LiteralString = ", ".join(enabled_sub_list) if enabled_sub_list else "(none)"
@@ -157,9 +155,18 @@ async def main():
         constraint_config_raw = ConfigManager.load_yaml_file(args.instance_config)
         constraint_schema = ConstraintConfigSchema(**constraint_config_raw)
 
-        async_device_manager = AsyncDeviceManager(args.modbus_device, constraint_schema)
+        async_device_manager = AsyncDeviceManager(
+            config_path=args.modbus_device, constraint_config_schema=constraint_schema
+        )
+
         await async_device_manager.init()
         logger.info(f"AsyncDeviceManager initialized ({len(async_device_manager.device_list)} devices)")
+
+        health_params: dict = DeviceHealthManager().calculate_health_params(poll_interval)
+        logger.info(f"Health Manager params: {health_params}")
+
+        health_manager = DeviceHealthManager(**health_params)
+        logger.info("DeviceHealthManager initialized")
 
         virtual_device_manager: VirtualDeviceManager | None = initialize_virtual_device_manager(
             config_path=args.virtual_device_config, device_manager=async_device_manager
@@ -177,6 +184,13 @@ async def main():
         )
 
         logger.info("Monitor initialized")
+
+        initialize_health_check_configs(async_device_manager, health_manager)
+        logger.info("Health check configs initialized")
+
+        await apply_startup_frequencies_with_health_check(
+            device_manager=async_device_manager, health_manager=health_manager, constraint_schema=constraint_schema
+        )
 
         valid_device_ids = {f"{d.model}_{d.slave_id}" for d in async_device_manager.device_list}
 
@@ -215,7 +229,10 @@ async def main():
 
         # Control Subscriber
         control_subscriber: ControlSubscriber = build_control_subscriber(
-            control_path=args.control_config, pubsub=pubsub, async_device_manager=async_device_manager
+            control_path=args.control_config,
+            pubsub=pubsub,
+            async_device_manager=async_device_manager,
+            health_manager=health_manager,
         )
         logger.info("Control subscriber built")
 
@@ -231,21 +248,33 @@ async def main():
         # Snapshot Storage
         snapshot_storage_raw: dict = ConfigManager.load_yaml_file(args.snapshot_storage_config)
         snapshot_storage = SnapshotStorageConfig(**snapshot_storage_raw)
-
-        # Note: main_with_api doesn't need repository (no cleanup task)
-        # but we receive it from factory to keep API consistent
-        snapshot_saver_subscriber, _, _ = await build_snapshot_subscriber(
-            snapshot_config_path=args.snapshot_storage_config, pubsub=pubsub
+        snapshot_saver_subscriber, snapshot_repo, snapshot_db_manager = await build_snapshot_subscriber(
+            snapshot_config_path=args.snapshot_storage_config,
+            pubsub=pubsub,
         )
 
         if snapshot_saver_subscriber:
-            logger.info("Snapshot storage initialized")
+            logger.info("[SnapshotStorage] Enabled")
+
+            if snapshot_repo:
+                cleanup_task = SnapshotCleanupTask(
+                    repository=snapshot_repo,
+                    db_path=snapshot_storage.db_path,
+                    retention_days=snapshot_storage.retention_days,
+                    cleanup_interval_hours=snapshot_storage.cleanup_interval_hours,
+                    vacuum_interval_days=snapshot_storage.vacuum_interval_days,
+                )
+                cleanup_task_handle: asyncio.Task = cleanup_task.start()
+
+                logger.info("[SnapshotStorage] Cleanup task started")
+            else:
+                logger.warning("[SnapshotStorage] Snapshot enabled but repository is missing; cleanup disabled")
         else:
-            logger.info("⊗ Snapshot storage disabled")
+            logger.info("[SnapshotStorage] Disabled")
 
         # ========== Initialize API ==========
         logger.info("")
-        logger.info("Phase 4: Initializing API Server")
+        logger.info("Initializing API Server")
         logger.info("-" * 80)
 
         app = create_application()
@@ -275,7 +304,7 @@ async def main():
 
         # ========== Register Subscribers ==========
         logger.info("")
-        logger.info("Phase 5: Registering Subscribers")
+        logger.info("Registering Subscribers")
         logger.info("-" * 80)
 
         subscriber_registry.register("MONITOR", monitor.run)
@@ -342,6 +371,20 @@ async def main():
             if "subscriber_registry" in locals():
                 await subscriber_registry.stop_all()
                 logger.info("All subscribers stopped")
+
+            # Stop cleanup task
+            if cleanup_task_handle:
+                cleanup_task_handle.cancel()
+                try:
+                    await cleanup_task_handle
+                except asyncio.CancelledError:
+                    logger.info("[SnapshotStorage] Cleanup task stopped")
+
+            # Close SQLite engine
+            if snapshot_db_manager:
+                logger.info("[SnapshotStorage] Closing SQLite engine")
+                await snapshot_db_manager.close_engine()
+                logger.info("[SnapshotStorage] SQLite engine closed")
 
             if "pubsub" in locals():
                 await pubsub.close()

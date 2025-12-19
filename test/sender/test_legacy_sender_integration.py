@@ -39,7 +39,7 @@ class TestLegacySenderIntegration:
                 "model": "TECO_VFD",
                 "slave_id": "1",
                 "type": "inverter",
-                "sampling_ts": datetime.now(TIMEZONE_INFO),
+                "sampling_datetime": datetime.now(TIMEZONE_INFO),
                 "values": {"HZ": 50.0},
             }
 
@@ -75,7 +75,7 @@ class TestLegacySenderIntegration:
                 "model": "TECO_VFD",
                 "slave_id": "1",
                 "type": "inverter",
-                "sampling_ts": datetime.now(TIMEZONE_INFO),
+                "sampling_datetime": datetime.now(TIMEZONE_INFO),
                 "values": {"HZ": 50.0},
             }
 
@@ -106,14 +106,14 @@ class TestLegacySenderIntegration:
 
             await sender_adapter.start()
 
-            # Same sampling_ts
+            # Same sampling_datetime
             same_ts = datetime.now(TIMEZONE_INFO)
             snapshot1 = {
                 "device_id": "test_device",
                 "model": "TECO_VFD",
                 "slave_id": "1",
                 "type": "inverter",
-                "sampling_ts": same_ts,
+                "sampling_datetime": same_ts,
                 "values": {"HZ": 50.0},
             }
             snapshot2 = {
@@ -121,7 +121,7 @@ class TestLegacySenderIntegration:
                 "model": "TECO_VFD",
                 "slave_id": "1",
                 "type": "inverter",
-                "sampling_ts": same_ts,  # Same timestamp
+                "sampling_datetime": same_ts,  # Same timestamp
                 "values": {"HZ": 55.0},  # Different value
             }
 
@@ -155,7 +155,7 @@ class TestLegacySenderIntegration:
                 "model": "TECO_VFD",
                 "slave_id": "1",
                 "type": "inverter",
-                "sampling_ts": datetime.now(TIMEZONE_INFO),
+                "sampling_datetime": datetime.now(TIMEZONE_INFO),
                 "values": {"HZ": 50.0},
             }
 

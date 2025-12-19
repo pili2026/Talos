@@ -32,3 +32,8 @@ async def sleep_exact_interval(interval_sec: float, start_monotonic: float | Non
     delay: float = max(0.0, target - time.monotonic())
     await asyncio.sleep(delay)
     return target
+
+
+def now_timestamp() -> float:
+    """Monotonic-ish wall clock seconds (epoch). Good enough for cooldown decisions."""
+    return datetime.now(tz=TIMEZONE_INFO).timestamp()

@@ -24,7 +24,7 @@ class SubscriptionSession:
         "slave_id",
         "type",
         "is_online",
-        "sampling_ts",
+        "sampling_datetime",
         "values",
     )
 

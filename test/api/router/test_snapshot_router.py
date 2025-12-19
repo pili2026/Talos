@@ -59,7 +59,7 @@ def sample_snapshot_response():
         model="IMA_C",
         slave_id="5",
         device_type="dio",
-        sampling_ts=datetime(2025, 1, 25, 10, 30, 0, tzinfo=TIMEZONE_INFO),
+        sampling_datetime=datetime(2025, 1, 25, 10, 30, 0, tzinfo=TIMEZONE_INFO),
         created_at=datetime(2025, 1, 25, 10, 30, 1, tzinfo=TIMEZONE_INFO),
         values={"DIn01": 1, "DOut01": 0},
         is_online=1,

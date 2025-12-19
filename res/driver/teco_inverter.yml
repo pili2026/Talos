@@ -7,6 +7,15 @@ description: >
   - Provides electrical measurements, operating frequency, and control registers.
   - Control commands (RW_*) allow read/write access for setpoints and on/off control.
 
+health_check:
+  strategy: single_register
+  registers: [HZ]
+  register_type: holding
+  retry_on_failure: 1
+  timeout_sec: 0.5
+  reason: "HZ is the most reliable status indicator"
+
+
 register_map:
   KWH:
     offset: 3139

@@ -99,14 +99,14 @@ class TestVirtualDeviceManager:
                 "device_id": "ADTEK_CPM10_1",
                 "model": "ADTEK_CPM10",
                 "slave_id": 1,
-                "sampling_ts": ts1,
+                "sampling_datetime": ts1,
                 "values": {"Kw": 100.0, "AverageVoltage": 220.0},
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "model": "ADTEK_CPM10",
                 "slave_id": 2,
-                "sampling_ts": ts2,
+                "sampling_datetime": ts2,
                 "values": {"Kw": 150.0, "AverageVoltage": 230.0},
             },
         }
@@ -130,12 +130,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "AverageVoltage": 220.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "values": {"Kw": 150.0, "AverageVoltage": 230.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
         }
 
@@ -155,12 +155,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "AverageVoltage": 220.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "values": {"Kw": -1, "AverageVoltage": 230.0},  # Kw failed
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
         }
 
@@ -180,7 +180,7 @@ class TestVirtualDeviceManager:
             "DAE_PM210_5": {  # Different model, not ADTEK_CPM10
                 "device_id": "DAE_PM210_5",
                 "values": {"Kw": 100.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             }
         }
 
@@ -211,12 +211,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "values": {"Kw": 150.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
         }
 
@@ -249,12 +249,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "values": {"Kw": 150.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
         }
 
@@ -286,7 +286,7 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             }
         }
 
@@ -322,12 +322,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "Kva": 120.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "values": {"Kw": 150.0, "Kva": 180.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
         }
 
@@ -365,7 +365,7 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "Kva": 0.0},  # Kva = 0
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             }
         }
 
@@ -402,7 +402,7 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": -1, "Kva": 120.0},  # Kw failed
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             }
         }
 
@@ -414,7 +414,7 @@ class TestVirtualDeviceManager:
         assert virtual_device["values"]["Kw"] == -1
         assert virtual_device["values"]["AveragePowerFactor"] == -1  # Cannot calculate
 
-    def test_when_sampling_ts_differs_then_uses_latest(self, simple_config, mock_device_manager):
+    def test_when_sampling_datetime_differs_then_uses_latest(self, simple_config, mock_device_manager):
         # Arrange
         manager = VirtualDeviceManager(simple_config, mock_device_manager)
 
@@ -425,12 +425,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "AverageVoltage": 220.0},
-                "sampling_ts": ts1,
+                "sampling_datetime": ts1,
             },
             "ADTEK_CPM10_2": {
                 "device_id": "ADTEK_CPM10_2",
                 "values": {"Kw": 150.0, "AverageVoltage": 230.0},
-                "sampling_ts": ts2,
+                "sampling_datetime": ts2,
             },
         }
 
@@ -439,7 +439,7 @@ class TestVirtualDeviceManager:
 
         # Assert
         virtual_device = list(result.values())[0]
-        assert virtual_device["sampling_ts"] == ts2  # Latest timestamp
+        assert virtual_device["sampling_datetime"] == ts2  # Latest timestamp
 
     def test_when_virtual_device_in_snapshots_then_skips_it(self, simple_config, mock_device_manager):
         # Arrange
@@ -449,12 +449,12 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "AverageVoltage": 220.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             },
             "ADTEK_CPM10_999": {  # Another virtual device
                 "device_id": "ADTEK_CPM10_999",
                 "values": {"Kw": 999.0, "AverageVoltage": 999.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
                 "_is_virtual": True,  # Marked as virtual
             },
         }
@@ -475,7 +475,7 @@ class TestVirtualDeviceManager:
             "ADTEK_CPM10_1": {
                 "device_id": "ADTEK_CPM10_1",
                 "values": {"Kw": 100.0, "AverageVoltage": 220.0},
-                "sampling_ts": datetime.now(),
+                "sampling_datetime": datetime.now(),
             }
         }
 

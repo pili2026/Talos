@@ -3,6 +3,7 @@ from core.executor.control_executor import ControlExecutor
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.control_config_schema import ControlConfig
 from core.util.config_manager import ConfigManager
+from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from device_manager import AsyncDeviceManager
@@ -25,7 +26,12 @@ def build_control_evaluator(path: str, constraint_config_schema: ConstraintConfi
     return ControlEvaluator(control_config, constraint_config_schema)  # Pass in constraint_config
 
 
-def build_control_subscriber(control_path: str, pubsub: PubSub, async_device_manager: AsyncDeviceManager):
+def build_control_subscriber(
+    control_path: str,
+    pubsub: PubSub,
+    async_device_manager: AsyncDeviceManager,
+    health_manager: DeviceHealthManager | None = None,
+) -> ControlSubscriber:
     """
     Build complete control system with evaluator, executor, and subscriber.
     Args:
@@ -39,6 +45,6 @@ def build_control_subscriber(control_path: str, pubsub: PubSub, async_device_man
     constraint_config_schema: ConstraintConfigSchema = async_device_manager.constraint_config_schema
 
     control_evaluator: ControlEvaluator = build_control_evaluator(control_path, constraint_config_schema)
-    control_executor = ControlExecutor(async_device_manager)
+    control_executor = ControlExecutor(async_device_manager, health_manager)
     control_subscriber = ControlSubscriber(pubsub=pubsub, evaluator=control_evaluator, executor=control_executor)
     return control_subscriber

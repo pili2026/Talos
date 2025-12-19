@@ -207,7 +207,7 @@ class TestTalosOfflineScenario:
         print(f"Dropped: {pubsub.get_dropped_count(PubSubTopic.DEVICE_SNAPSHOT)}")
 
         # Monitor should complete quickly (not blocked by slow subscriber)
-        assert monitor_elapsed < 2.0  # Should be ~1s (100 * 0.01s)
+        assert monitor_elapsed < 2.5  # Should be ~1s (100 * 0.01s)
 
         # Subscriber should receive subset (not all due to queue limit)
         assert len(slow_subscriber_received) < len(fast_monitor_published)

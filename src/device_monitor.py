@@ -8,7 +8,7 @@ from core.model.device_constant import DEFAULT_MISSING_VALUE
 from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.pubsub_topic import PubSubTopic
-from core.util.time_util import TIMEZONE_INFO
+from core.util.time_util import TIMEZONE_INFO, now_timestamp
 from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
 
@@ -104,7 +104,7 @@ class AsyncDeviceMonitor:
         with delay to prevent response frame confusion.
         """
         devices = self.device_manager.device_list
-        now_ts = datetime.now(tz=TIMEZONE_INFO).timestamp()
+        now_ts = now_timestamp()
 
         should_recover = (now_ts - self._last_recovery_check) > self._recovery_check_interval
         if should_recover:
@@ -140,20 +140,14 @@ class AsyncDeviceMonitor:
         await self._process_virtual_devices(list(result_map.values()))
         return list(result_map.values())
 
-    # ------------------------------------------------------------------
-
     async def _reader_worker(self, worker_id: int) -> None:
         while True:
-            d, should_recover, result_map = await self._queue.get()
-            device_id = f"{d.model}_{d.slave_id}"
+            device, should_recover, result_map = await self._queue.get()
+            device_id = f"{device.model}_{device.slave_id}"
 
             try:
-                if not self.health_manager.is_healthy(device_id) and not should_recover:
-                    snap = self._create_offline_snapshot(device_id)
-                else:
-                    snap = await self._read_one_device(d, device_id)
-
-                result_map[device_id] = snap
+                snapshot: dict = await self.__get_snapshot_for_device(device, device_id, should_recover)
+                result_map[device_id] = snapshot
 
             except Exception as exc:
                 logger.warning(f"[Worker-{worker_id}] read failed: {device_id}", exc_info=exc)
@@ -162,13 +156,11 @@ class AsyncDeviceMonitor:
             finally:
                 self._queue.task_done()
 
-    # ------------------------------------------------------------------
-
     async def _read_one_device(self, device: AsyncGenericModbusDevice, device_id: str) -> dict[str, Any]:
         try:
-            values = await asyncio.wait_for(device.read_all(), timeout=self.device_timeout_sec)
+            values: dict[str, Any] = await asyncio.wait_for(device.read_all(), timeout=self.device_timeout_sec)
 
-            is_online = any(
+            is_online: bool = any(
                 v != DEFAULT_MISSING_VALUE and v is not None for v in values.values() if isinstance(v, (int, float))
             )
 
@@ -187,7 +179,7 @@ class AsyncDeviceMonitor:
                 "slave_id": device.slave_id,
                 "type": device.device_type,
                 "is_online": is_online,
-                "sampling_ts": datetime.now(tz=TIMEZONE_INFO),
+                "sampling_datetime": datetime.now(tz=TIMEZONE_INFO),
                 "values": values,
             }
 
@@ -198,8 +190,6 @@ class AsyncDeviceMonitor:
         except Exception as exc:
             await self.health_manager.mark_failure(device_id)
             return self._create_offline_snapshot(device_id, error=str(exc))
-
-    # ------------------------------------------------------------------
 
     async def _publish_snapshots(self, snapshots: list[dict[str, Any]]) -> None:
         if not snapshots:
@@ -217,8 +207,6 @@ class AsyncDeviceMonitor:
             if isinstance(r, Exception):
                 did = snapshots[idx].get("device_id", "unknown")
                 logger.warning(f"[Monitor] publish failed: {did}", exc_info=r)
-
-    # ------------------------------------------------------------------
 
     def _create_offline_snapshot(self, device_id: str, error: str = "offline") -> dict[str, Any]:
         model, slave_id_str = device_id.rsplit("_", 1)
@@ -243,12 +231,10 @@ class AsyncDeviceMonitor:
             "slave_id": slave_id,
             "type": device_type,
             "is_online": False,
-            "sampling_ts": datetime.now(tz=TIMEZONE_INFO),
+            "sampling_datetime": datetime.now(tz=TIMEZONE_INFO),
             "values": values,
             "error": error,
         }
-
-    # ------------------------------------------------------------------
 
     async def _process_virtual_devices(self, snapshots: list[dict[str, Any]]) -> None:
         if not self.virtual_device_manager:
@@ -269,7 +255,7 @@ class AsyncDeviceMonitor:
                         "slave_id": v["slave_id"],
                         "type": v["type"],
                         "is_online": True,
-                        "sampling_ts": v["sampling_ts"],
+                        "sampling_datetime": v["sampling_datetime"],
                         "values": v["values"],
                         "_is_virtual": True,
                         "_virtual_config_id": v.get("_virtual_config_id"),
@@ -279,3 +265,21 @@ class AsyncDeviceMonitor:
                 await self.health_manager.mark_success(device_id)
         except Exception as exc:
             logger.error("[Monitor] virtual device computation failed", exc_info=exc)
+
+    async def __get_snapshot_for_device(self, device, device_id: str, should_recover: bool):
+        if not self.health_manager.is_healthy(device_id):
+            if not should_recover:
+                return self._create_offline_snapshot(device_id)
+
+            is_online, health_result = await self.health_manager.quick_health_check(device=device, device_id=device_id)
+            if not is_online:
+                return self._create_offline_snapshot(device_id, error="health_check_failed")
+
+            if health_result and logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"[{device_id}] ✓ Recovered "
+                    f"(check: {health_result.elapsed_ms:.0f}ms, "
+                    f"strategy: {health_result.strategy})"
+                )
+
+        return await self._read_one_device(device, device_id)

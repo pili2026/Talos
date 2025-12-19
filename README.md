@@ -195,7 +195,7 @@ Each snapshot is stored as one row in the `snapshot` table with fields:
 | model | Device model |
 | slave_id | Modbus slave ID |
 | device_type | Device classification |
-| sampling_ts | Timestamp from device |
+| sampling_datetime | Timestamp from device |
 | created_at | Insert timestamp |
 | values_json | Full snapshot payload (JSON) |
 | is_online | Auto-computed communication status |

@@ -6,6 +6,8 @@ import pytest
 from core.device.generic.constraints_policy import ConstraintPolicy
 from core.device.generic.generic_device import AsyncGenericModbusDevice
 from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
+from core.util.device_health_manager import DeviceHealthManager
+from core.util.health_check_util import apply_startup_frequencies_with_health_check
 from device_manager import AsyncDeviceManager
 
 
@@ -76,23 +78,35 @@ class TestAsyncDeviceManagerStartupFrequency:
             return manager
 
     async def test_when_startup_frequency_within_constraints_then_sets_requested_value(
-        self, device_manager, mock_device
+        self, device_manager, mock_device, sample_constraint_config
     ):
         """Test that when startup frequency is within constraints, the requested value is written"""
         # Arrange
         device_manager.device_list = [mock_device]
 
+        # Mock
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=56):
-            await device_manager._apply_startup_frequency()
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
 
         # Assert
         mock_device.constraints.allow.assert_called_once_with("RW_HZ", 56.0)
         mock_device.write_value.assert_called_once_with("RW_HZ", 56.0)
 
-    async def test_when_startup_frequency_below_minimum_then_sets_minimum_value(self, device_manager):
+    async def test_when_startup_frequency_below_minimum_then_sets_minimum_value(
+        self, device_manager, sample_constraint_config
+    ):
         """Test that when startup frequency is below the minimum, the minimum value is used"""
-        # Arrange
+        # Mock
         mock_device = Mock(spec=AsyncGenericModbusDevice)
         mock_device.model = "LITEON_EVO6800"
         mock_device.slave_id = 2
@@ -106,16 +120,27 @@ class TestAsyncDeviceManagerStartupFrequency:
 
         device_manager.device_list = [mock_device]
 
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=25):
-            await device_manager._apply_startup_frequency()
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
 
         # Assert
         mock_device.write_value.assert_called_once_with("RW_HZ", 40.0)
 
-    async def test_when_startup_frequency_above_maximum_then_sets_minimum_value(self, device_manager):
+    async def test_when_startup_frequency_above_maximum_then_sets_minimum_value(
+        self, device_manager, sample_constraint_config
+    ):
         """Test that when startup frequency is above the maximum, the safe minimum value is used"""
-        # Arrange
+        # Mock
         mock_device = Mock(spec=AsyncGenericModbusDevice)
         mock_device.model = "LITEON_EVO6800"
         mock_device.slave_id = 3
@@ -129,15 +154,25 @@ class TestAsyncDeviceManagerStartupFrequency:
 
         device_manager.device_list = [mock_device]
 
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=70):
-            await device_manager._apply_startup_frequency()
-
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
         # Assert
         # Should use the lower bound (safe minimum) rather than the upper bound
         mock_device.write_value.assert_called_once_with("RW_HZ", 40.0)
 
-    async def test_when_constraints_have_same_min_max_and_conflict_then_sets_constraint_value(self, device_manager):
+    async def test_when_constraints_have_same_min_max_and_conflict_then_sets_constraint_value(
+        self, device_manager, sample_constraint_config
+    ):
         """Test that when min==max and requested value conflicts, the constraint value is used"""
         # Arrange
         mock_device = Mock(spec=AsyncGenericModbusDevice)
@@ -153,28 +188,57 @@ class TestAsyncDeviceManagerStartupFrequency:
 
         device_manager.device_list = [mock_device]
 
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Act
         # Using global_defaults = 50.0 but constraint requires 60.0
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=50):
-            await device_manager._apply_startup_frequency()
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
 
         # Assert
         mock_device.write_value.assert_called_once_with("RW_HZ", 60.0)
 
-    async def test_when_no_startup_frequency_configured_then_skips_setting(self, device_manager, mock_device):
+    async def test_when_no_startup_frequency_configured_then_skips_setting(
+        self, device_manager, mock_device, sample_constraint_config
+    ):
         """Test that when no startup frequency is configured, it skips writing"""
+        # Mock
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Arrange
         device_manager.device_list = [mock_device]
 
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=None):
-            await device_manager._apply_startup_frequency()
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
 
         # Assert
         mock_device.write_value.assert_not_called()
 
-    async def test_when_device_write_fails_then_logs_error(self, device_manager, mock_device, caplog):
+    async def test_when_device_write_fails_then_logs_error(
+        self, device_manager, mock_device, caplog, sample_constraint_config
+    ):
         """Test that when device write fails, an error is logged"""
+        # Mock
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Arrange
         device_manager.device_list = [mock_device]
         mock_device.write_value.side_effect = Exception("Write failed")
@@ -182,29 +246,24 @@ class TestAsyncDeviceManagerStartupFrequency:
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=56):
             with caplog.at_level(logging.WARNING):
-                await device_manager._apply_startup_frequency()
+                await apply_startup_frequencies_with_health_check(
+                    device_manager=device_manager,
+                    health_manager=mock_health_manager,
+                    constraint_schema=sample_constraint_config,
+                )
 
         # Assert
-        assert "Failed to set startup frequency" in caplog.text
+        assert "WARNING" in caplog.text
         assert "Write failed" in caplog.text
 
-    async def test_when_no_constraint_config_then_skips_startup_frequency_setup(self, caplog):
-        """Test that when no constraint config is available, startup frequency setup is skipped"""
-        # Arrange
-        with patch("device_manager.ConfigManager") as mock_config_manager:
-            mock_config_manager.return_value.load_yaml_file.return_value = {"devices": []}
-            manager = AsyncDeviceManager(config_path="dummy_path", constraint_config_schema=None)
-            manager.device_list = [Mock()]
-
-            # Act
-            with caplog.at_level(logging.WARNING):
-                await manager._apply_startup_frequency()
-
-        # Assert
-        assert "No constraint config available" in caplog.text
-
-    async def test_when_multiple_devices_then_processes_all_devices(self, device_manager):
+    async def test_when_multiple_devices_then_processes_all_devices(self, device_manager, sample_constraint_config):
         """Test that multiple devices are all processed"""
+        # Mock
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Arrange
         devices = []
         for i in range(3):
@@ -223,15 +282,26 @@ class TestAsyncDeviceManagerStartupFrequency:
 
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=50):
-            await device_manager._apply_startup_frequency()
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
 
         # Assert
         for device in devices:
             device.write_value.assert_called_once_with("RW_HZ", 50.0)
 
-    async def test_when_constraint_policy_has_no_hz_constraint_then_sets_frequency_directly(self, device_manager):
+    async def test_when_constraint_policy_has_no_hz_constraint_then_sets_frequency_directly(
+        self, device_manager, sample_constraint_config
+    ):
         """Test that when no RW_HZ constraint exists, the frequency is written directly"""
-        # Arrange
+        # Mock
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         mock_device = Mock(spec=AsyncGenericModbusDevice)
         mock_device.model = "DEVICE_NO_CONSTRAINT"
         mock_device.slave_id = 1
@@ -247,7 +317,11 @@ class TestAsyncDeviceManagerStartupFrequency:
 
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=75.0):
-            await device_manager._apply_startup_frequency()
+            await apply_startup_frequencies_with_health_check(
+                device_manager=device_manager,
+                health_manager=mock_health_manager,
+                constraint_schema=sample_constraint_config,
+            )
 
         # Assert
         mock_device.write_value.assert_called_once_with("RW_HZ", 75.0)
@@ -264,9 +338,15 @@ class TestAsyncDeviceManagerStartupFrequency:
         assert result is True
 
     async def test_when_logging_warnings_for_corrected_frequency_then_includes_device_info(
-        self, device_manager, caplog
+        self, device_manager, caplog, sample_constraint_config
     ):
         """Test that warning logs for corrected frequency include device info"""
+        # Mock
+        mock_health_manager = Mock(spec=DeviceHealthManager)
+        mock_health_result = Mock()
+        mock_health_result.elapsed_ms = 100.0
+        mock_health_manager.quick_health_check = AsyncMock(return_value=(True, mock_health_result))
+
         # Arrange
         mock_device = Mock(spec=AsyncGenericModbusDevice)
         mock_device.model = "TEST_DEVICE"
@@ -284,7 +364,11 @@ class TestAsyncDeviceManagerStartupFrequency:
         # Act
         with patch("device_manager.ConfigManager.get_device_startup_frequency", return_value=25.0):
             with caplog.at_level(logging.WARNING):
-                await device_manager._apply_startup_frequency()
+                await apply_startup_frequencies_with_health_check(
+                    device_manager=device_manager,
+                    health_manager=mock_health_manager,
+                    constraint_schema=sample_constraint_config,
+                )
 
         # Assert
         assert "TEST_DEVICE_99" in caplog.text

@@ -16,7 +16,7 @@ class SnapshotResponse(BaseModel):
     model: str
     slave_id: str
     device_type: str
-    sampling_ts: datetime
+    sampling_datetime: datetime
     created_at: datetime
     values: dict[str, Any]
     is_online: int

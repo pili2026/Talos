@@ -55,7 +55,7 @@ class SnapshotSaverSubscriber:
                 - model: str
                 - slave_id: str
                 - type: str
-                - sampling_ts: datetime
+                - sampling_datetime: datetime
                 - values: dict
         """
         # Insert snapshot immediately

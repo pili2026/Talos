@@ -1,6 +1,8 @@
 buses:
   rtu0: &rtu0
     port: /dev/ttyUSB0
+    baudrate: 9600
+    timeout: 1
 
 devices:
   - model: LITEON_EVO6800
