@@ -2,6 +2,7 @@ import logging
 
 from core.evaluator.time_evalutor import TimeControlEvaluator
 from core.executor.time_control_executor import TimeControlExecutor
+from core.model.device_constant import INVERTER, IO_MODULE
 from core.schema.control_condition_schema import ControlActionType
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.pubsub_topic import PubSubTopic
@@ -10,6 +11,9 @@ logger = logging.getLogger("TimeControlHandler")
 
 
 class TimeControlHandler:
+
+    SWITCHABLE_DEVICE_TYPES = {INVERTER, IO_MODULE}
+
     def __init__(
         self,
         pubsub: PubSub,
@@ -33,6 +37,7 @@ class TimeControlHandler:
         self._startup_summary_logged = False
 
         self._last_online: dict[str, bool] = {}
+        self._non_switchable_devices: set[str] = set()
 
     async def handle_snapshot(self, snapshot: dict):
         device_id: str = snapshot.get("device_id")
@@ -60,6 +65,12 @@ class TimeControlHandler:
                 self._startup_on_list.append(device_id)
             self._startup_checked.add(device_id)
             self._try_log_startup_summary()
+
+        if action_type in (ControlActionType.TURN_OFF, ControlActionType.TURN_ON):
+            if not self._supports_switch(device_id, snapshot):
+                # Device doesn't support switching, skip control but allow snapshot
+                await self.pubsub.publish(PubSubTopic.SNAPSHOT_ALLOWED, snapshot)
+                return
 
         # Process action based on evaluation
         if action_type == ControlActionType.TURN_OFF and self.send_turn_off_on_change:
@@ -98,7 +109,6 @@ class TimeControlHandler:
     def _parse_is_online(self, snapshot: dict) -> bool:
         v = snapshot.get("is_online", snapshot.get("online", snapshot.get("isOnline", None)))
         if v is None:
-            # 建議：未知就當 offline，才能符合「先跑 talos 再開機」這種情境
             return False
         if isinstance(v, bool):
             return v
@@ -110,5 +120,40 @@ class TimeControlHandler:
                 return True
             if s in ("0", "false", "no", "n", "off", ""):
                 return False
-        # fallback：保守起見當 offline
+        # fallback：offline
         return False
+
+    def _supports_switch(self, device_id: str, snapshot: dict) -> bool:
+        """
+        Check if device supports switch functionality.
+
+        Args:
+            device_id: Device identifier (MODEL_SLAVEID)
+            snapshot: Device snapshot containing type information
+
+        Returns:
+            True if device supports TURN_ON/TURN_OFF
+        """
+        # Check cache first
+        if device_id in self._non_switchable_devices:
+            return False
+
+        # Get device type from snapshot
+        device_type: str = snapshot.get("type")
+
+        if not device_type:
+            # If no type info, mark as non-switchable and cache
+            self._non_switchable_devices.add(device_id)
+            logger.debug(f"[TimeControl] {device_id}: no device type info, assuming no switch support")
+            return False
+
+        # Check if device type supports switching
+        if device_type not in self.SWITCHABLE_DEVICE_TYPES:
+            # Cache non-switchable devices to avoid repeated checks
+            self._non_switchable_devices.add(device_id)
+            logger.debug(
+                f"[TimeControl] {device_id} (type={device_type}): " f"no switch support, skipping time control"
+            )
+            return False
+
+        return True

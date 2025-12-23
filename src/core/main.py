@@ -49,7 +49,6 @@ async def main(
     virtual_device_config: str | None = None,
 ):
     setup_logging(log_to_file=True)
-    quiet_pymodbus_logs()
     load_dotenv()
     install_asyncio_noise_suppressor()
 

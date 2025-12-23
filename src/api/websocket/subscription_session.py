@@ -75,7 +75,7 @@ class SubscriptionSession:
         try:
             # Subscribe to DEVICE_SNAPSHOT (AsyncGenerator)
             async for snapshot in self.pubsub.subscribe(PubSubTopic.DEVICE_SNAPSHOT):
-                logger.info(f"[Subscription] Received snapshot: {snapshot.get('device_id')}")
+                logger.info(f"[Subscription] Received snapshot: {snapshot}")
                 if not self._running:
                     break
 

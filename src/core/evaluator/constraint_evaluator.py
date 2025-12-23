@@ -1,6 +1,7 @@
 import logging
 
 from core.device.generic.generic_device import AsyncGenericModbusDevice
+from core.model.device_constant import DEFAULT_MISSING_VALUE
 from core.schema.constraint_schema import ConstraintConfig
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 from core.util.pubsub.base import PubSub
@@ -19,6 +20,13 @@ class ConstraintEvaluator:
         """
         control_actions = []
         for target, value in snapshot.items():
+            if value is None or value == DEFAULT_MISSING_VALUE:
+                logger.debug(
+                    f"[{device.model}_{device.slave_id}] Pin {target} has invalid value "
+                    f"({value}), skip constraint check"
+                )
+                continue
+
             constraint: ConstraintConfig = device.constraints.constraints.get(target)
             if constraint:
                 min_val = constraint.min if constraint.min is not None else 60

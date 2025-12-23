@@ -38,6 +38,7 @@ class AsyncDeviceMonitor:
         read_concurrency: int = 20,
         publish_concurrency: int = 50,
         recovery_check_interval_sec: float = 60.0,
+        critical_recovery_interval_sec: float = 10.0,
         log_each_device: bool = False,
     ):
         self.device_manager = async_device_manager
@@ -55,8 +56,24 @@ class AsyncDeviceMonitor:
         self._recovery_check_interval = float(recovery_check_interval_sec)
         self._last_recovery_check = 0.0
 
+        self._critical_recovery_interval = float(critical_recovery_interval_sec)
+        self._last_critical_recovery_check = 0.0
+
+        self._critical_device_ids = {
+            f"{device.model}_{device.slave_id}"
+            for device in self.device_manager.device_list
+            if device.device_type in health_manager.CRITICAL_DEVICE_TYPES
+        }
+
+        logger.info(
+            f"Critical devices (fast recovery={critical_recovery_interval_sec}s): "
+            f"{', '.join(self._critical_device_ids) if self._critical_device_ids else 'None'}"
+        )
+
         for device in self.device_manager.device_list:
-            self.health_manager.register_device(f"{device.model}_{device.slave_id}")
+            device_id: str = f"{device.model}_{device.slave_id}"
+            device_type: str = device.device_type
+            self.health_manager.register_device(device_id, device_type=device_type)
 
         self._queue: asyncio.Queue[AsyncGenericModbusDevice] = asyncio.Queue()
 
@@ -92,8 +109,8 @@ class AsyncDeviceMonitor:
             logger.info("[Monitor] Cancelled")
             raise
         finally:
-            for w in workers:
-                w.cancel()
+            for worker in workers:
+                worker.cancel()
 
     # ------------------------------------------------------------------
     async def _run_one_cycle(self) -> list[dict[str, Any]]:
@@ -103,30 +120,39 @@ class AsyncDeviceMonitor:
         Critical for RS-485: Devices on same port must be processed sequentially
         with delay to prevent response frame confusion.
         """
-        devices = self.device_manager.device_list
-        now_ts = now_timestamp()
+        device_list: list[AsyncGenericModbusDevice] = self.device_manager.device_list
+        now_ts: float = now_timestamp()
 
-        should_recover = (now_ts - self._last_recovery_check) > self._recovery_check_interval
+        should_recover: bool = (now_ts - self._last_recovery_check) > self._recovery_check_interval
         if should_recover:
             self._last_recovery_check = now_ts
             logger.debug("[Monitor] Recovery window opened")
+
+        critical_should_recover: bool = (now_ts - self._last_critical_recovery_check) > self._critical_recovery_interval
+        if critical_should_recover:
+            self._last_critical_recovery_check = now_ts
+            logger.debug("[Monitor] Critical recovery window opened (inverters)")
 
         result_map: dict[str, dict[str, Any]] = {}
 
         # Group devices by port (critical for RS-485)
         devices_by_port: dict[str, list] = {}
-        for d in devices:
-            port = d.port
+        for device in device_list:
+            port: str = device.port
             if port not in devices_by_port:
                 devices_by_port[port] = []
-            devices_by_port[port].append(d)
+            devices_by_port[port].append(device)
 
         # Process devices sequentially per port with delay
         for port, port_devices in devices_by_port.items():
             logger.debug(f"[Monitor] Processing {len(port_devices)} devices on port {port}")
 
-            for i, d in enumerate(port_devices):
-                await self._queue.put((d, should_recover, result_map))
+            for i, device in enumerate(port_devices):
+                device_id = f"{device.model}_{device.slave_id}"
+                is_critical = device_id in self._critical_device_ids
+                recovery_window = critical_should_recover if is_critical else should_recover
+
+                await self._queue.put((device, recovery_window, result_map))
                 await self._queue.join()
 
                 if i < len(port_devices) - 1:
@@ -143,6 +169,7 @@ class AsyncDeviceMonitor:
 
             try:
                 snapshot: dict = await self.__get_snapshot_for_device(device, device_id, should_recover)
+                logger.info(f"[{device_id}] Snapshot: {snapshot['values']}")
                 result_map[device_id] = snapshot
 
             except Exception as exc:
@@ -199,10 +226,10 @@ class AsyncDeviceMonitor:
 
         results = await asyncio.gather(*(_pub(s) for s in snapshots), return_exceptions=True)
 
-        for idx, r in enumerate(results):
-            if isinstance(r, Exception):
+        for idx, result in enumerate(results):
+            if isinstance(result, Exception):
                 did = snapshots[idx].get("device_id", "unknown")
-                logger.warning(f"[Monitor] publish failed: {did}", exc_info=r)
+                logger.warning(f"[Monitor] publish failed: {did}", exc_info=result)
 
     def _create_offline_snapshot(self, device_id: str, error: str = "offline") -> dict[str, Any]:
         model, slave_id_str = device_id.rsplit("_", 1)

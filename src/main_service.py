@@ -31,7 +31,7 @@ from core.util.factory.time_factory import build_time_control_subscriber
 from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
 from core.util.health_check_util import apply_startup_frequencies_with_health_check, initialize_health_check_configs
 from core.util.logger_config import LOG_LEVEL_MAP, setup_logging
-from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
+from core.util.logging_noise import install_asyncio_noise_suppressor
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
 from core.util.pubsub.pubsub_util import PUBSUB_POLICIES, pubsub_drop_metrics_loop
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
@@ -80,7 +80,6 @@ async def main():
 
     # Configure logging
     setup_logging(log_to_file=True)
-    quiet_pymodbus_logs()
     load_dotenv()
     install_asyncio_noise_suppressor()
 
@@ -169,6 +168,10 @@ async def main():
 
         health_manager = DeviceHealthManager(**health_params)
         logger.info("DeviceHealthManager initialized")
+
+        health_manager.configure_for_device_list(
+            device_list=async_device_manager.device_list, poll_interval=poll_interval
+        )
 
         virtual_device_manager: VirtualDeviceManager | None = initialize_virtual_device_manager(
             config_path=args.virtual_device_config, device_manager=async_device_manager

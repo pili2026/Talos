@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 
 from core.device.generic.generic_device import AsyncGenericModbusDevice
-from core.model.device_constant import DEFAULT_MISSING_VALUE
+from core.model.device_constant import DEFAULT_MISSING_VALUE, INVERTER
 from core.model.enum.health_check_strategy_enum import HealthCheckStrategyEnum
 from core.schema.health_check_config_schema import HealthCheckConfig
 from core.util.time_util import now_timestamp
@@ -34,6 +34,12 @@ class DeviceHealthStatus:
 
     # Cooldown control
     next_allowed_poll_ts: float = 0.0
+
+    # Device-specific backoff parameters (None = use global default value)
+    base_cooldown_sec: float | None = None
+    max_cooldown_sec: float | None = None
+    backoff_factor: float | None = None
+    mark_unhealthy_after_failures: int | None = None
 
     def mark_success(self, now_ts: float) -> None:
         self.is_healthy = True
@@ -68,6 +74,7 @@ class HealthCheckResult:
         return msg
 
 
+# TODO: Nedd to Refactor
 class DeviceHealthManager:
     """
     Centralized device health tracking with quick health check support.
@@ -88,6 +95,8 @@ class DeviceHealthManager:
                 # Device recovered, do full read
     """
 
+    CRITICAL_DEVICE_TYPES = {INVERTER}  # For Inverter device
+
     def __init__(
         self,
         *,
@@ -101,18 +110,95 @@ class DeviceHealthManager:
         self._lock = asyncio.Lock()
 
         # Backoff policy
-        self._base_cooldown_sec = float(base_cooldown_sec)
-        self._max_cooldown_sec = float(max_cooldown_sec)
-        self._backoff_factor = float(backoff_factor)
+        self._default_base_cooldown_sec = float(base_cooldown_sec)
+        self._default_max_cooldown_sec = float(max_cooldown_sec)
+        self._default_backoff_factor = float(backoff_factor)
         self._jitter_sec = float(jitter_sec)
-        self._mark_unhealthy_after_failures = int(mark_unhealthy_after_failures)
+        self._default_mark_unhealthy_after_failures = int(mark_unhealthy_after_failures)
 
         self._health_check_configs: dict[str, HealthCheckConfig] = {}
 
-    def register_device(self, device_id: str) -> None:
+        self._critical_backoff_params: dict = {
+            "base_cooldown_sec": 10.0,
+            "max_cooldown_sec": 10.0,
+            "backoff_factor": 1.0,
+            "mark_unhealthy_after_failures": 1,
+        }
+
+    def configure_for_device_list(self, device_list: list, poll_interval: float) -> None:
+        """
+        Configure health manager for a specific device list.
+        Automatically calculates optimal parameters for critical devices based on count.
+
+        Args:
+            device_list: List of devices (must have device_type attribute)
+            poll_interval: Monitor polling interval in seconds
+        """
+        # Count critical devices
+        critical_device_count: int = sum(
+            1 for device in device_list if device.device_type in self.CRITICAL_DEVICE_TYPES
+        )
+
+        if critical_device_count > 0:
+            # Calculate optimal parameters
+            critical_params = self.calculate_critical_params(
+                device_count=critical_device_count, poll_interval=poll_interval
+            )
+
+            self._critical_backoff_params = critical_params
+
+            logger.info("=" * 60)
+            logger.info("Critical Device Configuration")
+            logger.info(f"  Device count: {critical_device_count}")
+            logger.info(f"  Estimated poll time: {critical_device_count * 1.2:.1f}s")
+            logger.info(f"  Base cooldown: {critical_params['base_cooldown_sec']:.1f}s")
+            logger.info(f"  Max cooldown: {critical_params['max_cooldown_sec']:.1f}s")
+            logger.info("=" * 60)
+        else:
+            logger.info("No critical devices found, using default parameters")
+
+    @property
+    def critical_backoff_params(self) -> dict:
+        """Get current critical device backoff parameters"""
+        return self._critical_backoff_params
+
+    @critical_backoff_params.setter
+    def critical_backoff_params(self, value: dict) -> None:
+        """Set critical device backoff parameters (for backward compatibility)"""
+        self._critical_backoff_params = value
+
+    def register_device(self, device_id: str, device_type: str | None = None) -> None:
+        """
+        Register device with automatic parameter selection based on device type.
+
+        Args:
+            device_id: Device identifier (format: "MODEL_SLAVEID")
+            device_type: Device type from driver config (e.g., "inverter", "sensor", "io_module")
+                        If None, uses default parameters.
+
+        Critical device types (e.g., "inverter") get aggressive recovery parameters.
+        """
         if device_id not in self._health_status:
-            self._health_status[device_id] = DeviceHealthStatus(device_id=device_id)
-            logger.debug(f"Registered device for health tracking: {device_id}")
+            # Determine if critical device
+            is_critical: bool = device_type in self.CRITICAL_DEVICE_TYPES if device_type else False
+
+            if is_critical:
+                status = DeviceHealthStatus(
+                    device_id=device_id,
+                    base_cooldown_sec=self._critical_backoff_params["base_cooldown_sec"],
+                    max_cooldown_sec=self._critical_backoff_params["max_cooldown_sec"],
+                    backoff_factor=self._critical_backoff_params["backoff_factor"],
+                    mark_unhealthy_after_failures=self._critical_backoff_params["mark_unhealthy_after_failures"],
+                )
+                logger.info(
+                    f"Registered CRITICAL device: {device_id} (type={device_type}, "
+                    f"base_cooldown={self._critical_backoff_params['base_cooldown_sec']}s)"
+                )
+            else:
+                status = DeviceHealthStatus(device_id=device_id)
+                logger.debug(f"Registered device: {device_id} (type={device_type or 'unknown'})")
+
+            self._health_status[device_id] = status
 
     async def should_poll(self, device_id: str) -> tuple[bool, str]:
         """
@@ -163,12 +249,18 @@ class DeviceHealthManager:
 
             status.mark_failure(now_ts)
 
+            failure_threshold: int = (
+                status.mark_unhealthy_after_failures
+                if status.mark_unhealthy_after_failures is not None
+                else self._default_mark_unhealthy_after_failures
+            )
+
             # Apply "mark unhealthy" threshold (default: 1)
-            if status.consecutive_failures >= self._mark_unhealthy_after_failures:
+            if status.consecutive_failures >= failure_threshold:
                 status.is_healthy = False
 
             # Compute next cooldown
-            cooldown_sec: float = self._compute_cooldown_sec(status.consecutive_failures)
+            cooldown_sec: float = self._compute_cooldown_sec(status)
             status.next_allowed_poll_ts = now_ts + cooldown_sec
 
             if was_healthy:
@@ -179,6 +271,33 @@ class DeviceHealthManager:
                 logger.info(
                     f"Device {device_id} still unhealthy (failures={status.consecutive_failures}, cooldown={cooldown_sec:.1f}s)"
                 )
+
+    def _compute_cooldown_sec(self, status: DeviceHealthStatus) -> float:
+        """
+        Exponential backoff: base * factor^(failures-1), capped at max.
+        """
+        # Provide device-specific backoff parameters if set
+        base_cooldown = (
+            status.base_cooldown_sec if status.base_cooldown_sec is not None else self._default_base_cooldown_sec
+        )
+
+        max_cooldown = (
+            status.max_cooldown_sec if status.max_cooldown_sec is not None else self._default_max_cooldown_sec
+        )
+
+        backoff_factor = status.backoff_factor if status.backoff_factor is not None else self._default_backoff_factor
+
+        failure_count: int = max(1, int(status.consecutive_failures))
+        backoff_sec: float = base_cooldown * (backoff_factor ** (failure_count - 1))
+        capped_cooldown_sec: float = min(backoff_sec, max_cooldown)
+
+        # Optional jitter
+        if self._jitter_sec > 0:
+            frac = math.modf(now_timestamp())[0]
+            capped_cooldown_sec = capped_cooldown_sec + (frac * 2 - 1) * self._jitter_sec
+            capped_cooldown_sec = max(0.0, capped_cooldown_sec)
+
+        return capped_cooldown_sec
 
     def is_healthy(self, device_id: str) -> bool:
         status = self._health_status.get(device_id)
@@ -253,25 +372,6 @@ class DeviceHealthManager:
             await self.mark_failure(device_id)
 
         return result.is_online, result
-
-    def _compute_cooldown_sec(self, failures: int) -> float:
-        """
-        Exponential backoff: base * factor^(failures-1), capped at max.
-        failures starts from 1.
-        """
-        failure_count: int = max(1, int(failures))
-        backoff_sec: float = self._base_cooldown_sec * (self._backoff_factor ** (failure_count - 1))
-        capped_cooldown_sec: float = min(backoff_sec, self._max_cooldown_sec)
-
-        # Optional jitter to avoid synchronization (keep deterministic if jitter_sec=0)
-        if self._jitter_sec > 0:
-            # simple bounded jitter without random dependency:
-            # use fractional part of time as pseudo jitter source
-            frac = math.modf(now_timestamp())[0]
-            capped_cooldown_sec: float = capped_cooldown_sec + (frac * 2 - 1) * self._jitter_sec  # [-jitter, +jitter]
-            capped_cooldown_sec: float = max(0.0, capped_cooldown_sec)
-
-        return capped_cooldown_sec
 
     def _to_summary(self, health_status: DeviceHealthStatus) -> dict:
         now_ts = now_timestamp()
@@ -473,5 +573,62 @@ class DeviceHealthManager:
             "max_cooldown_sec": 600.0,
             "backoff_factor": 2.0,
             "jitter_sec": poll_interval * 0.2,
+            "mark_unhealthy_after_failures": 1,
+        }
+
+    @staticmethod
+    def calculate_critical_params(device_count: int, poll_interval: float) -> dict:
+        """
+        Calculate backoff parameters for critical devices based on device count.
+
+        Critical devices (e.g., inverters) need fast recovery but must account for
+        RS-485 sequential polling time when multiple devices share the same bus.
+
+        Args:
+            device_count: Number of critical devices on the RS-485 bus
+            poll_interval: Monitor polling interval (seconds)
+
+        Returns:
+            Dictionary with backoff parameters optimized for the device count
+
+        Algorithm:
+            - Single device polling time: ~1.2s (health check + RS-485 delay)
+            - Total polling time: device_count × 1.2s
+            - Base cooldown: total_polling_time × 1.2 (20% buffer)
+            - Minimum: poll_interval (never less than the monitor cycle)
+
+        Examples:
+            - 2 devices: ~3s cooldown
+            - 10 devices: ~15s cooldown
+            - 20 devices: ~30s cooldown
+        """
+        if device_count <= 0:
+            # No critical devices, return default
+            return {
+                "base_cooldown_sec": 10.0,
+                "max_cooldown_sec": 10.0,
+                "backoff_factor": 1.0,
+                "mark_unhealthy_after_failures": 1,
+            }
+
+        # Estimated time per device (health check + RS-485 frame delay)
+        per_device_time = 1.2  # seconds
+
+        # Total time to poll all critical devices sequentially
+        total_poll_time = device_count * per_device_time
+
+        # Add 20% buffer for overhead (logging, processing, etc.)
+        base_cooldown = total_poll_time * 1.2
+
+        # Ensure cooldown is at least equal to the monitor polling interval
+        base_cooldown = max(base_cooldown, poll_interval)
+
+        # Round to 1 decimal place for cleaner logs
+        base_cooldown = round(base_cooldown, 1)
+
+        return {
+            "base_cooldown_sec": base_cooldown,
+            "max_cooldown_sec": base_cooldown * 2,  # Allow some exponential growth
+            "backoff_factor": 1.0,  # No exponential backoff for critical devices
             "mark_unhealthy_after_failures": 1,
         }

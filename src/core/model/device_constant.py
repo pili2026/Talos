@@ -11,6 +11,9 @@ INVERTER_OFFLINE_PROBE_KEYS = ("KWH", "VOLTAGE", "CURRENT", "KW", "HZ")
 INVALID_U16_SENTINEL = 0xFFFF  # 16-bit invalid value (65535)
 INVALID_U32_SENTINEL = 0xFFFFFFFF  # 32-bit invalid value (future use)
 
+INVERTER = "inverter"
+IO_MODULE = "io_module"
+
 # Power Meter Field Definitions
 POWER_METER_FIELDS = {
     # Field name: {"common": bool, "round": int}
