@@ -5,6 +5,8 @@ Provides functions to combine multiple 16-bit registers into larger values.
 
 from typing import Callable
 
+from core.model.device_constant import INVALID_U16_SENTINEL
+
 
 def combine_32bit_be(reg0: int | float | None, reg1: int | float | None) -> int | None:
     """
@@ -37,8 +39,8 @@ def combine_32bit_be(reg0: int | float | None, reg1: int | float | None) -> int 
         return None
 
     # Convert to int (device may return float values)
-    r0 = int(reg0) & 0xFFFF
-    r1 = int(reg1) & 0xFFFF
+    r0 = int(reg0) & INVALID_U16_SENTINEL
+    r1 = int(reg1) & INVALID_U16_SENTINEL
 
     return (r0 << 16) | r1
 
@@ -72,8 +74,8 @@ def combine_32bit_le(reg0: int | float | None, reg1: int | float | None) -> int 
         return None
 
     # Convert to int (device may return float values)
-    r0 = int(reg0) & 0xFFFF
-    r1 = int(reg1) & 0xFFFF
+    r0 = int(reg0) & INVALID_U16_SENTINEL
+    r1 = int(reg1) & INVALID_U16_SENTINEL
 
     return (r1 << 16) | r0
 
@@ -107,8 +109,8 @@ def combine_32bit_signed_be(reg0: int | float | None, reg1: int | float | None) 
         return None
 
     # Convert to int (device may return float values)
-    r0 = int(reg0) & 0xFFFF
-    r1 = int(reg1) & 0xFFFF
+    r0 = int(reg0) & INVALID_U16_SENTINEL
+    r1 = int(reg1) & INVALID_U16_SENTINEL
 
     val = (r0 << 16) | r1
 
@@ -152,8 +154,8 @@ def combine_32bit_signed_le(reg0: int | float | None, reg1: int | float | None) 
         return None
 
     # Convert to int (device may return float values)
-    r0 = int(reg0) & 0xFFFF
-    r1 = int(reg1) & 0xFFFF
+    r0 = int(reg0) & INVALID_U16_SENTINEL
+    r1 = int(reg1) & INVALID_U16_SENTINEL
 
     val = (r1 << 16) | r0
 

@@ -18,7 +18,7 @@ description: >
 register_map:
   AIn01:
     offset: 0
-    format: i16
+    format: u16
     formula: [0, 0.00076293945, 0]
     type: thermometer
     unit: "°C"
@@ -29,7 +29,7 @@ register_map:
 
   AIn02:
     offset: 1
-    format: i16
+    format: u16
     formula: [0, 0.00076293945, 0]
     type: thermometer
     unit: "°C"
@@ -40,7 +40,7 @@ register_map:
 
   AIn03:
     offset: 2
-    format: i16
+    format: u16
     formula: [0, 0.00006103515625, 0]
     type: pressure
     unit: "kg/cm²"
@@ -51,7 +51,7 @@ register_map:
 
   AIn04:
     offset: 3
-    format: i16
+    format: u16
     formula: [0, 0.00076293945, 0]
     type: thermometer
     unit: "°C"
@@ -62,7 +62,7 @@ register_map:
 
   AIn05:
     offset: 4
-    format: i16
+    format: u16
     formula: [0, 0.00076293945, 0]
     type: thermometer
     unit: "°C"
@@ -73,7 +73,7 @@ register_map:
 
   AIn06:
     offset: 5
-    format: i16
+    format: u16
     formula: [0, 0.00006103515625, 0]
     type: pressure
     unit: "kg/cm²"
@@ -84,7 +84,7 @@ register_map:
 
   AIn07:
     offset: 6
-    format: i16
+    format: u16
     formula: [0, 0.00076293945, 0]
     type: thermometer
     unit: "°C"
@@ -95,7 +95,7 @@ register_map:
 
   AIn08:
     offset: 7
-    format: i16
+    format: u16
     formula: [0, 0.00076293945, 0]
     type: thermometer
     unit: "°C"

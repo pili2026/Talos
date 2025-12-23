@@ -23,6 +23,7 @@ from core.util.device_id_policy import get_policy, load_device_id_policy
 from core.util.factory.alert_factory import build_alert_subscriber
 from core.util.factory.constraint_factory import build_constraint_subscriber
 from core.util.factory.control_factory import build_control_subscriber
+from core.util.factory.initialization_factory import build_initialization_subscriber
 from core.util.factory.notifier_factory import build_notifiers_and_routing
 from core.util.factory.sender_factory import build_sender_subscriber, init_sender
 from core.util.factory.snapshot_factory import build_snapshot_subscriber
@@ -35,6 +36,7 @@ from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
 from core.util.pubsub.pubsub_util import PUBSUB_POLICIES, pubsub_drop_metrics_loop
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
+from core.util.pubsub.subscriber.initialization_subscriber import InitializationSubscriber
 from core.util.sub_registry import SubscriberRegistry
 from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
@@ -236,6 +238,14 @@ async def main():
         )
         logger.info("Control subscriber built")
 
+        initialization_subscriber: InitializationSubscriber = build_initialization_subscriber(
+            pubsub=pubsub,
+            async_device_manager=async_device_manager,
+            constraint_schema=constraint_schema,
+            health_manager=health_manager,
+        )
+        logger.info("Initialization subscriber built")
+
         # Data Sender
         legacy_sender, sender_subscriber = build_sender_subscriber(
             pubsub=pubsub,
@@ -314,6 +324,7 @@ async def main():
         subscriber_registry.register("ALERT_NOTIFIERS", alert_notifiers_subscriber.run)
         subscriber_registry.register("CONTROL", control_subscriber.run)
         subscriber_registry.register("DATA_SENDER", sender_subscriber.run)
+        subscriber_registry.register("INITIALIZATION", initialization_subscriber.run)
 
         if snapshot_saver_subscriber:
             subscriber_registry.register("SNAPSHOT_SAVER", snapshot_saver_subscriber.run)

@@ -29,11 +29,11 @@ LITEON_EVO6800:
 
 TECO_VFD:
   initialization:
-    startup_frequency: 45.0
+    startup_frequency: 60.0
+    auto_turn_on: true
   default_constraints:
     RW_HZ: { min: 55, max: 59 }
-  instances:
-    "5": {}
+  instances: {}
 
 # -------------------------------------------------------------------
 # AI Module - BAT08 (Scheme A: model baseline pins + instance delta)

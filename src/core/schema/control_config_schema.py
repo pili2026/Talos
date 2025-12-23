@@ -99,16 +99,7 @@ class ControlConfig(BaseModel):
 
     def get_control_list(self, model: str, slave_id: str) -> list[ConditionSchema]:
         """
-        Return the list of control conditions for the given (model, slave_id).
-        Rules:
-        1) Merge:
-        - default_controls (only if instance.use_default_controls is True)
-        - instance.controls
-        2) Filter out invalid rules (skip with warnings):
-        - composite is None (invalid composite)
-        - actions is empty or all actions are invalid
-        3) Deduplicate by priority (keep only the last one; instance overrides default)
-        4) Preserve definition order after dedup
+        Return validated and deduplicated control conditions.
         """
         model_config = self.root.get(model)
         if not model_config:
@@ -119,32 +110,54 @@ class ControlConfig(BaseModel):
         if not instance_config:
             return []
 
-        # 1) Merge controls
-        merged_control_list: list[ConditionSchema] = []
-        if instance_config.use_default_controls:
-            merged_control_list.extend(model_config.default_controls)
-        merged_control_list.extend(instance_config.controls)
+        # Step 1: Merge controls
+        merged_controls = self._merge_controls(model_config, instance_config)
 
-        # 2) Filter invalid (log + skip) - Enhanced validation
-        filtered_control_list: list[ConditionSchema] = []
-        for rule in merged_control_list:
-            rid = rule.code or rule.name or "<unknown>"
-            context = f"[{model}_{instance_id}]"
+        # Step 2: Filter invalid
+        valid_controls = self._filter_invalid_rules(merged_controls, model, instance_id)
+
+        if not valid_controls:
+            return []
+
+        # Step 3: Deduplicate by priority
+        deduplicated = self._deduplicate_by_priority(valid_controls, model, instance_id)
+
+        return deduplicated
+
+    def _merge_controls(
+        self, model_config: ControlModelConfig, instance_config: ControlInstanceConfig
+    ) -> list[ConditionSchema]:
+        """Merge default and instance controls."""
+        merged = []
+        if instance_config.use_default_controls:
+            merged.extend(model_config.default_controls)
+        merged.extend(instance_config.controls)
+        return merged
+
+    def _filter_invalid_rules(
+        self, rules: list[ConditionSchema], model: str, instance_id: str
+    ) -> list[ConditionSchema]:
+        """Filter out invalid rules with detailed logging"""
+        filtered: list[ConditionSchema] = []
+        context = f"[{model}_{instance_id}]"
+
+        for rule in rules:
+            rule_id = rule.code or rule.name or "<unknown>"
 
             # Check composite
             if rule.composite is None:
-                logger.warning(f"{context} skip rule '{rid}': missing or null composite")
+                logger.warning(f"{context} skip rule '{rule_id}': missing or null composite")
                 continue
             if rule.composite.invalid:
-                logger.warning(f"{context} skip rule '{rid}': invalid composite structure")
+                logger.warning(f"{context} skip rule '{rule_id}': invalid composite structure")
                 continue
 
             # Check actions
             if not rule.actions:
-                logger.error(f"{context} skip rule '{rid}': no actions defined")
+                logger.error(f"{context} skip rule '{rule_id}': no actions defined")
                 continue
 
-            # Check if at least one action is valid (has type)
+            # Validate actions
             valid_action_count = 0
             invalid_action_indices = []
             for idx, action in enumerate(rule.actions):
@@ -154,65 +167,71 @@ class ControlConfig(BaseModel):
                     valid_action_count += 1
 
             if valid_action_count == 0:
-                logger.error(f"{context} skip rule '{rid}': all {len(rule.actions)} actions are invalid (missing type)")
+                logger.error(
+                    f"{context} skip rule '{rule_id}': " f"all {len(rule.actions)} actions are invalid (missing type)"
+                )
                 continue
 
-            # Log warning if some actions are invalid (but keep the rule)
             if invalid_action_indices:
                 logger.warning(
-                    f"{context} rule '{rid}': {len(invalid_action_indices)} invalid actions at indices {invalid_action_indices} "
+                    f"{context} rule '{rule_id}': "
+                    f"{len(invalid_action_indices)} invalid actions at indices {invalid_action_indices} "
                     f"(will be skipped during execution)"
                 )
 
             # Check policy
             if rule.policy and rule.policy.invalid:
-                logger.warning(f"{context} skip rule '{rid}': invalid policy configuration")
+                logger.warning(f"{context} skip rule '{rule_id}': invalid policy configuration")
                 continue
 
-            # Additional runtime validation
+            # Validate composite depth
             try:
-                # Ensure composite depth is within runtime limits (might be different from config limits)
                 depth = rule.composite.calculate_max_depth()
-                if depth > 15:  # More generous runtime limit
-                    logger.error(f"{context} skip rule '{rid}': composite depth ({depth}) exceeds runtime limit")
+                if depth > 15:
+                    logger.error(
+                        f"{context} skip rule '{rule_id}': " f"composite depth ({depth}) exceeds runtime limit"
+                    )
                     continue
             except Exception as e:
-                # Handle specific exceptions with more descriptive messages
-                if "Circular reference detected" in str(e):
-                    logger.error(f"{context} skip rule '{rid}': circular reference in composite structure")
-                elif "depth" in str(e).lower() and "exceed" in str(e).lower():
-                    logger.error(f"{context} skip rule '{rid}': composite depth exceeded limit")
+                error_msg = str(e)
+                if "Circular reference detected" in error_msg:
+                    logger.error(f"{context} skip rule '{rule_id}': circular reference in composite")
+                elif "depth" in error_msg.lower() and "exceed" in error_msg.lower():
+                    logger.error(f"{context} skip rule '{rule_id}': composite depth exceeded limit")
                 else:
-                    logger.error(f"{context} skip rule '{rid}': composite structure error - {str(e)}")
+                    logger.error(f"{context} skip rule '{rule_id}': composite structure error - {error_msg}")
                 continue
 
-            filtered_control_list.append(rule)
+            filtered.append(rule)
 
-        if not filtered_control_list:
-            return []
+        return filtered
 
-        # 3) Deduplicate by priority (keep the *last* one)
-        seen_priorities: set[int] = set()
-        deduped_reversed: list[ConditionSchema] = []
-        dropped_rules: list[tuple[int, str]] = []
+    def _deduplicate_by_priority(
+        self, rules: list[ConditionSchema], model: str, instance_id: str
+    ) -> list[ConditionSchema]:
+        """Deduplicate by priority (last-write-wins)."""
+        seen: set[int] = set()
+        deduplicated: list[ConditionSchema] = []
+        dropped: list[tuple[int, str]] = []
 
-        for rule in reversed(filtered_control_list):
-            priority: int = rule.priority
-            rule_identifier = rule.code or rule.name or "<unknown>"
-            if priority in seen_priorities:
-                dropped_rules.append((priority, rule_identifier))
-                continue
-            seen_priorities.add(priority)
-            deduped_reversed.append(rule)
+        # Reverse to keep last occurrence
+        for rule in reversed(rules):
+            priority = rule.priority if rule.priority is not None else 999
 
-        deduplicated_controls: list[ConditionSchema] = list(reversed(deduped_reversed))  # 4) restore order
+            if priority not in seen:
+                seen.add(priority)
+                deduplicated.append(rule)
+            else:
+                rule_id = rule.code or rule.name or "<unknown>"
+                dropped.append((priority, rule_id))
 
-        if dropped_rules:
+        # Restore original order
+        deduplicated.reverse()
+
+        # Log conflicts
+        if dropped:
             logger.error(
-                f"[{model}_{instance_id}] PRIORITY CONFLICT: "
-                f"instance controls override default controls at same priority. "
-                f"Dropped rules: {sorted(dropped_rules)}. "
-                f"To fix: use different priorities or set use_default_controls=false"
+                f"[{model}_{instance_id}] PRIORITY CONFLICT: " f"Dropped {len(dropped)} rule(s): {sorted(dropped)}"
             )
 
-        return deduplicated_controls
+        return deduplicated

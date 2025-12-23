@@ -254,7 +254,7 @@ class ControlExecutor:
                         target_name = REG_RW_ON_OFF
                     else:
                         target_name = "<unknown>"
-                except:
+                except Exception:
                     target_name = "<unknown>"
 
                 self.logger.warning(

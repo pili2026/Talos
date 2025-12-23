@@ -3,7 +3,7 @@ import re
 
 import yaml
 
-from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
+from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema, DeviceConfig
 
 
 class ConfigManager:
@@ -143,15 +143,35 @@ class ConfigManager:
         return out
 
     @staticmethod
+    def get_device_auto_turn_on(config: ConstraintConfigSchema, model: str, slave_id: int) -> bool:
+        """Get auto_turn_on setting with priority: instance > model > global."""
+        device_config: DeviceConfig | None = config.devices.get(model)
+
+        # Instance level
+        if device_config and device_config.instances:
+            instance = device_config.instances.get(str(slave_id))
+            if instance and instance.initialization and instance.initialization.auto_turn_on is not None:
+                return instance.initialization.auto_turn_on
+
+        # Model level
+        if device_config and device_config.initialization and device_config.initialization.auto_turn_on is not None:
+            return device_config.initialization.auto_turn_on
+
+        # Global level
+        if config.global_defaults and config.global_defaults.initialization:
+            return config.global_defaults.initialization.auto_turn_on or False
+
+        return False
+
+    @staticmethod
     def _parse_value_by_type(value: str) -> bool | int | float | str:
         if value.lower() in ["true", "false"]:
             return value.lower() == "true"
-        elif ConfigManager._is_int(value):
+        if ConfigManager._is_int(value):
             return int(value)
-        elif ConfigManager._is_float(value):
+        if ConfigManager._is_float(value):
             return float(value)
-        else:
-            return value
+        return value
 
     @staticmethod
     def _is_int(value: str) -> bool:
@@ -168,16 +188,3 @@ class ConfigManager:
             return True
         except ValueError:
             return False
-
-    # TODO: Maybe need move to a separate utility class
-    @staticmethod
-    def get_instance_constraints(config: dict, model: str, slave_id: int | str) -> dict:
-        model_config: dict = config.get(model, {})
-        default_constraints: dict = model_config.get("default_constraints", {})
-        instance_dict: dict = model_config.get("instances", {})
-        instance_config_per_device: dict = instance_dict.get(str(slave_id), {})
-
-        if instance_config_per_device.get("use_default_constraints") or "constraints" not in instance_config_per_device:
-            return default_constraints
-
-        return {**default_constraints, **instance_config_per_device["constraints"]}

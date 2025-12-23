@@ -18,7 +18,9 @@ Example:
 
 import logging
 from datetime import datetime
+from typing import Any
 
+from core.model.device_constant import DEFAULT_MISSING_VALUE
 from core.schema.virtual_device_schema import (
     AggregatedFieldConfig,
     AggregationMethod,
@@ -188,10 +190,7 @@ class VirtualDeviceManager:
         )
 
         # Compute target slave_id
-        target_slave_id: int = self._compute_target_slave_id(
-            virtual_device_config.target.slave_id,
-            source_device_id_list,
-        )
+        target_slave_id: int = self._compute_target_slave_id(virtual_device_config.target.slave_id)
 
         # Aggregate fields
         aggregated_values = {}
@@ -302,42 +301,23 @@ class VirtualDeviceManager:
 
         return sorted(source_device_ids)  # Sort for deterministic ordering
 
-    def _compute_target_slave_id(
-        self,
-        target_slave_id_config: str | int,
-        source_device_ids: list[str],
-    ) -> int:
-        """
-        Compute target slave_id for the virtual device.
-
-        Logic:
-        - If "auto" → max(all_devices_slave_ids) + 1 (across entire bus)
-        - If explicit integer → use that value
-
-        Args:
-            target_slave_id_config: "auto" or explicit integer
-            source_device_ids: List of source device IDs (unused but kept for API)
-
-        Returns:
-            Computed slave_id as integer
-        """
+    def _compute_target_slave_id(self, target_slave_id_config: str | int) -> int:
         if target_slave_id_config != "auto":
             return int(target_slave_id_config)
 
-        # Auto: max(all_devices_slave_ids) + 1
-        # Scan all devices in AsyncDeviceManager to find max slave_id
         max_slave_id = 0
-
         for device in self.device_manager.device_list:
-            max_slave_id: str | int = max(max_slave_id, device.slave_id)
+            try:
+                sid = int(device.slave_id)
+            except Exception:
+                continue
+            max_slave_id = max(max_slave_id, sid)
 
         computed_id = max_slave_id + 1
-
         logger.debug(
             f"[VirtualDeviceManager] Auto-computed target slave_id: {computed_id} "
             f"(max across all devices: {max_slave_id})"
         )
-
         return computed_id
 
     def _aggregate_field(
@@ -347,48 +327,46 @@ class VirtualDeviceManager:
         raw_snapshots: dict[str, dict],
         error_handling: ErrorHandling,
     ) -> float:
-        """
-        Aggregate a single field across source devices.
-
-        Args:
-            field_config: Field configuration (name, method)
-            source_device_ids: List of source device IDs
-            raw_snapshots: Raw snapshot data
-            error_handling: Error handling strategy
-
-        Returns:
-            Aggregated value, or -1 if failed
-        """
         field_name = field_config.name
         method = field_config.method
 
-        values = []
+        values: list[float] = []
         has_failure = False
 
-        # Collect values from all source devices
+        def _is_missing(v: Any) -> bool:
+            return v is None or v == DEFAULT_MISSING_VALUE or v == -1
+
         for device_id in source_device_ids:
             snapshot = raw_snapshots.get(device_id, {})
-            value = snapshot.get("values", {}).get(field_name, -1)
+            value = snapshot.get("values", {}).get(field_name, DEFAULT_MISSING_VALUE)
 
-            if value == -1:
+            if _is_missing(value):
                 has_failure = True
-                logger.warning(f"[VirtualDeviceManager] Field '{field_name}' read failed " f"from {device_id}")
+                logger.warning(f"[VirtualDeviceManager] Field '{field_name}' read failed from {device_id}")
 
                 if error_handling == ErrorHandling.FAIL_FAST:
                     logger.info(
                         f"[VirtualDeviceManager] Aggregation failed for '{field_name}' "
                         f"due to {device_id} failure (fail_fast mode)"
                     )
-                    return -1
-                # PARTIAL mode: continue with available values
-            else:
-                values.append(value)
+                    return DEFAULT_MISSING_VALUE
+                continue
+
+            # Ensure numeric
+            try:
+                values.append(float(value))
+            except Exception:
+                has_failure = True
+                logger.warning(
+                    f"[VirtualDeviceManager] Field '{field_name}' non-numeric value from {device_id}: {value}"
+                )
+                if error_handling == ErrorHandling.FAIL_FAST:
+                    return DEFAULT_MISSING_VALUE
 
         if not values:
-            logger.warning(f"[VirtualDeviceManager] No valid values for '{field_name}', " f"returning -1")
-            return -1
+            logger.warning(f"[VirtualDeviceManager] No valid values for '{field_name}', returning missing")
+            return DEFAULT_MISSING_VALUE
 
-        # Perform aggregation based on method
         try:
             match method:
                 case AggregationMethod.SUM:
@@ -401,7 +379,7 @@ class VirtualDeviceManager:
                     result = min(values)
                 case _:
                     logger.error(f"[VirtualDeviceManager] Unknown aggregation method: {method}")
-                    return -1
+                    return DEFAULT_MISSING_VALUE
 
             if has_failure and error_handling == ErrorHandling.PARTIAL:
                 logger.info(
@@ -409,11 +387,11 @@ class VirtualDeviceManager:
                     f"{result:.2f} from {len(values)}/{len(source_device_ids)} devices"
                 )
 
-            return result
+            return float(result)
 
         except Exception as e:
-            logger.error(f"[VirtualDeviceManager] Aggregation failed for '{field_name}': {e}")
-            return -1
+            logger.error(f"[VirtualDeviceManager] Aggregation failed for '{field_name}': {e}", exc_info=True)
+            return DEFAULT_MISSING_VALUE
 
     def _calculate_power_factor(
         self,

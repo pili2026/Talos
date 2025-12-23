@@ -101,19 +101,10 @@ class WebSocketDeviceSession:
         await self.manager.connect(self.websocket)
 
         try:
+            # Soft gate: do not reject solely by cached health.
             if self.health_manager and not self.health_manager.is_healthy(self.device_id):
-                await self.websocket.send_json(
-                    MessageBuilder.error(
-                        code="DEVICE_UNHEALTHY",
-                        message=(
-                            f"Device {self.device_id} is currently offline or unhealthy. "
-                            "Please check device status and try again later."
-                        ),
-                    )
-                )
-                await self.websocket.close(code=1003)
-                logger.warning(f"[WebSocket] Rejected connection to unhealthy device: {self.device_id}")
-                return
+                st = self.health_manager.get_status(self.device_id)
+                logger.warning(f"[WebSocket] cached unhealthy, will re-test: device_id={self.device_id}, st={st}")
 
             await self.websocket.send_json(
                 MessageBuilder.connection_status(
@@ -132,6 +123,7 @@ class WebSocketDeviceSession:
                 device_id=self.device_id,
                 test_parameters=param_list,
             )
+
             if not is_online:
                 await self.websocket.send_json(
                     MessageBuilder.connection_status(
@@ -151,9 +143,6 @@ class WebSocketDeviceSession:
             if self.health_manager:
                 await self.health_manager.mark_success(self.device_id)
 
-            if not await self._test_connection(param_list):
-                return
-
             actual_interval: float = interval or self.monitoring_config.default_single_device_interval
 
             await self.websocket.send_json(
@@ -171,10 +160,8 @@ class WebSocketDeviceSession:
 
         except WebSocketDisconnect:
             logger.info(f"[{self.device_id}] WebSocket disconnected")
-
         except Exception as e:
             logger.error(f"[{self.device_id}] Session error: {e}", exc_info=True)
-
         finally:
             self.manager.disconnect(self.websocket)
 

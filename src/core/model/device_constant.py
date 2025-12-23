@@ -1,4 +1,6 @@
-REG_RW_ON_OFF = "RW_ON_OFF"
+REG_RW_ON_OFF = (
+    "RW_ON_OFF"  # Already Added in device_constant_enums.py, kept here for completeness, can be removed later if needed
+)
 HI_SHIFT, MD_SHIFT = 32, 16
 DEFAULT_MISSING_VALUE = -1
 
@@ -6,6 +8,8 @@ DEFAULT_MISSING_VALUE = -1
 INVERTER_STATUS_OFFLINE_CODE = 9
 INVERTER_OFFLINE_PROBE_KEYS = ("KWH", "VOLTAGE", "CURRENT", "KW", "HZ")
 
+INVALID_U16_SENTINEL = 0xFFFF  # 16-bit invalid value (65535)
+INVALID_U32_SENTINEL = 0xFFFFFFFF  # 32-bit invalid value (future use)
 
 # Power Meter Field Definitions
 POWER_METER_FIELDS = {

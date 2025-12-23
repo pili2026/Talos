@@ -32,7 +32,7 @@ class TimeControlEvaluator:
         """Return whether the current time (with timezone) is within allowed intervals."""
         schedule, tz = self._resolve_schedule_and_tz(device_id)
         if schedule is None:
-            logger.info(f"[TimeControlEvaluator] No config for {device_id}, no working time limit.")
+            logger.debug(f"[TimeControlEvaluator] No config for {device_id}, no working time limit.")
             return True
 
         local_now = (now or datetime.now(self._default_tz)).astimezone(tz)

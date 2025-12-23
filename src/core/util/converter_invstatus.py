@@ -1,3 +1,6 @@
+from core.model.device_constant import INVALID_U16_SENTINEL
+
+
 def to_int_or_none(value) -> int | None:
     """
     Attempt to convert the input into an integer; return None if conversion fails.
@@ -14,7 +17,7 @@ def u16_to_hex(u16: int | None) -> str | None:
     Format the value as a 16-bit hexadecimal string (e.g., 0x02C5).
     Return None if the input is None.
     """
-    return f"0x{(u16 & 0xFFFF):04X}" if u16 is not None else None
+    return f"0x{(u16 & INVALID_U16_SENTINEL):04X}" if u16 is not None else None
 
 
 def u16_to_bit_flags(u16: int | None) -> dict[str, bool]:
@@ -22,7 +25,7 @@ def u16_to_bit_flags(u16: int | None) -> dict[str, bool]:
     Expand the value into 16 bit-flags (bit0..bit15 → True/False).
     Treat None as 0.
     """
-    v = (u16 or 0) & 0xFFFF
+    v = (u16 or 0) & INVALID_U16_SENTINEL
     return {f"bit{i}": bool((v >> i) & 1) for i in range(16)}
 
 

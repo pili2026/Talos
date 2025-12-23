@@ -72,13 +72,13 @@ class ModbusBus:
 
             # CRITICAL: Clear buffer BEFORE request
             buffer_cleared = self._try_clear_receive_buffer()
-            logger.info(f"[DEBUG][Bus][Slave {self.slave_id}] Buffer clear result: {buffer_cleared}")
+            logger.debug(f"[DEBUG][Bus][Slave {self.slave_id}] Buffer clear result: {buffer_cleared}")
 
             # Small delay to let buffer clear propagate
             await asyncio.sleep(0.01)  # 10ms
 
             try:
-                logger.info(
+                logger.debug(
                     f"[DEBUG][Bus][Slave {self.slave_id}] Sending request: "
                     f"type={self.register_type}, offset={offset}, count={count}"
                 )
@@ -98,7 +98,7 @@ class ModbusBus:
                     logger.error(f"[Bus] Unsupported register type for read_regs: {self.register_type}")
                     return [DEFAULT_MISSING_VALUE] * count
 
-                logger.info(
+                logger.debug(
                     f"[DEBUG][Bus][Slave {self.slave_id}] <<< Received response: "
                     f"isError={resp.isError()}, type={type(resp).__name__}"
                 )
@@ -113,7 +113,7 @@ class ModbusBus:
                     regs = None
 
                 if isinstance(regs, list) and len(regs) >= count:
-                    logger.info(
+                    logger.debug(
                         f"[DEBUG][Bus][Slave {self.slave_id}] Success: got {len(regs)} registers, "
                         f"values={regs[:min(5, len(regs))]}"  # Log first 5 values
                     )

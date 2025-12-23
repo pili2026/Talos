@@ -32,7 +32,7 @@ async def startup_event(app: FastAPI) -> None:
             logger.info("=" * 60)
             logger.info("UNIFIED MODE DETECTED")
             logger.info("=" * 60)
-            logger.info(f"State: {app.state.talos}")
+            logger.debug(f"State: {app.state.talos}")
 
             # Verify required components
             if app.state.talos.constraint_schema is None:
@@ -92,7 +92,7 @@ async def startup_event(app: FastAPI) -> None:
         app.state.talos.snapshot_config_path = str(snapshot_config_path)
 
         logger.info("Snapshot config loaded")
-        logger.info(f"State: {app.state.talos}")
+        logger.debug(f"State: {app.state.talos}")
         logger.info("=" * 60)
         logger.info("API startup completed (STANDALONE MODE)")
         logger.info("=" * 60)

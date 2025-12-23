@@ -1,13 +1,5 @@
 version: "0.1.5.0"
 
-# YUXIN Field
-# Sensor device: SD400 slave_id 8 (IOGroup_2)
-# AIn01: Pin 1 - 壓差
-# AIn02: Pin 2 - 冰水出水溫度 (Chilled Water Supply)
-# AIn03: Pin 3 - 冰水回水溫度 (Chilled Water Return)
-# AIn04: Pin 4 - 冷卻水入水溫度 (Cooling Water Inlet)
-# AIn05: Pin 5 - 冷卻水出水溫度 (Cooling Water Outlet)
-# AIn07: Pin 7 - 濕球溫度 (Wet Bulb Temperature)
 
 SD400:
   default_controls: []
@@ -270,3 +262,32 @@ SD400:
               slave_id: "6"
               type: adjust_frequency
               target: RW_HZ
+
+TECO_VFD:
+  instances:
+    "7":
+      use_default_controls: false
+      controls:
+        - name: "VFD Low Frequency Auto Start"
+          code: "VFD_LOW_FREQ_START"
+          priority: 80
+          composite:
+            any:
+              - type: threshold
+                sources: [HZ]      
+                operator: lt
+                threshold: 29.0
+                hysteresis: 1.0
+                debounce_sec: 5.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "7"
+              type: turn_on
+              target: RW_ON_OFF
+            - model: TECO_VFD
+              slave_id: "7"
+              type: set_frequency
+              target: RW_HZ
+              value: 60.0

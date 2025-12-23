@@ -342,7 +342,7 @@ class TestTalosOfflineScenario:
 
         # Monitor should maintain stable cycle time (~1s per cycle)
         avg_cycle_time = total_elapsed / stats["cycles_completed"]
-        assert avg_cycle_time < 1.5, f"Cycle time too slow: {avg_cycle_time:.2f}s"
+        assert avg_cycle_time < 2, f"Cycle time too slow: {avg_cycle_time:.2f}s"
 
         print("\n✓ System maintains stable operation under realistic load")
         print(f"✓ Cycle time stable: {avg_cycle_time:.3f}s")

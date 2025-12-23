@@ -28,6 +28,8 @@ class SubscribersConfig(BaseModel):
     ALERT_NOTIFIERS: bool = Field(default=True)
     CONTROL: bool = Field(default=True)
     DATA_SENDER: bool = Field(default=True)
+    INITIALIZATION: bool = Field(default=True)
+    SNAPSHOT_SAVER: bool = Field(default=True)
 
     def __getitem__(self, key: str) -> bool:
         return getattr(self, key, True)

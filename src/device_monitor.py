@@ -126,19 +126,15 @@ class AsyncDeviceMonitor:
             logger.debug(f"[Monitor] Processing {len(port_devices)} devices on port {port}")
 
             for i, d in enumerate(port_devices):
-                # Put device in queue
                 await self._queue.put((d, should_recover, result_map))
-
-                # Wait for this device to complete
                 await self._queue.join()
 
-                # Add delay between devices on same port
-                # Skip delay after last device
                 if i < len(port_devices) - 1:
-                    await asyncio.sleep(0.15)  # 150ms delay
+                    await asyncio.sleep(0.15)
 
-        await self._process_virtual_devices(list(result_map.values()))
-        return list(result_map.values())
+        snapshots: list[dict[str, Any]] = list(result_map.values())
+        await self._process_virtual_devices(snapshots)
+        return snapshots
 
     async def _reader_worker(self, worker_id: int) -> None:
         while True:

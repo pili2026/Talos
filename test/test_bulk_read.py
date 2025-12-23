@@ -1,102 +1,143 @@
+import asyncio
+import logging
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 
-from core.device.generic.generic_device import AsyncGenericModbusDevice, BulkRange
+from core.device.generic.generic_device import AsyncGenericModbusDevice
+from core.device.modbus.bulk_reader import BulkRange, ModbusBulkReader
 from core.model.device_constant import DEFAULT_MISSING_VALUE
-from core.util.value_decoder import ValueDecoder
 
-pytestmark = pytest.mark.asyncio
-
-
-class FakeComputedFieldProcessor:
-    """Stub: keep interface used by read_all()."""
-
-    def __init__(self, register_map: dict):
-        self._register_map = register_map
-        self._enabled = True
-
-    def has_computed_fields(self) -> bool:
-        return self._enabled
-
-    def compute(self, values: dict):
-        # example: add computed field if inputs exist
-        if (
-            "A" in values
-            and "B" in values
-            and values["A"] != DEFAULT_MISSING_VALUE
-            and values["B"] != DEFAULT_MISSING_VALUE
-        ):
-            values["A_plus_B"] = values["A"] + values["B"]
-        return values
+# ==================== Helper functions ====================
 
 
-class FakeScaleService:
-    async def get_factor(self, kind: str, index_reader):
-        return 1.0
+def _make_device_for_test(register_map: dict) -> AsyncGenericModbusDevice:
+    """Create a minimal AsyncGenericModbusDevice for testing."""
+    mock_client = Mock()
+    mock_lock = asyncio.Lock()
 
-
-class FakeHookManager:
-    def on_write(self, name: str, cfg: dict):
-        return None
-
-
-class FakeBus:
-    """
-    Fake ModbusBus for unit tests.
-    It supports:
-      - ensure_connected()
-      - read_regs(start, count)
-    """
-
-    def __init__(self, *, connected=True, regs_by_range=None, raise_on=None):
-        self._connected = connected
-        self._regs_by_range = regs_by_range or {}  # {(start,count): [regs...]}
-        self._raise_on = set(raise_on or [])  # {(start,count)}
-
-    async def ensure_connected(self) -> bool:
-        return bool(self._connected)
-
-    async def read_regs(self, start: int, count: int):
-        key = (int(start), int(count))
-        if key in self._raise_on:
-            raise TimeoutError(f"fake bulk read timeout: {key}")
-        if key not in self._regs_by_range:
-            # Simulate device returned insufficient data
-            return [DEFAULT_MISSING_VALUE] * count
-        return list(self._regs_by_range[key])
-
-
-def _make_device_for_test(register_map: dict):
-    """
-    Build AsyncGenericModbusDevice without hitting real pymodbus client.
-    We instantiate and then patch internal collaborators (bus, scales, hooks, computed).
-    """
-    # client can be None because we won't use it after we patch bus
     device = AsyncGenericModbusDevice(
         model="TEST_MODEL",
-        client=None,  # patched
+        client=mock_client,
         slave_id=1,
         register_type="holding",
-        register_map=dict(register_map),
-        device_type="test_device",
-        port="/dev/null",
-        port_lock=None,
-        table_dict={},
-        mode_dict={},
-        write_hooks=[],
-        constraint_policy=None,
+        register_map=register_map,
+        device_type="test",
+        port="/dev/ttyUSB0",
+        port_lock=mock_lock,
     )
-
-    # Patch collaborators to avoid depending on their real implementations
-    device.scales = FakeScaleService()
-    device.hooks = FakeHookManager()
-    device.decoder = ValueDecoder()
-
-    # Patch computed processor
-    device.computed_processor = FakeComputedFieldProcessor(device.register_map)
     return device
 
 
+def _make_bulk_reader(register_map: dict, default_register_type: str = "holding") -> ModbusBulkReader:
+    """Create a ModbusBulkReader for testing."""
+
+    logger = logging.getLogger("test")
+    return ModbusBulkReader(register_map, default_register_type, logger)
+
+
+# ==================== Tests for ModbusBulkReader ====================
+
+
+def test_build_bulk_ranges_empty_register_map():
+    """Test with empty register map."""
+    reader = _make_bulk_reader({})
+    ranges = reader.build_bulk_ranges()
+    assert ranges == []
+
+
+def test_build_bulk_ranges_no_eligible_pins():
+    """Test with no bulk-eligible pins."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": False},  # not readable
+        "B": {"offset": 1, "format": "u16", "writable": True},  # no readable flag
+        "C": {"offset": 2, "format": "u16", "readable": True, "register_type": "coil"},  # coil not eligible
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+    assert ranges == []
+
+
+def test_build_bulk_ranges_single_contiguous_range():
+    """Test building a single contiguous range."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True},
+        "C": {"offset": 2, "format": "u16", "readable": True},
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+
+    assert len(ranges) == 1
+    r = ranges[0]
+    assert r.register_type == "holding"
+    assert r.start == 0
+    assert r.count == 3
+    assert len(r.items) == 3
+    assert [name for name, cfg in r.items] == ["A", "B", "C"]
+
+
+def test_build_bulk_ranges_non_contiguous():
+    """Test splitting ranges when offsets are non-contiguous."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True},
+        "C": {"offset": 10, "format": "u16", "readable": True},  # gap
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+
+    assert len(ranges) == 2
+    # First range
+    assert ranges[0].start == 0
+    assert ranges[0].count == 2
+    assert [name for name, cfg in ranges[0].items] == ["A", "B"]
+    # Second range
+    assert ranges[1].start == 10
+    assert ranges[1].count == 1
+    assert [name for name, cfg in ranges[1].items] == ["C"]
+
+
+def test_build_bulk_ranges_multi_word_format():
+    """Test handling multi-word formats (u32, f32)."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},  # 1 word
+        "B": {"offset": 1, "format": "u32", "readable": True},  # 2 words (offset 1-2)
+        "C": {"offset": 3, "format": "f32", "readable": True},  # 2 words (offset 3-4)
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+
+    assert len(ranges) == 1
+    r = ranges[0]
+    assert r.start == 0
+    assert r.count == 5  # 1 + 2 + 2 = 5 words total
+    assert len(r.items) == 3
+
+
+def test_build_bulk_ranges_different_register_types():
+    """Test splitting ranges when register types differ."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True, "register_type": "holding"},
+        "B": {"offset": 1, "format": "u16", "readable": True, "register_type": "holding"},
+        "C": {"offset": 2, "format": "u16", "readable": True, "register_type": "input"},
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+
+    assert len(ranges) == 2
+    # Holding range
+    assert ranges[0].register_type == "holding"
+    assert ranges[0].start == 0
+    assert ranges[0].count == 2
+    # Input range
+    assert ranges[1].register_type == "input"
+    assert ranges[1].start == 2
+    assert ranges[1].count == 1
+
+
 def test_build_bulk_ranges_contiguous_and_split_by_max_regs():
+    """Test splitting contiguous ranges when exceeding max_regs_per_req."""
     register_map = {
         # eligible holding pins, contiguous offsets
         "A": {"offset": 0, "format": "u16", "readable": True},
@@ -105,139 +146,219 @@ def test_build_bulk_ranges_contiguous_and_split_by_max_regs():
         # eligible but non-contiguous
         "D": {"offset": 10, "format": "u16", "readable": True},
     }
-    dev = _make_device_for_test(register_map)
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges(max_regs_per_req=3)
 
-    ranges = dev._build_bulk_ranges(max_regs_per_req=3)
-    # Expect:
-    # - A,B,C merged into one range (0..3)
-    # - D alone into another range (10..11)
+    # Should get 2 ranges: [A,B,C] and [D]
+    # Even though A,B,C are contiguous, if we set max=2, it would split further
     assert len(ranges) == 2
-
-    r0 = ranges[0]
-    assert isinstance(r0, BulkRange)
-    assert r0.start == 0
-    assert r0.count == 3
-    assert [name for name, _ in r0.items] == ["A", "B", "C"]
-
-    r1 = ranges[1]
-    assert r1.start == 10
-    assert r1.count == 1
-    assert [name for name, _ in r1.items] == ["D"]
+    assert ranges[0].count == 3
+    assert ranges[1].count == 1
 
 
-def test_build_bulk_ranges_split_by_register_type():
+def test_build_bulk_ranges_split_when_exceeding_max():
+    """Test splitting when contiguous range exceeds max_regs_per_req."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True},
+        "C": {"offset": 2, "format": "u16", "readable": True},
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges(max_regs_per_req=2)
+
+    # Should split: [A,B] and [C]
+    assert len(ranges) == 2
+    assert ranges[0].start == 0
+    assert ranges[0].count == 2
+    assert [name for name, cfg in ranges[0].items] == ["A", "B"]
+
+    assert ranges[1].start == 2
+    assert ranges[1].count == 1
+    assert [name for name, cfg in ranges[1].items] == ["C"]
+
+
+def test_build_bulk_ranges_exclude_composed_of():
+    """Test that pins with composed_of are excluded from bulk read."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True, "composed_of": ["HI", "MD", "LO"]},
+        "C": {"offset": 2, "format": "u16", "readable": True},
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+
+    # B should be excluded, so we get two separate ranges
+    assert len(ranges) == 2
+    assert [name for name, cfg in ranges[0].items] == ["A"]
+    assert [name for name, cfg in ranges[1].items] == ["C"]
+
+
+def test_build_bulk_ranges_exclude_scale_from():
+    """Test that pins with scale_from are excluded from bulk read."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True, "scale_from": "voltage_index"},
+        "C": {"offset": 2, "format": "u16", "readable": True},
+    }
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
+
+    # B should be excluded
+    assert len(ranges) == 2
+    assert [name for name, cfg in ranges[0].items] == ["A"]
+    assert [name for name, cfg in ranges[1].items] == ["C"]
+
+
+def test_build_bulk_ranges_exclude_coil_and_discrete_input():
+    """Test that coil and discrete_input pins are excluded."""
     register_map = {
         "A": {"offset": 0, "format": "u16", "readable": True, "register_type": "holding"},
-        "B": {"offset": 1, "format": "u16", "readable": True, "register_type": "holding"},
-        "X": {"offset": 0, "format": "u16", "readable": True, "register_type": "input"},
-        "Y": {"offset": 1, "format": "u16", "readable": True, "register_type": "input"},
+        "B": {"offset": 1, "format": "u16", "readable": True, "register_type": "coil"},
+        "C": {"offset": 2, "format": "u16", "readable": True, "register_type": "discrete_input"},
+        "D": {"offset": 3, "format": "u16", "readable": True, "register_type": "holding"},
     }
-    dev = _make_device_for_test(register_map)
+    reader = _make_bulk_reader(register_map)
+    ranges = reader.build_bulk_ranges()
 
-    ranges = dev._build_bulk_ranges(max_regs_per_req=120)
-    # Expect 2 ranges, each grouped by register_type and contiguous offsets
+    # Only A and D should be included, but they're not contiguous
     assert len(ranges) == 2
-    assert {r.register_type for r in ranges} == {"holding", "input"}
-
-    holding = next(r for r in ranges if r.register_type == "holding")
-    assert holding.start == 0 and holding.count == 2
-    assert [n for n, _ in holding.items] == ["A", "B"]
-
-    input_r = next(r for r in ranges if r.register_type == "input")
-    assert input_r.start == 0 and input_r.count == 2
-    assert [n for n, _ in input_r.items] == ["X", "Y"]
+    assert [name for name, cfg in ranges[0].items] == ["A"]
+    assert [name for name, cfg in ranges[1].items] == ["D"]
 
 
-async def test_read_all_bulk_success_maps_values_and_applies_post_process():
+# ==================== Tests for process_bulk_range_result ====================
+
+
+def test_process_bulk_range_result_simple():
+    """Test processing bulk read results."""
     register_map = {
-        # Bulk eligible holding pins
-        "A": {"offset": 0, "format": "u16", "readable": True},
-        # with scale + precision
-        "B": {"offset": 1, "format": "u16", "readable": True, "scale": 0.1, "precision": 1},
-        # fallback pin (coil not bulk eligible)
-        "C_COIL": {"offset": 5, "readable": True, "register_type": "coil"},
+        "A": {"offset": 0, "format": "u16", "readable": True, "scale": 1.0},
+        "B": {"offset": 1, "format": "u16", "readable": True, "scale": 0.1},
     }
-    dev = _make_device_for_test(register_map)
+    reader = _make_bulk_reader(register_map)
 
-    # Patch bus and per-pin bus cache:
-    # Bulk range should be (start=0,count=2) -> regs [100, 1234]
-    dev.bus = FakeBus(connected=True, regs_by_range={(0, 2): [100, 1234]})
-    dev._bus_cache = {"holding": dev.bus}
+    bulk_range = BulkRange(
+        register_type="holding", start=0, count=2, items=[("A", register_map["A"]), ("B", register_map["B"])]
+    )
 
-    # Patch read_value for coil fallback
-    async def _fake_read_value(name: str):
-        if name == "C_COIL":
-            return 1
-        return DEFAULT_MISSING_VALUE
+    registers = [100, 200]
 
-    dev.read_value = _fake_read_value  # type: ignore[method-assign]
+    def mock_is_invalid(cfg, words):
+        return False
 
-    values = await dev.read_all()
+    result = reader.process_bulk_range_result(bulk_range, registers, mock_is_invalid)
 
-    assert values["A"] == 100
-    # B: 1234 * scale(0.1) = 123.4 rounded to 1 decimal
-    assert values["B"] == 123.4
-    # coil fallback
-    assert values["C_COIL"] == 1
+    assert result["A"] == 100.0  # 100 * 1.0
+    assert result["B"] == 20.0  # 200 * 0.1
 
 
-async def test_read_all_bulk_range_failure_sets_range_pins_missing_and_fallback_still_runs():
-    register_map = {
-        # Bulk eligible pins (same range)
-        "A": {"offset": 0, "format": "u16", "readable": True},
-        "B": {"offset": 1, "format": "u16", "readable": True},
-        # Fallback pin (discrete_input not bulk eligible)
-        "DI": {"offset": 7, "readable": True, "register_type": "discrete_input"},
-    }
-    dev = _make_device_for_test(register_map)
-
-    # Bulk read fails for (0,2)
-    dev.bus = FakeBus(connected=True, regs_by_range={}, raise_on={(0, 2)})
-    dev._bus_cache = {"holding": dev.bus}
-
-    async def _fake_read_value(name: str):
-        if name == "DI":
-            return 0
-        return DEFAULT_MISSING_VALUE
-
-    dev.read_value = _fake_read_value  # type: ignore[method-assign]
-
-    values = await dev.read_all()
-
-    assert values["A"] == DEFAULT_MISSING_VALUE
-    assert values["B"] == DEFAULT_MISSING_VALUE
-    # fallback still runs
-    assert values["DI"] == 0
-
-
-async def test_read_all_when_bus_offline_returns_default_offline_snapshot():
-    register_map = {
-        "A": {"offset": 0, "format": "u16", "readable": True},
-        "B": {"offset": 1, "format": "u16", "readable": True},
-        "X": {"offset": 5, "readable": False},  # unreadable should NOT appear
-    }
-    dev = _make_device_for_test(register_map)
-
-    dev.bus = FakeBus(connected=False)
-    dev._bus_cache = {"holding": dev.bus}
-
-    values = await dev.read_all()
-
-    assert values == {"A": DEFAULT_MISSING_VALUE, "B": DEFAULT_MISSING_VALUE}
-
-
-async def test_read_all_computed_fields_applied():
+def test_process_bulk_range_result_with_invalid_raw():
+    """Test processing with invalid raw values."""
     register_map = {
         "A": {"offset": 0, "format": "u16", "readable": True},
         "B": {"offset": 1, "format": "u16", "readable": True},
     }
-    dev = _make_device_for_test(register_map)
+    reader = _make_bulk_reader(register_map)
 
-    dev.bus = FakeBus(connected=True, regs_by_range={(0, 2): [10, 20]})
-    dev._bus_cache = {"holding": dev.bus}
+    bulk_range = BulkRange(
+        register_type="holding", start=0, count=2, items=[("A", register_map["A"]), ("B", register_map["B"])]
+    )
 
-    values = await dev.read_all()
+    registers = [65535, 200]  # 65535 is invalid sentinel
 
-    assert values["A"] == 10
-    assert values["B"] == 20
-    assert values["A_plus_B"] == 30
+    def mock_is_invalid(cfg, words):
+        # Return True if first word is 65535
+        return words[0] == 65535
+
+    result = reader.process_bulk_range_result(bulk_range, registers, mock_is_invalid)
+
+    assert result["A"] == DEFAULT_MISSING_VALUE  # Invalid
+    assert result["B"] == 200  # Valid
+
+
+def test_process_bulk_range_result_multi_word():
+    """Test processing multi-word formats."""
+    register_map = {
+        "A": {"offset": 0, "format": "u32", "readable": True},  # 2 words
+    }
+    reader = _make_bulk_reader(register_map)
+
+    bulk_range = BulkRange(register_type="holding", start=0, count=2, items=[("A", register_map["A"])])
+
+    # u32 big-endian: [high_word, low_word]
+    registers = [0x0001, 0x0002]  # Should decode to 65538
+
+    def mock_is_invalid(cfg, words):
+        return False
+
+    result = reader.process_bulk_range_result(bulk_range, registers, mock_is_invalid)
+
+    # The decoder will handle this - just check it's not -1
+    assert result["A"] != DEFAULT_MISSING_VALUE
+
+
+def test_process_bulk_range_result_with_precision():
+    """Test processing with precision rounding."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True, "scale": 0.1, "precision": 2},
+    }
+    reader = _make_bulk_reader(register_map)
+
+    bulk_range = BulkRange(register_type="holding", start=0, count=1, items=[("A", register_map["A"])])
+
+    registers = [123]  # 123 * 0.1 = 12.3
+
+    def mock_is_invalid(cfg, words):
+        return False
+
+    result = reader.process_bulk_range_result(bulk_range, registers, mock_is_invalid)
+
+    assert result["A"] == 12.3
+
+
+# ==================== Integration tests with AsyncGenericModbusDevice ====================
+
+
+def test_device_bulk_reader_integration():
+    """Test that device properly initializes and uses bulk_reader."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True},
+    }
+    device = _make_device_for_test(register_map)
+
+    # Check that bulk_reader is initialized
+    assert device.bulk_reader is not None
+    assert isinstance(device.bulk_reader, ModbusBulkReader)
+
+    # Check that it can build ranges
+    ranges = device.bulk_reader.build_bulk_ranges()
+    assert len(ranges) == 1
+    assert ranges[0].count == 2
+
+
+@pytest.mark.asyncio
+async def test_device_read_all_uses_bulk_reader():
+    """Test that read_all properly uses bulk_reader."""
+    register_map = {
+        "A": {"offset": 0, "format": "u16", "readable": True},
+        "B": {"offset": 1, "format": "u16", "readable": True},
+    }
+    device = _make_device_for_test(register_map)
+
+    # Mock the bus to return success
+    device.bus.ensure_connected = AsyncMock(return_value=True)
+    device.bus.read_regs = AsyncMock(return_value=[100, 200])
+
+    result = await device.read_all()
+
+    # Should have called read_regs once for the bulk range
+    device.bus.read_regs.assert_called_once()
+
+    # Check results
+    assert result["A"] == 100
+    assert result["B"] == 200
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

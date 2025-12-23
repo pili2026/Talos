@@ -2,6 +2,7 @@ import math
 
 import pytest
 
+from core.model.device_constant import INVALID_U16_SENTINEL
 from core.util.value_decoder import ValueDecoder
 
 
@@ -48,4 +49,4 @@ def test_f32_le():
 def test_u16_and_i16():
     assert ValueDecoder.decode_registers("u16", [0xABCD]) == 0xABCD
     assert ValueDecoder.decode_registers("uint16", [0xABCD]) == 0xABCD
-    assert ValueDecoder.decode_registers("i16", [0xFFFF]) == -1
+    assert ValueDecoder.decode_registers("i16", [INVALID_U16_SENTINEL]) == -1

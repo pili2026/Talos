@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class InitializationConfig(BaseModel):
     startup_frequency: float | None = Field(None, description="Device startup frequency in Hz")
+    auto_turn_on: bool = Field(default=False, description="Turn on device on recovered (offline->online)")
 
 
 class ConstraintConfig(BaseModel):

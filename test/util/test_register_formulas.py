@@ -1,5 +1,6 @@
 """Tests for register combination formulas."""
 
+from core.model.device_constant import INVALID_U16_SENTINEL
 from core.util.register_formula import (
     combine_32bit_be,
     combine_32bit_le,
@@ -16,7 +17,7 @@ class TestCombine32BitBE:
         assert combine_32bit_be(1, 34463) == 99999
 
     def test_when_be_words_are_max_then_combined_value_is_uint32_max(self):
-        assert combine_32bit_be(0xFFFF, 0xFFFF) == 4294967295
+        assert combine_32bit_be(INVALID_U16_SENTINEL, INVALID_U16_SENTINEL) == 4294967295
 
     def test_when_float_inputs_provided_then_casted_and_combined_correctly(self):
         """Test that float inputs are properly converted to int."""
@@ -37,7 +38,7 @@ class TestCombine32BitLE:
         assert combine_32bit_le(34463, 1) == 99999
 
     def test_when_le_words_are_max_then_combined_value_is_uint32_max(self):
-        assert combine_32bit_le(0xFFFF, 0xFFFF) == 4294967295
+        assert combine_32bit_le(INVALID_U16_SENTINEL, INVALID_U16_SENTINEL) == 4294967295
 
     def test_when_float_inputs_provided_then_casted_and_combined_correctly(self):
         """Test that float inputs are properly converted to int."""
@@ -57,11 +58,11 @@ class TestCombine32BitSignedBE:
         assert combine_32bit_signed_be(1, 34463) == 99999
 
     def test_when_be_signed_words_form_negative_value_then_interprets_two_complement_correctly(self):
-        assert combine_32bit_signed_be(0xFFFF, 0xFFFF) == -1
-        assert combine_32bit_signed_be(0xFFFF, 0xFFFE) == -2
+        assert combine_32bit_signed_be(INVALID_U16_SENTINEL, INVALID_U16_SENTINEL) == -1
+        assert combine_32bit_signed_be(INVALID_U16_SENTINEL, 0xFFFE) == -2
 
     def test_when_be_signed_words_at_boundary_then_returns_int32_limits(self):
-        assert combine_32bit_signed_be(0x7FFF, 0xFFFF) == 2147483647  # Max positive
+        assert combine_32bit_signed_be(0x7FFF, INVALID_U16_SENTINEL) == 2147483647  # Max positive
         assert combine_32bit_signed_be(0x8000, 0x0000) == -2147483648  # Min negative
 
 
@@ -73,8 +74,8 @@ class TestCombine32BitSignedLE:
         assert combine_32bit_signed_le(34463, 1) == 99999
 
     def test_when_le_signed_words_form_negative_value_then_interprets_two_complement_correctly(self):
-        assert combine_32bit_signed_le(0xFFFF, 0xFFFF) == -1
-        assert combine_32bit_signed_le(0xFFFE, 0xFFFF) == -2
+        assert combine_32bit_signed_le(INVALID_U16_SENTINEL, INVALID_U16_SENTINEL) == -1
+        assert combine_32bit_signed_le(0xFFFE, INVALID_U16_SENTINEL) == -2
 
 
 class TestRealWorldScenarios:

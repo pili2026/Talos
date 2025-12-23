@@ -95,7 +95,7 @@ class AlertEvaluator:
         model_alerts: dict[str, list[AlertConditionModel]] = self.device_alert_dict.get(model, {})
         alert_list: list[AlertConditionModel] | None = model_alerts.get(slave_id)
         if not alert_list:
-            logger.info(f"No alert config for device_id: {device_id}")
+            logger.debug(f"No alert config for device_id: {device_id}")
             return result_list
 
         for alert in alert_list:
