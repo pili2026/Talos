@@ -1,4 +1,5 @@
 from core.schema.sender_schema import SenderSchema
+from core.schema.system_config_schema import SystemConfig
 from core.sender.legacy.legacy_handler import LegacySnapshotHandler
 from core.sender.legacy.legacy_sender import LegacySenderAdapter
 from core.util.config_manager import ConfigManager
@@ -8,7 +9,11 @@ from device_manager import AsyncDeviceManager
 
 
 def build_sender_subscriber(
-    pubsub: PubSub, sender_config_path: str, async_device_manager: AsyncDeviceManager, series_number: int
+    pubsub: PubSub,
+    sender_config_path: str,
+    async_device_manager: AsyncDeviceManager,
+    series_number: int,
+    system_config: SystemConfig,
 ) -> tuple[LegacySenderAdapter, SenderSubscriber]:
     raw = ConfigManager.load_yaml_file(sender_config_path)
 
@@ -16,7 +21,10 @@ def build_sender_subscriber(
     sender_schema.ensure_paths()
 
     legacy_sender = LegacySenderAdapter(
-        sender_config_schema=sender_schema, device_manager=async_device_manager, series_number=series_number
+        sender_config_schema=sender_schema,
+        device_manager=async_device_manager,
+        series_number=series_number,
+        system_config=system_config,
     )
     legacy_handler = LegacySnapshotHandler(legacy_sender)
     return legacy_sender, SenderSubscriber(pubsub, [legacy_handler])

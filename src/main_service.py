@@ -255,6 +255,7 @@ async def main():
             async_device_manager=async_device_manager,
             sender_config_path=args.sender_config,
             series_number=device_id_policy._config.SERIES,
+            system_config=system_config,
         )
         logger.info("Data sender built")
 

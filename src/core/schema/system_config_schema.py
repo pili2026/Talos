@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -51,12 +53,23 @@ class SubscribersConfig(BaseModel):
         return iter(self.model_dump())
 
 
+class ReverseSshConfig(BaseModel):
+    PORT_SOURCE: Literal["config", "mqtt"] = Field(
+        default="config", description="Reverse SSH port source: config | mqtt"
+    )
+    PORT: int | None = Field(
+        default=None, ge=1, le=65535, description="Reverse SSH port (only when PORT_SOURCE=config)"
+    )
+
+
+class RemoteAccessConfig(BaseModel):
+    REVERSE_SSH: ReverseSshConfig = Field(default_factory=ReverseSshConfig)
+
+
 class SystemConfig(BaseModel):
     """System configuration (full)"""
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
 
     MONITOR_INTERVAL_SECONDS: float = Field(default=1.0, gt=0, description="Monitoring interval (seconds)")
     MONITOR_READ_CONCURRENCY: int = Field(
@@ -67,3 +80,5 @@ class SystemConfig(BaseModel):
     PATHS: PathsConfig = Field(default_factory=PathsConfig)
     DEVICE_ID_POLICY: DeviceIdPolicyConfig = Field(default_factory=DeviceIdPolicyConfig)
     SUBSCRIBERS: SubscribersConfig = Field(default_factory=SubscribersConfig)
+
+    REMOTE_ACCESS: RemoteAccessConfig = Field(default_factory=RemoteAccessConfig)

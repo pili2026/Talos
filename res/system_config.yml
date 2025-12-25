@@ -7,6 +7,10 @@ PATHS:
   STATE_DIR: "./logs/state"
   LOG_DIR: "./logs"
 
+REMOTE_ACCESS:
+  REVERSE_SSH:
+    PORT_SOURCE: "config"   # config | mqtt
+    PORT: 22              # only used when PORT_SOURCE=config, default 22
 
 DEVICE_ID_POLICY:
   SERIES: 1

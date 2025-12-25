@@ -13,6 +13,7 @@ import httpx
 
 from core.model.enum.equipment_enum import EquipmentType
 from core.schema.sender_schema import SenderSchema
+from core.schema.system_config_schema import RemoteAccessConfig, ReverseSshConfig, SystemConfig
 from core.sender.legacy.legacy_format_adapter import convert_snapshot_to_legacy_payload
 from core.sender.outbox_store import OutboxStore
 from core.sender.transport import ResendTransport
@@ -26,7 +27,13 @@ logger = logging.getLogger("LegacySender")
 # TODO: Need to Refactor
 class LegacySenderAdapter:
 
-    def __init__(self, sender_config_schema: SenderSchema, device_manager: AsyncDeviceManager, series_number: int):
+    def __init__(
+        self,
+        sender_config_schema: SenderSchema,
+        device_manager: AsyncDeviceManager,
+        series_number: int,
+        system_config: SystemConfig,
+    ):
         self.sender_config_model = sender_config_schema
         self.gateway_id = self._resolve_gateway_id(self.sender_config_model.gateway_id)
         self.resend_dir = self.sender_config_model.resend_dir
@@ -91,6 +98,8 @@ class LegacySenderAdapter:
 
         self.series_number = series_number
         self.resend_anchor_offset_sec = int(sender_config_schema.resend_anchor_offset_sec)
+
+        self._system_config = system_config
 
         try:
             self._system_info = SystemInfoCollector()
@@ -579,18 +588,17 @@ class LegacySenderAdapter:
                 self.__last_sent_ts_by_device.update(sent_candidates_ts)
                 await self._prune_buckets()
 
-    async def _make_gw_heartbeat(self, at: datetime) -> dict:
+    async def _make_gw_heartbeat(self, report_datetime: datetime) -> dict:
         cpu_temp_task = asyncio.create_task(self._system_info.get_cpu_temperature())
-        ssh_port_task = asyncio.create_task(self._system_info.get_ssh_port())
 
-        cpu_temp = await cpu_temp_task
-        ssh_port = await ssh_port_task
+        cpu_temp: float = await cpu_temp_task
+        ssh_port: int = self._get_reverse_ssh_port()
 
         return {
             "DeviceID": f"{self.gateway_id}_{self.series_number}00{EquipmentType.GW}",  # TODO: GW ID need to modify by config on future
             "Data": {
                 "HB": 1,
-                "report_ts": at.isoformat(),
+                "report_ts": report_datetime.isoformat(),
                 "SSHPort": ssh_port,
                 "WebBulbOffset": cpu_temp,
                 "Status": self._system_info.get_reboot_count(),
@@ -921,3 +929,22 @@ class LegacySenderAdapter:
             next_aligned += timedelta(seconds=interval)
 
         return next_aligned
+
+    def _get_reverse_ssh_port(self) -> int:
+        try:
+            remote_access_config: RemoteAccessConfig = self._system_config.REMOTE_ACCESS
+            reverse_ssh: ReverseSshConfig = remote_access_config.REVERSE_SSH
+
+            if reverse_ssh.PORT_SOURCE == "config":
+                if isinstance(reverse_ssh.PORT, int):
+                    return reverse_ssh.PORT
+                logger.warning("[LegacySender] REVERSE_SSH.PORT invalid or missing")
+                return 22  # Default SSH port
+
+            # mqtt (future)
+            logger.info("[LegacySender] REVERSE_SSH.PORT_SOURCE=mqtt (not implemented)")
+            return 0
+
+        except Exception as e:
+            logger.warning(f"[LegacySender] resolve reverse ssh port failed: {e}")
+            return 0
