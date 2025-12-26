@@ -8,6 +8,7 @@ from core.schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
 from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema
 from core.schema.control_config_schema import ControlConfig
 from core.schema.policy_schema import PolicyConfig
+from repository.control_execution_store import ControlExecutionStore
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,15 @@ logger = logging.getLogger(__name__)
 class ControlEvaluator:
     """Evaluates control conditions against snapshots and determines actions"""
 
-    def __init__(self, control_config: ControlConfig, constraint_config_schema: ConstraintConfigSchema):
+    def __init__(
+        self,
+        control_config: ControlConfig,
+        constraint_config_schema: ConstraintConfigSchema,
+        execution_store: ControlExecutionStore = None,
+    ):
         self.control_config = control_config
         self.constraint_config_schema = constraint_config_schema
-        self.composite_evaluator = CompositeEvaluator()
+        self.composite_evaluator = CompositeEvaluator(execution_store=execution_store)
 
     def get_snapshot_value(self, snapshot: dict[str, float], key: str) -> float | None:
         """Fetch a numeric value by key from the given snapshot."""
@@ -43,6 +49,9 @@ class ControlEvaluator:
         for rule in condition_list:
             if rule.composite is None or rule.composite.invalid:
                 continue
+
+            # Set evaluation context before evaluating
+            self.composite_evaluator.set_evaluation_context(rule.code, model, slave_id)
 
             is_matched: bool = self.composite_evaluator.evaluate_composite_node(rule.composite, get_value_by_snapshot)
             if is_matched:

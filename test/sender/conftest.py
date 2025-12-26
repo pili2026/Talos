@@ -5,8 +5,14 @@ import pytest_asyncio
 import yaml
 
 from core.schema.sender_schema import SenderSchema
+from core.schema.system_config_schema import SystemConfig
 from core.sender.legacy.legacy_sender import LegacySenderAdapter
 from device_manager import AsyncDeviceManager
+
+
+@pytest.fixture
+def system_config_minimal() -> SystemConfig:
+    return SystemConfig()
 
 
 @pytest.fixture
@@ -50,7 +56,7 @@ def mock_device_manager():
 
 
 @pytest_asyncio.fixture
-async def sender_adapter(sender_config_minimal, mock_device_manager):
+async def sender_adapter(sender_config_minimal, system_config_minimal, mock_device_manager):
     """
     Async fixture for LegacySenderAdapter.
 
@@ -62,7 +68,12 @@ async def sender_adapter(sender_config_minimal, mock_device_manager):
         In test: await sender_adapter.start()
         Cleanup: handled automatically (await sender_adapter.stop()) in fixture.
     """
-    adapter = LegacySenderAdapter(sender_config_minimal, mock_device_manager, series_number=1)
+    adapter = LegacySenderAdapter(
+        sender_config_schema=sender_config_minimal,
+        system_config=system_config_minimal,
+        device_manager=mock_device_manager,
+        series_number=1,
+    )
     try:
         yield adapter
     finally:

@@ -33,9 +33,14 @@ class TestResendTimeAlignment:
         return mock_dm
 
     @pytest.fixture
-    def sender_adapter(self, mock_config, mock_device_manager):
+    def sender_adapter(self, mock_config, system_config_minimal, mock_device_manager):
         """Create a LegacySenderAdapter instance"""
-        return LegacySenderAdapter(mock_config, mock_device_manager, series_number=1)
+        return LegacySenderAdapter(
+            sender_config_schema=mock_config,
+            system_config=system_config_minimal,
+            device_manager=mock_device_manager,
+            series_number=1,
+        )
 
     def test_compute_next_resend_time_basic(self, sender_adapter):
         """Test basic time alignment calculation"""
@@ -85,7 +90,7 @@ class TestResendTimeAlignment:
         expected = datetime(2025, 1, 1, 12, 4, 5, tzinfo=TIMEZONE_INFO)
         assert result == expected
 
-    def test_compute_next_resend_time_different_configs(self, mock_device_manager):
+    def test_compute_next_resend_time_different_configs(self, system_config_minimal, mock_device_manager):
         """Test different configuration combinations"""
         # Config 1: anchor=0, interval=60 → on the minute
         config1 = SenderSchema(
@@ -95,7 +100,12 @@ class TestResendTimeAlignment:
             resend_anchor_offset_sec=0,
             fail_resend_interval_sec=60,
         )
-        adapter1 = LegacySenderAdapter(config1, mock_device_manager, series_number=1)
+        adapter1 = LegacySenderAdapter(
+            sender_config_schema=config1,
+            device_manager=mock_device_manager,
+            series_number=1,
+            system_config=system_config_minimal,
+        )
 
         after = datetime(2025, 1, 1, 12, 0, 30, tzinfo=TIMEZONE_INFO)
         result = adapter1._compute_next_resend_time(after)
@@ -110,7 +120,12 @@ class TestResendTimeAlignment:
             resend_anchor_offset_sec=45,
             fail_resend_interval_sec=300,
         )
-        adapter2 = LegacySenderAdapter(config2, mock_device_manager, series_number=1)
+        adapter2 = LegacySenderAdapter(
+            sender_config_schema=config2,
+            device_manager=mock_device_manager,
+            series_number=1,
+            system_config=system_config_minimal,
+        )
 
         after = datetime(2025, 1, 1, 12, 3, 0, tzinfo=TIMEZONE_INFO)
         result = adapter2._compute_next_resend_time(after)
@@ -163,7 +178,7 @@ class TestResendTimeAlignment:
         expected = datetime(2025, 1, 1, 12, 0, 5, tzinfo=TIMEZONE_INFO)
         assert result == expected
 
-    def test_compute_next_resend_time_cross_day(self, mock_device_manager):
+    def test_compute_next_resend_time_cross_day(self, system_config_minimal, mock_device_manager):
         """Test crossing a day boundary"""
         config = SenderSchema(
             gateway_id="TEST",
@@ -172,7 +187,12 @@ class TestResendTimeAlignment:
             resend_anchor_offset_sec=30,
             fail_resend_interval_sec=3600,  # 1 hour
         )
-        adapter = LegacySenderAdapter(config, mock_device_manager, series_number=1)
+        adapter = LegacySenderAdapter(
+            sender_config_schema=config,
+            device_manager=mock_device_manager,
+            series_number=1,
+            system_config=system_config_minimal,
+        )
 
         # 23:45:00 → 2025-01-02 00:00:30
         after = datetime(2025, 1, 1, 23, 45, 0, tzinfo=TIMEZONE_INFO)

@@ -12,6 +12,7 @@
 
 global_defaults:
   initialization:
+    # legacy: [Hvac] InitialHz = 50
     startup_frequency: 50.0
 
 # -------------------------------------------------------------------
@@ -29,11 +30,31 @@ LITEON_EVO6800:
 
 TECO_VFD:
   initialization:
-    startup_frequency: 60.0
+    startup_frequency: 50.0
     auto_turn_on: true
+
+  # Keep default wide; per-instance constraints override it.
   default_constraints:
-    RW_HZ: { min: 55, max: 59 }
-  instances: {}
+    RW_HZ: { min: 35, max: 60 }
+
+  instances:
+    # Cooling Water Pumps: slave 1~4 (legacy CWGroup_* MinHz=52 MaxHz=56)
+    "1": { constraints: { RW_HZ: { min: 52, max: 56 } } }
+    "2": { constraints: { RW_HZ: { min: 52, max: 56 } } }
+    "3": { constraints: { RW_HZ: { min: 52, max: 56 } } }
+    "4": { constraints: { RW_HZ: { min: 52, max: 56 } } }
+
+    # Chillers: slave 5~8 (legacy ChillerGroup_* MinHz=56 MaxHz=58)
+    "5": { constraints: { RW_HZ: { min: 56, max: 58 } } }
+    "6": { constraints: { RW_HZ: { min: 56, max: 58 } } }
+    "7": { constraints: { RW_HZ: { min: 56, max: 58 } } }
+    "8": { constraints: { RW_HZ: { min: 56, max: 58 } } }
+
+    # Fans: slave 9~12 (legacy FanGroup_* MinHz=58 MaxHz=60)
+    "9":  { constraints: { RW_HZ: { min: 58, max: 60 } } }
+    "10": { constraints: { RW_HZ: { min: 58, max: 60 } } }
+    "11": { constraints: { RW_HZ: { min: 58, max: 60 } } }
+    "12": { constraints: { RW_HZ: { min: 58, max: 60 } } }
 
 # -------------------------------------------------------------------
 # AI Module - BAT08 (Scheme A: model baseline pins + instance delta)
@@ -41,8 +62,6 @@ TECO_VFD:
 BAT08:
   default_constraints: {}
 
-  # Baseline pins (example: room1 baseline)
-  # Instances can override only the fields they need (e.g., formula N3 offset).
   pins:
     AIn01: { name: Temp1, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
     AIn02: { name: Temp2, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
@@ -54,21 +73,19 @@ BAT08:
     AIn08: { name: Temp8, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
 
   instances:
-    # room1 baseline device
     "16": {}
 
-    # room5: only override the N3 term for selected pins (others inherit baseline)
     "17":
       pins:
         AIn01: { formula: [0, 0.01220703125, -1.5] }
         AIn02: { formula: [0, 0.01220703125, -1.4] }
-        AIn04: { formula: [0, 0.01220703125, 3.0] }
-        AIn05: { formula: [0, 0.01220703125, 1.0] }
+        AIn04: { formula: [0, 0.01220703125, 3] }
+        AIn05: { formula: [0, 0.01220703125, 1] }
 
     "19":
       pins:
-        AIn01: { formula: [0, 0.01220703125, -1.0] }
-        AIn02: { formula: [0, 0.01220703125, -1.0] }
+        AIn01: { formula: [0, 0.01220703125, -1] }
+        AIn02: { formula: [0, 0.01220703125, -1] }
 
     "20":
       pins:
@@ -95,7 +112,6 @@ JY_DAM0404:
     DIn04: { name: "RelayOld", remark: "" }
 
   instances:
-    # room2 - slave 18
     "18":
       pins:
         DIn01: { remark: "MC1" }
@@ -103,8 +119,36 @@ JY_DAM0404:
         DIn03: { remark: "MC2" }
         DIn04: { remark: "Alert" }
 
-    # room2 - slave 21 (same mapping example)
     "21":
+      pins:
+        DIn01: { remark: "MC1" }
+        DIn02: { remark: "Alert" }
+        DIn03: { remark: "MC2" }
+        DIn04: { remark: "Alert" }
+
+# ------------------------------------------------------------
+# DI Module - SD500 (room3_pin.config)
+# Only instance overrides; baseline mapping stays in driver/sd_500.yml
+# ------------------------------------------------------------
+SD500:
+  default_constraints: {}
+
+  instances:
+    "13":
+      pins:
+        DIn01: { remark: "MC1" }
+        DIn02: { remark: "Alert" }
+        DIn03: { remark: "MC2" }
+        DIn04: { remark: "Alert" }
+
+    "14":
+      pins:
+        DIn01: { remark: "MC1" }
+        DIn02: { remark: "Alert" }
+        DIn03: { remark: "MC2" }
+        DIn04: { remark: "Alert" }
+
+    "15":
       pins:
         DIn01: { remark: "MC1" }
         DIn02: { remark: "Alert" }

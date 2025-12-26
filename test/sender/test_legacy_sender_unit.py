@@ -191,7 +191,7 @@ class TestPostSuccessTracking:
 class TestConfigurationValidation:
     """Test that configuration values are correctly applied"""
 
-    def test_when_config_has_custom_delay_then_use_custom_value(self, mock_device_manager):
+    def test_when_config_has_custom_delay_then_use_custom_value(self, system_config_minimal, mock_device_manager):
         """Test custom resend_start_delay_sec is respected"""
         config_yaml = """
 gateway_id: "test"
@@ -211,6 +211,11 @@ last_post_ok_within_sec: 300
 resend_start_delay_sec: 999
 """
         config = SenderSchema.model_validate(yaml.safe_load(config_yaml))
-        adapter = LegacySenderAdapter(config, mock_device_manager, 0)
+        adapter = LegacySenderAdapter(
+            sender_config_schema=config,
+            device_manager=mock_device_manager,
+            series_number=0,
+            system_config=system_config_minimal,
+        )
 
         assert adapter.resend_start_delay_sec == 999

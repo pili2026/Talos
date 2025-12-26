@@ -18,6 +18,7 @@ class ConditionType(StrEnum):
     MIN = "min"
     MAX = "max"
     SCHEDULE_EXPECTED_STATE = "schedule_expected_state"
+    TIME_ELAPSED = "time_elapsed"
 
 
 class ConditionOperator(StrEnum):

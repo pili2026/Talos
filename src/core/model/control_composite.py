@@ -42,6 +42,9 @@ class CompositeNode(BaseModel):
     sources: list[str] | None = None
     abs: bool | None = Field(default=False)
 
+    # time_elapsed condition fields
+    interval_hours: float | None = None
+
     # validation state
     invalid: bool = False
 
@@ -110,7 +113,8 @@ class CompositeNode(BaseModel):
             # Anything else is invalid
             case _:
                 problems.append(
-                    "node must be either group(all/any/not) OR " "leaf(type=threshold|difference|average|sum|min|max)"
+                    "node must be either group(all/any/not) OR "
+                    "leaf(type=threshold|difference|average|sum|min|max|time_elapsed)"
                 )
 
         # ---- Advanced validations (only if basic structure is valid) ----
@@ -150,7 +154,7 @@ class CompositeNode(BaseModel):
             logger.warning(f"[COMPOSITE] Failed to normalize sources {v}: {e}")
             return None
 
-    @field_validator("hysteresis", "debounce_sec", "threshold", "min", "max")
+    @field_validator("hysteresis", "debounce_sec", "threshold", "min", "max", "interval_hours")  # ← MODIFIED
     @classmethod
     def validate_numeric_fields(cls, v, info):
         """Ensure numeric fields are non-negative where applicable"""
@@ -283,6 +287,9 @@ class CompositeNode(BaseModel):
             case ConditionType.AVERAGE | ConditionType.SUM | ConditionType.MIN | ConditionType.MAX:
                 problems.extend(self._validate_aggregate_leaf())
 
+            case ConditionType.TIME_ELAPSED:
+                problems.extend(self._validate_time_elapsed_leaf())
+
             case _:
                 problems.append(f"unsupported condition type: {self.type}")
 
@@ -375,5 +382,29 @@ class CompositeNode(BaseModel):
             case _:
                 # other operators either unsupported or don't have extra constraints here
                 pass
+
+        return problems
+
+    # ====== TIME_ELAPSED leaf ======
+
+    def _validate_time_elapsed_leaf(self) -> list[str]:
+        """Validation for TIME_ELAPSED type."""
+        problems: list[str] = []
+
+        # Must have interval_hours
+        if self.interval_hours is None:
+            problems.append("time_elapsed condition requires 'interval_hours'")
+        elif self.interval_hours <= 0:
+            problems.append("time_elapsed 'interval_hours' must be positive")
+
+        # time_elapsed doesn't need these fields
+        if self.operator is not None:
+            problems.append("time_elapsed condition should not specify 'operator'")
+        if self.sources is not None:
+            problems.append("time_elapsed condition should not specify 'sources'")
+        if self.threshold is not None:
+            problems.append("time_elapsed condition should not specify 'threshold'")
+        if self.min is not None or self.max is not None:
+            problems.append("time_elapsed condition should not specify 'min' or 'max'")
 
         return problems

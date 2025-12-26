@@ -291,3 +291,25 @@ TECO_VFD:
               type: set_frequency
               target: RW_HZ
               value: 60.0
+    "3":
+      use_default_controls: false
+      controls:
+        - name: "Auxiliary Pump Fast Stepdown"
+          code: "AUX_PUMP_FREQ_STEPDOWN_1H"
+          priority: 60
+          
+          composite:
+            any:
+              - type: time_elapsed
+                interval_hours: 1.0  # Every hour
+          
+          policy:
+            type: discrete_setpoint
+          
+          actions:
+            - model: LITEON_EVO6800
+              slave_id: "3"
+              type: adjust_frequency
+              target: RW_HZ
+              value: -2.0  # Smaller adjustment, more frequent
+          

@@ -7,14 +7,22 @@ from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from device_manager import AsyncDeviceManager
+from repository.control_execution_store import ControlExecutionStore
 
 
-def build_control_evaluator(path: str, constraint_config_schema: ConstraintConfigSchema = None) -> ControlEvaluator:
+def build_control_evaluator(
+    path: str,
+    constraint_config_schema: ConstraintConfigSchema = None,
+    execution_store: ControlExecutionStore = None,
+) -> ControlEvaluator:
     """
     Build ControlEvaluator from YAML configuration file.
+
     Args:
         path: Path to the configuration YAML file
-        constraint_config: Constraint configuration for emergency override logic
+        constraint_config_schema: Constraint configuration for emergency override logic
+        execution_store: ControlExecutionStore for time_elapsed conditions
+
     Returns:
         ControlEvaluator instance with loaded configuration
     """
@@ -23,7 +31,8 @@ def build_control_evaluator(path: str, constraint_config_schema: ConstraintConfi
     version = config_dict.pop("version", "1.0.0")
     # The remaining config_dict contains the model configurations
     control_config = ControlConfig(version=version, root=config_dict)
-    return ControlEvaluator(control_config, constraint_config_schema)  # Pass in constraint_config
+
+    return ControlEvaluator(control_config, constraint_config_schema, execution_store)
 
 
 def build_control_subscriber(
@@ -31,20 +40,30 @@ def build_control_subscriber(
     pubsub: PubSub,
     async_device_manager: AsyncDeviceManager,
     health_manager: DeviceHealthManager | None = None,
+    execution_store: ControlExecutionStore = None,
 ) -> ControlSubscriber:
     """
     Build complete control system with evaluator, executor, and subscriber.
+
     Args:
         control_path: Path to control configuration file
         pubsub: PubSub instance for message handling
         async_device_manager: Device manager for executing actions
+        health_manager: Device health manager for offline device handling
+        execution_store: ControlExecutionStore for time_elapsed conditions
+
     Returns:
         ControlSubscriber instance ready to run
     """
     # From async_device_manager get constraint_config
     constraint_config_schema: ConstraintConfigSchema = async_device_manager.constraint_config_schema
 
-    control_evaluator: ControlEvaluator = build_control_evaluator(control_path, constraint_config_schema)
+    control_evaluator: ControlEvaluator = build_control_evaluator(
+        control_path, constraint_config_schema, execution_store
+    )
+
     control_executor = ControlExecutor(async_device_manager, health_manager)
+
     control_subscriber = ControlSubscriber(pubsub=pubsub, evaluator=control_evaluator, executor=control_executor)
+
     return control_subscriber

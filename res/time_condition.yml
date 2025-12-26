@@ -1,5 +1,5 @@
-work_hours:
-  default:
-    weekdays: [1, 2, 3, 4, 5]  # Monday to Friday
-    intervals:
-      - { start: "09:00", end: "19:00" }
+work_hours: {} # 24/7 by default
+  # default:
+  #   weekdays: [1, 2, 3, 4, 5]  # Monday to Friday
+  #   intervals:
+  #     - { start: "09:00", end: "19:00" }

@@ -41,6 +41,7 @@ from core.util.sub_registry import SubscriberRegistry
 from core.util.virtual_device_manager import VirtualDeviceManager
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
+from repository.control_execution_store import ControlExecutionStore
 from repository.schema.snapshot_storage_schema import SnapshotStorageConfig
 from repository.util.db_manager import SQLiteSnapshotDBManager
 
@@ -232,12 +233,18 @@ async def main():
         )
         logger.info("Alert subscribers built")
 
-        # Control Subscriber
+        logger.info("Initializing control execution store...")
+        execution_store = ControlExecutionStore(
+            db_path="data/resend.db", timezone="Asia/Taipei"
+        )  # TODO: make configurable
+        logger.info("Control execution store initialized")
+
         control_subscriber: ControlSubscriber = build_control_subscriber(
             control_path=args.control_config,
             pubsub=pubsub,
             async_device_manager=async_device_manager,
             health_manager=health_manager,
+            execution_store=execution_store,
         )
         logger.info("Control subscriber built")
 
