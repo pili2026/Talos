@@ -275,29 +275,63 @@ class DeviceHealthManager:
     def _compute_cooldown_sec(self, status: DeviceHealthStatus) -> float:
         """
         Exponential backoff: base * factor^(failures-1), capped at max.
+        MUST NOT raise OverflowError.
         """
-        # Provide device-specific backoff parameters if set
-        base_cooldown = (
+        base_cooldown: float = (
             status.base_cooldown_sec if status.base_cooldown_sec is not None else self._default_base_cooldown_sec
         )
 
-        max_cooldown = (
+        max_cooldown: float = (
             status.max_cooldown_sec if status.max_cooldown_sec is not None else self._default_max_cooldown_sec
         )
 
-        backoff_factor = status.backoff_factor if status.backoff_factor is not None else self._default_backoff_factor
+        backoff_factor: float = (
+            status.backoff_factor if status.backoff_factor is not None else self._default_backoff_factor
+        )
 
         failure_count: int = max(1, int(status.consecutive_failures))
-        backoff_sec: float = base_cooldown * (backoff_factor ** (failure_count - 1))
-        capped_cooldown_sec: float = min(backoff_sec, max_cooldown)
+        exp = failure_count - 1
+
+        # If factor <= 1, no exponential growth; just base capped.
+        if backoff_factor <= 1.0:
+            cooldown_sec = min(float(base_cooldown), float(max_cooldown))
+        else:
+            # Clamp exponent to avoid float overflow:
+            # log(base) + exp*log(factor) <= log(max_float) ~= 709.78
+            try:
+                log_max = 709.782712893384  # approx log(sys.float_info.max)
+                log_base = math.log(base_cooldown) if base_cooldown > 0 else -math.inf
+                log_factor = math.log(backoff_factor)
+
+                exp_max = int((log_max - log_base) / log_factor) if log_factor > 0 else 0
+                safe_exp = min(exp, max(0, exp_max))
+
+                if safe_exp < exp:
+                    logger.warning(
+                        f"[{status.device_id}] backoff exponent clamped: "
+                        f"failures={failure_count}, exp={exp} -> {safe_exp}, "
+                        f"base={base_cooldown}, factor={backoff_factor}, max_cd={max_cooldown}"
+                    )
+
+                try:
+                    backoff_sec = base_cooldown * (backoff_factor**safe_exp)
+                except OverflowError:
+                    backoff_sec = max_cooldown
+
+                cooldown_sec = min(backoff_sec, max_cooldown)
+
+            except Exception as e:
+                # Absolute safety fallback: never crash health manager.
+                logger.warning(f"[{status.device_id}] backoff compute fallback due to error: {e}")
+                cooldown_sec = min(float(base_cooldown), float(max_cooldown))
 
         # Optional jitter
         if self._jitter_sec > 0:
             frac = math.modf(now_timestamp())[0]
-            capped_cooldown_sec = capped_cooldown_sec + (frac * 2 - 1) * self._jitter_sec
-            capped_cooldown_sec = max(0.0, capped_cooldown_sec)
+            cooldown_sec = cooldown_sec + (frac * 2 - 1) * self._jitter_sec
+            cooldown_sec = max(0.0, cooldown_sec)
 
-        return capped_cooldown_sec
+        return float(cooldown_sec)
 
     def is_healthy(self, device_id: str) -> bool:
         status = self._health_status.get(device_id)
