@@ -145,6 +145,15 @@ class DeviceService:
                 "error": "Health manager not available (standalone mode or not initialized)",
             }
 
+        try:
+            _, slave_id = device_id.rsplit("_", 1)
+            int(slave_id)
+        except (ValueError, AttributeError):
+            return {
+                "device_id": device_id,
+                "error": f"Invalid device_id format: '{device_id}'. Expected format: 'MODEL_SLAVEID'",
+            }
+
         # Get health status from health manager
         status = self._health_manager.get_status(device_id)
 

@@ -35,6 +35,9 @@ class DeviceHealthStatus:
     # Cooldown control
     next_allowed_poll_ts: float = 0.0
 
+    first_failure_ts: float | None = None
+    last_recovery_attempt_ts: float | None = None
+
     # Device-specific backoff parameters (None = use global default value)
     base_cooldown_sec: float | None = None
     max_cooldown_sec: float | None = None
@@ -48,11 +51,17 @@ class DeviceHealthStatus:
         self.next_allowed_poll_ts = 0.0  # allow immediate polling
         self.last_check_ts = now_ts
 
+        self.first_failure_ts = None
+        self.last_recovery_attempt_ts = None
+
     def mark_failure(self, now_ts: float) -> None:
         self.last_failure_ts = now_ts
         self.consecutive_failures += 1
         self.is_healthy = False
         self.last_check_ts = now_ts
+
+        if self.first_failure_ts is None:
+            self.first_failure_ts = now_ts
 
 
 @dataclass
@@ -101,10 +110,12 @@ class DeviceHealthManager:
         self,
         *,
         base_cooldown_sec: float = 60.0,
-        max_cooldown_sec: float = 600.0,
+        max_cooldown_sec: float = 180.0,
         backoff_factor: float = 2.0,
         jitter_sec: float = 0.0,
         mark_unhealthy_after_failures: int = 1,
+        long_term_offline_threshold_sec: float = 3600.0,
+        max_failures_cap: int = 5,
     ):
         self._health_status: dict[str, DeviceHealthStatus] = {}
         self._lock = asyncio.Lock()
@@ -115,6 +126,9 @@ class DeviceHealthManager:
         self._default_backoff_factor = float(backoff_factor)
         self._jitter_sec = float(jitter_sec)
         self._default_mark_unhealthy_after_failures = int(mark_unhealthy_after_failures)
+
+        self._long_term_offline_threshold = float(long_term_offline_threshold_sec)
+        self._max_failures_cap = int(max_failures_cap)
 
         self._health_check_configs: dict[str, HealthCheckConfig] = {}
 
@@ -211,17 +225,28 @@ class DeviceHealthManager:
             if device_id not in self._health_status:
                 self.register_device(device_id)
 
-            st = self._health_status[device_id]
-            st.last_check_ts = now_ts
+            health_status = self._health_status[device_id]
+            health_status.last_check_ts = now_ts
 
             # Healthy devices: always allow
-            if st.is_healthy:
+            if health_status.is_healthy:
                 return True, "healthy"
 
             # Unhealthy devices: gate by cooldown
-            if now_ts < st.next_allowed_poll_ts:
-                wait = st.next_allowed_poll_ts - now_ts
+            if now_ts < health_status.next_allowed_poll_ts:
+                wait = health_status.next_allowed_poll_ts - now_ts
                 return False, f"cooldown({wait:.1f}s)"
+
+            health_status.last_recovery_attempt_ts = now_ts
+
+            # Record long-term offline entry
+            if health_status.first_failure_ts:
+                offline_duration = now_ts - health_status.first_failure_ts
+                if offline_duration > self._long_term_offline_threshold:
+                    logger.debug(
+                        f"[{device_id}] Long-term offline device entering recovery "
+                        f"({offline_duration/3600:.1f}h offline)"
+                    )
 
             return True, "recovery_window"
 
@@ -249,6 +274,26 @@ class DeviceHealthManager:
 
             status.mark_failure(now_ts)
 
+            is_critical = self._is_critical_device(status)
+
+            if not is_critical and status.first_failure_ts:
+                offline_duration = now_ts - status.first_failure_ts
+
+                # Regular devices：Long-term offline cap failures
+                if offline_duration > self._long_term_offline_threshold:
+                    if status.consecutive_failures > self._max_failures_cap:
+                        old_failures = status.consecutive_failures
+                        status.consecutive_failures = self._max_failures_cap
+
+                        logger.info(
+                            f"[{device_id}] Long-term offline "
+                            f"({offline_duration/3600:.1f}h), "
+                            f"capping failures: {old_failures} → {self._max_failures_cap}"
+                        )
+
+                        # Reset timer to avoid being stuck in this logic
+                        status.first_failure_ts = now_ts
+
             failure_threshold: int = (
                 status.mark_unhealthy_after_failures
                 if status.mark_unhealthy_after_failures is not None
@@ -268,70 +313,9 @@ class DeviceHealthManager:
                     f"Device {device_id} marked unhealthy (failures={status.consecutive_failures}, cooldown={cooldown_sec:.1f}s)"
                 )
             else:
-                logger.info(
+                logger.debug(
                     f"Device {device_id} still unhealthy (failures={status.consecutive_failures}, cooldown={cooldown_sec:.1f}s)"
                 )
-
-    def _compute_cooldown_sec(self, status: DeviceHealthStatus) -> float:
-        """
-        Exponential backoff: base * factor^(failures-1), capped at max.
-        MUST NOT raise OverflowError.
-        """
-        base_cooldown: float = (
-            status.base_cooldown_sec if status.base_cooldown_sec is not None else self._default_base_cooldown_sec
-        )
-
-        max_cooldown: float = (
-            status.max_cooldown_sec if status.max_cooldown_sec is not None else self._default_max_cooldown_sec
-        )
-
-        backoff_factor: float = (
-            status.backoff_factor if status.backoff_factor is not None else self._default_backoff_factor
-        )
-
-        failure_count: int = max(1, int(status.consecutive_failures))
-        exp = failure_count - 1
-
-        # If factor <= 1, no exponential growth; just base capped.
-        if backoff_factor <= 1.0:
-            cooldown_sec = min(float(base_cooldown), float(max_cooldown))
-        else:
-            # Clamp exponent to avoid float overflow:
-            # log(base) + exp*log(factor) <= log(max_float) ~= 709.78
-            try:
-                log_max = 709.782712893384  # approx log(sys.float_info.max)
-                log_base = math.log(base_cooldown) if base_cooldown > 0 else -math.inf
-                log_factor = math.log(backoff_factor)
-
-                exp_max = int((log_max - log_base) / log_factor) if log_factor > 0 else 0
-                safe_exp = min(exp, max(0, exp_max))
-
-                if safe_exp < exp:
-                    logger.warning(
-                        f"[{status.device_id}] backoff exponent clamped: "
-                        f"failures={failure_count}, exp={exp} -> {safe_exp}, "
-                        f"base={base_cooldown}, factor={backoff_factor}, max_cd={max_cooldown}"
-                    )
-
-                try:
-                    backoff_sec = base_cooldown * (backoff_factor**safe_exp)
-                except OverflowError:
-                    backoff_sec = max_cooldown
-
-                cooldown_sec = min(backoff_sec, max_cooldown)
-
-            except Exception as e:
-                # Absolute safety fallback: never crash health manager.
-                logger.warning(f"[{status.device_id}] backoff compute fallback due to error: {e}")
-                cooldown_sec = min(float(base_cooldown), float(max_cooldown))
-
-        # Optional jitter
-        if self._jitter_sec > 0:
-            frac = math.modf(now_timestamp())[0]
-            cooldown_sec = cooldown_sec + (frac * 2 - 1) * self._jitter_sec
-            cooldown_sec = max(0.0, cooldown_sec)
-
-        return float(cooldown_sec)
 
     def is_healthy(self, device_id: str) -> bool:
         status = self._health_status.get(device_id)
@@ -554,28 +538,94 @@ class DeviceHealthManager:
                 logger.debug(f"Health check full_read: exception {e}")
             raise
 
+    def _is_critical_device(self, status: DeviceHealthStatus) -> bool:
+        """
+        Determine if a device is critical based on its backoff factor.
+        """
+        backoff: float = status.backoff_factor if status.backoff_factor is not None else self._default_backoff_factor
+        return backoff <= 1.0
+
+    def _compute_cooldown_sec(self, status: DeviceHealthStatus) -> float:
+        """
+        Exponential backoff: base * factor^(failures-1), capped at max.
+        MUST NOT raise OverflowError.
+        """
+        base_cooldown: float = (
+            status.base_cooldown_sec if status.base_cooldown_sec is not None else self._default_base_cooldown_sec
+        )
+
+        max_cooldown: float = (
+            status.max_cooldown_sec if status.max_cooldown_sec is not None else self._default_max_cooldown_sec
+        )
+
+        backoff_factor: float = (
+            status.backoff_factor if status.backoff_factor is not None else self._default_backoff_factor
+        )
+
+        failure_count: int = max(1, int(status.consecutive_failures))
+        exp = failure_count - 1
+
+        # If factor <= 1, no exponential growth; just base capped.
+        if backoff_factor <= 1.0:
+            cooldown_sec = min(float(base_cooldown), float(max_cooldown))
+        else:
+            # Clamp exponent to avoid float overflow:
+            # log(base) + exp*log(factor) <= log(max_float) ~= 709.78
+            try:
+                log_max = 709.782712893384  # approx log(sys.float_info.max)
+                log_base = math.log(base_cooldown) if base_cooldown > 0 else -math.inf
+                log_factor = math.log(backoff_factor)
+
+                exp_max = int((log_max - log_base) / log_factor) if log_factor > 0 else 0
+                safe_exp = min(exp, max(0, exp_max))
+
+                if safe_exp < exp:
+                    logger.warning(
+                        f"[{status.device_id}] backoff exponent clamped: "
+                        f"failures={failure_count}, exp={exp} -> {safe_exp}, "
+                        f"base={base_cooldown}, factor={backoff_factor}, max_cd={max_cooldown}"
+                    )
+
+                try:
+                    backoff_sec = base_cooldown * (backoff_factor**safe_exp)
+                except OverflowError:
+                    backoff_sec = max_cooldown
+
+                cooldown_sec = min(backoff_sec, max_cooldown)
+
+            except Exception as e:
+                # Absolute safety fallback: never crash health manager.
+                logger.warning(f"[{status.device_id}] backoff compute fallback due to error: {e}")
+                cooldown_sec = min(float(base_cooldown), float(max_cooldown))
+
+        # Optional jitter
+        if self._jitter_sec > 0:
+            frac = math.modf(now_timestamp())[0]
+            cooldown_sec = cooldown_sec + (frac * 2 - 1) * self._jitter_sec
+            cooldown_sec = max(0.0, cooldown_sec)
+
+        return float(cooldown_sec)
+
     # ==================== Static Helper ====================
 
     @staticmethod
     def calculate_health_params(poll_interval: float) -> dict:
         """
-        Automatically calculate Health Manager parameters based on polling interval
+        Automatically calculate Health Manager parameters based on polling interval.
 
-        Args:
-            poll_interval: Polling interval (seconds)
+        CHANGED: Reduced max_cooldown_sec for regular devices:
+            - High-frequency (≤1s): 180s → 120s (2 minutes)
+            - Medium-frequency (1-5s): 300s → 180s (3 minutes)
+            - Standard (5-10s): 600s → 180s (3 minutes)
 
-        Returns:
-            Health Manager parameter dictionary
-
-        Configuration strategy:
-            - Faster polling → smaller base cooldown multiplier, higher failure tolerance
-            - Slower polling → larger base cooldown multiplier, longer maximum cooldown
+        This prevents long-term offline devices from becoming "permanently offline".
+        Critical devices (inverters) are unaffected - they maintain fixed cooldown.
         """
         if poll_interval <= 1.0:
             # High-frequency polling (≤ 1 second)
             return {
                 "base_cooldown_sec": 2.0,  # 2x
-                "max_cooldown_sec": 180.0,  # 3 minutes
+                "max_cooldown_sec": 120.0,  # 2 minutes
                 "backoff_factor": 2.0,
                 "jitter_sec": 0.2,  # 20%
                 "mark_unhealthy_after_failures": 2,  # tolerate 1 failure
@@ -585,7 +635,7 @@ class DeviceHealthManager:
             # Medium-frequency polling (1–5 seconds)
             return {
                 "base_cooldown_sec": poll_interval * 2.0,
-                "max_cooldown_sec": 300.0,  # 5 minutes
+                "max_cooldown_sec": 180.0,  # 3 minutes
                 "backoff_factor": 2.0,
                 "jitter_sec": poll_interval * 0.2,
                 "mark_unhealthy_after_failures": 1,
@@ -595,7 +645,7 @@ class DeviceHealthManager:
             # Standard polling (5–10 seconds)
             return {
                 "base_cooldown_sec": poll_interval * 3.0,
-                "max_cooldown_sec": 600.0,  # 10 minutes
+                "max_cooldown_sec": 180.0,  # 3 minutes
                 "backoff_factor": 2.0,
                 "jitter_sec": poll_interval * 0.2,
                 "mark_unhealthy_after_failures": 1,
@@ -604,7 +654,7 @@ class DeviceHealthManager:
         # Low-frequency polling (> 10 seconds)
         return {
             "base_cooldown_sec": poll_interval * 2.0,
-            "max_cooldown_sec": 600.0,
+            "max_cooldown_sec": 180.0,  # 3 minutes
             "backoff_factor": 2.0,
             "jitter_sec": poll_interval * 0.2,
             "mark_unhealthy_after_failures": 1,
