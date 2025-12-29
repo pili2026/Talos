@@ -15,6 +15,7 @@ from api.service.parameter_service import ParameterService
 from api.service.snapshot_service import SnapshotService
 from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
+from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from device_manager import AsyncDeviceManager
 from repository.snapshot_repository import SnapshotRepository
@@ -46,12 +47,18 @@ def get_async_device_manager(request: Request) -> AsyncDeviceManager:
     return request.app.state.talos.get_device_manager()
 
 
+def get_health_manager(request: Request) -> DeviceHealthManager:
+    """Provide DeviceHealthManager from app state (unified mode only)."""
+    return request.app.state.talos.get_health_manager()
+
+
 def get_device_service(
     device_manager: AsyncDeviceManager = Depends(get_async_device_manager),
     config_repo: ConfigRepository = Depends(get_config_repository),
+    health_manager: DeviceHealthManager = Depends(get_health_manager),
 ) -> DeviceService:
     """Resolve DeviceService with AsyncDeviceManager and ConfigRepository."""
-    return DeviceService(device_manager, config_repo)
+    return DeviceService(device_manager, config_repo, health_manager)
 
 
 def get_parameter_service(

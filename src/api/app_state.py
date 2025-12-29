@@ -115,9 +115,11 @@ class TalosAppState(BaseModel):
         return len(self.async_device_manager.device_list)
 
     def get_health_manager(self) -> DeviceHealthManager:
-        """Get health manager (required in unified mode)."""
+        """Get health manager instance (unified mode only)."""
+        if not self.unified_mode:
+            raise RuntimeError("Health manager only available in unified mode")
         if self.health_manager is None:
-            raise RuntimeError("DeviceHealthManager not available")
+            raise RuntimeError("DeviceHealthManager not initialized")
         return self.health_manager
 
     def __repr__(self) -> str:

@@ -107,3 +107,103 @@ async def check_connectivity(device_id: str, service: DeviceService = Depends(ge
     except Exception as e:
         logger.error(f"Error checking connectivity for {device_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+# api/router/device_router.py
+
+
+@router.get(
+    "/{device_id}/health",
+    summary="Get device health status",
+    description=(
+        "Get device health status from DeviceHealthManager. "
+        "This explains why AsyncDeviceMonitor might return -1 values even when the device is actually online."
+    ),
+)
+async def get_device_health(device_id: str, service: DeviceService = Depends(get_device_service)) -> dict:
+    """
+    Get device health status tracked by DeviceHealthManager.
+
+    **Important difference from /connectivity:**
+
+    - **/connectivity**: Tests if device responds RIGHT NOW (direct Modbus communication)
+    - **/health**: Shows if DeviceHealthManager considers the device healthy
+
+    **Common scenario:**
+
+    If a device shows:
+    - `connectivity` = "online" (device can communicate)
+    - `health.is_healthy` = false (health manager considers it unhealthy)
+
+    This explains why **AsyncDeviceMonitor returns -1 values**:
+    - The device is physically working and can respond to direct reads
+    - But health manager has it in cooldown after previous failures
+    - Monitor skips polling until the next recovery window
+
+    **Use this endpoint to:**
+    - Debug why monitor shows -1 when device is actually online
+    - Check how long until next recovery attempt (cooldown_remaining_sec)
+    - See the failure history (consecutive_failures, last_failure_ts)
+
+    Args:
+        device_id: Device identifier (format: "MODEL_SLAVEID")
+
+    Returns:
+        Health status information including:
+        - is_healthy: Whether device is considered healthy
+        - consecutive_failures: Number of consecutive failures
+        - cooldown_remaining_sec: Seconds until next poll attempt
+        - explanation: Human-readable explanation of the status
+    """
+    try:
+        health_status = await service.get_device_health_status(device_id)
+
+        if "error" in health_status:
+            if "not registered" in health_status.get("error", ""):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=health_status["error"])
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=health_status["error"])
+
+        return health_status
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting health status for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+@router.get(
+    "/health/summary",
+    summary="Get health summary for all devices",
+    description="Get aggregated health information for all devices in the system",
+)
+async def get_all_devices_health_summary(service: DeviceService = Depends(get_device_service)) -> dict:
+    """
+    Get health summary for all devices.
+
+    Useful for:
+    - Dashboard overview of system health
+    - Identifying all unhealthy devices at once
+    - Monitoring overall system status
+
+    Returns:
+        Summary containing:
+        - total_devices: Total number of devices
+        - healthy_count: Number of healthy devices
+        - unhealthy_count: Number of unhealthy devices
+        - unhealthy_devices: List of unhealthy device IDs
+        - devices: Detailed status for each device
+    """
+    try:
+        summary = await service.get_all_devices_health_summary()
+
+        if "error" in summary:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=summary["error"])
+
+        return summary
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting health summary: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e

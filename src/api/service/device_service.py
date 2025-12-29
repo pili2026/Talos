@@ -12,6 +12,7 @@ from typing import Any
 from api.model.enums import DeviceConnectionStatus
 from api.model.responses import DeviceInfo
 from api.repository.config_repository import ConfigRepository
+from core.util.device_health_manager import DeviceHealthManager
 from device_manager import AsyncDeviceManager
 
 
@@ -25,9 +26,15 @@ class DeviceService:
     - Validate device existence
     """
 
-    def __init__(self, device_manager: AsyncDeviceManager, config_repo: ConfigRepository):
+    def __init__(
+        self,
+        device_manager: AsyncDeviceManager,
+        config_repo: ConfigRepository,
+        health_manager: DeviceHealthManager | None = None,
+    ):
         self._device_manager = device_manager
         self._config_repo = config_repo
+        self._health_manager = health_manager
 
     async def get_all_devices(self, include_status: bool = False) -> list[DeviceInfo]:
         """
@@ -113,6 +120,85 @@ class DeviceService:
             )
 
         return models
+
+    async def get_device_health_status(self, device_id: str) -> dict:
+        """
+        Get device health status from DeviceHealthManager.
+
+        This shows why AsyncDeviceMonitor might skip reading a device,
+        which is different from real-time connectivity test.
+
+        Returns:
+            dict containing:
+                - device_id: Device identifier
+                - is_healthy: Whether device is considered healthy
+                - consecutive_failures: Number of consecutive failures
+                - last_success_ts: Timestamp of last successful read
+                - last_failure_ts: Timestamp of last failed read
+                - next_allowed_poll_ts: When device will be polled again
+                - cooldown_remaining_sec: Seconds until next poll attempt
+                - explanation: Human-readable explanation
+        """
+        if not self._health_manager:
+            return {
+                "device_id": device_id,
+                "error": "Health manager not available (standalone mode or not initialized)",
+            }
+
+        # Get health status from health manager
+        status = self._health_manager.get_status(device_id)
+
+        if status is None:
+            return {
+                "device_id": device_id,
+                "error": "Device not registered in health manager",
+                "hint": "Device might not be in the device list or monitor hasn't started yet",
+            }
+
+        # Add human-readable explanation
+        if status["is_healthy"]:
+            explanation = (
+                "Device is healthy. AsyncDeviceMonitor will poll this device normally " "and return real-time values."
+            )
+        else:
+            explanation = (
+                f"Device is UNHEALTHY after {status['consecutive_failures']} consecutive failures. "
+                f"AsyncDeviceMonitor will return -1 for all parameters and skip actual polling "
+                f"until the next recovery window (in {status['cooldown_remaining_sec']:.1f}s). "
+                f"This is why you see -1 values in monitor logs even though the device "
+                f"responds to direct API calls."
+            )
+
+        return {
+            **status,
+            "explanation": explanation,
+        }
+
+    async def get_all_devices_health_summary(self) -> dict:
+        """
+        Get health summary for all devices.
+
+        Returns:
+            dict containing:
+                - total_devices: Total number of registered devices
+                - healthy_count: Number of healthy devices
+                - unhealthy_count: Number of unhealthy devices
+                - unhealthy_devices: List of unhealthy device IDs
+                - devices: Dictionary of all device health statuses
+        """
+        if not self._health_manager:
+            return {"error": "Health manager not available (standalone mode or not initialized)"}
+
+        all_summary = self._health_manager.get_all_summary()
+        unhealthy_devices = self._health_manager.get_unhealthy_devices()
+
+        return {
+            "total_devices": len(all_summary),
+            "healthy_count": len(all_summary) - len(unhealthy_devices),
+            "unhealthy_count": len(unhealthy_devices),
+            "unhealthy_devices": unhealthy_devices,
+            "devices": all_summary,
+        }
 
     async def _build_device_info(self, config: dict[str, Any], include_status: bool = False) -> DeviceInfo:
         """
