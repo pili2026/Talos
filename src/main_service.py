@@ -80,15 +80,10 @@ async def main():
     args = parse_arguments()
 
     # Configure logging
-    setup_logging(log_to_file=True)
+    log_level = LOG_LEVEL_MAP.get(args.log_level, logging.INFO)
+    setup_logging(log_level=log_level, log_to_file=True)
     load_dotenv()
     install_asyncio_noise_suppressor()
-
-    logging.basicConfig(
-        level=LOG_LEVEL_MAP.get(args.log_level, logging.INFO),
-        format="%(asctime)s [%(levelname)8s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
 
     logger.info("=" * 80)
     logger.info("TALOS UNIFIED SERVICE")

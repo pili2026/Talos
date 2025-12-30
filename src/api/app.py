@@ -29,7 +29,8 @@ from api.lifecycle import shutdown_event, startup_event
 from api.middleware.error_handler import add_error_handlers
 from api.middleware.logging_middleware import LoggingMiddleware
 from api.router import batch, constraint, device, health, monitoring, parameter, snapshot, wifi
-from api.util.logging_config import setup_logging
+
+# from api.util.logging_config import setup_logging
 
 logger = logging.getLogger("TalosAPI")
 
@@ -37,7 +38,7 @@ logger = logging.getLogger("TalosAPI")
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Configure logging
-setup_logging(log_level="INFO")
+# setup_logging(log_level="INFO")
 
 
 @asynccontextmanager
