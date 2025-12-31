@@ -2,15 +2,12 @@ model: BAT08
 register_type: holding
 type: ai_module
 
-# Device Instance can override per-pin settings like formula, unit, precision, etc.
+description: "Delta Electronics BAT08 8-Channel Analog Input Module"
+
 register_map:
   AIn01:
     offset: 0
     format: i16
-    formula: [0, 1, 0]   # (raw + n1) * n2 + n3
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 01"
@@ -18,10 +15,6 @@ register_map:
   AIn02:
     offset: 1
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 02"
@@ -29,10 +22,6 @@ register_map:
   AIn03:
     offset: 2
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 03"
@@ -40,10 +29,6 @@ register_map:
   AIn04:
     offset: 3
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 04"
@@ -51,10 +36,6 @@ register_map:
   AIn05:
     offset: 4
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 05"
@@ -62,10 +43,6 @@ register_map:
   AIn06:
     offset: 5
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 06"
@@ -73,10 +50,6 @@ register_map:
   AIn07:
     offset: 6
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 07"
@@ -84,10 +57,6 @@ register_map:
   AIn08:
     offset: 7
     format: i16
-    formula: [0, 1, 0]
-    type: analog
-    unit: ""
-    precision: 3
     readable: true
     writable: false
     description: "Analog Input 08"

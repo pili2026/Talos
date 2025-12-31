@@ -9,18 +9,30 @@ from core.device.generic.constraints_policy import ConstraintPolicy
 from core.device.generic.generic_device import AsyncGenericModbusDevice
 from core.model.device_constant import DEFAULT_MISSING_VALUE
 from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema
+from core.schema.driver_schema import DriverConfig
 from core.schema.modbus_device_schema import ModbusDeviceFileConfig
+from core.schema.pin_mapping_schema import PinMappingConfig
 from core.util.config_manager import ConfigManager
+from core.util.config_manager_extension import ConfigManagerExtension
+from core.util.pin_mapping_manager import PinMappingManager
 
 logger = logging.getLogger("DeviceManager")
 
 
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
     """
-    Shallow-safe deep merge for 2-level dicts (enough for modes tables).
-    - base/override must be dict
-    - if both values are dict -> merge nested
-    - otherwise override wins
+    Shallow-safe deep merge for 2-level dicts (sufficient for mode tables).
+
+    Rules:
+    - If both values are dict -> merge nested
+    - Otherwise override wins
+
+    Args:
+        base: Base dictionary
+        override: Override dictionary
+
+    Returns:
+        Merged dictionary
     """
     if not isinstance(base, dict):
         base = {}
@@ -38,47 +50,17 @@ def _deep_merge_dicts(base: dict, override: dict) -> dict:
     return out
 
 
-def _merge_register_map_with_pins(
-    driver_register_map: dict, pins_override: dict, logger: logging.Logger, device_id: str
-) -> dict:
-    """
-    Merge per-instance pin overrides into driver register_map.
-
-    - Only updates existing pins; unknown pins are warned and skipped.
-    - Does NOT mutate the original driver_register_map (important for cached model configs).
-    """
-    base = driver_register_map or {}
-    out: dict = {k: (dict(v) if isinstance(v, dict) else v) for k, v in base.items()}
-
-    if not pins_override:
-        return out
-
-    for pin_name, override_cfg in pins_override.items():
-        if pin_name not in out:
-            logger.warning(f"[{device_id}] pins override refers to unknown pin '{pin_name}', skip")
-            continue
-        if not isinstance(out.get(pin_name), dict) or not isinstance(override_cfg, dict):
-            logger.warning(f"[{device_id}] pins override invalid type for '{pin_name}', skip")
-            continue
-
-        merged = dict(out[pin_name])
-        merged.update(override_cfg)  # override wins
-        out[pin_name] = merged
-
-    return out
-
-
 class AsyncDeviceManager:
     """
     DeviceManager is responsible for:
-    - Loading device configs
-    - Building clients + per-port locks
-    - Building devices and caching model configs
-    - Applying startup frequency (with health check support)
-    - Shutdown / connectivity tests
+    - Loading device configurations
+    - Building Modbus clients with per-port locks
+    - Building devices with cached model configs
+    - Three-layer configuration merging (Driver + Pin Mapping + Instance Override)
+    - Managing device lifecycle (startup/shutdown)
 
-    Health/backoff/cooldown is NOT managed here.
-    That is owned by DeviceHealthManager + AsyncDeviceMonitor.
+    Note: Health check, backoff, and cooldown are NOT managed here.
+    Those are owned by DeviceHealthManager and AsyncDeviceMonitor.
     """
 
     def __init__(
@@ -86,31 +68,42 @@ class AsyncDeviceManager:
         config_path: str,
         constraint_config_schema: ConstraintConfigSchema,
         model_base_path: str = "./res",
+        pin_mapping_base_path: str = "./res/pin_mapping",
     ):
         """
         Initialize AsyncDeviceManager.
 
         Args:
             config_path: Path to modbus device configuration file
-            constraint_config_schema: Device constraint configuration
+            constraint_config_schema: Device constraint configuration schema
             model_base_path: Base path for device driver YAML files
-            health_manager: Optional DeviceHealthManager for health-aware operations
+            pin_mapping_base_path: Base path for pin mapping YAML files
         """
         self.device_list: list[AsyncGenericModbusDevice] = []
         self.client_dict: dict[str, AsyncModbusSerialClient] = {}
         self.config_path = config_path
         self.constraint_config_schema = constraint_config_schema
         self.model_base_path = model_base_path
+        self.pin_mapping_manager = PinMappingManager(pin_mapping_base_path)
 
-        # model_name -> loaded YAML config (cached)
+        # Cached driver configs: model_name -> loaded YAML config
         self.driver_config_by_model: dict[str, dict] = {}
 
-        # port -> asyncio.Lock (single source of truth for RS-485 serialization)
+        # Per-port locks for RS-485 serialization: port -> asyncio.Lock
         self._port_locks: dict[str, asyncio.Lock] = {}
 
     async def init(self) -> None:
         """
-        Initialize device connections.
+        Initialize device connections and build device instances.
+
+        Process:
+        1. Load modbus device configuration
+        2. For each device:
+           a. Load driver config (Layer 1: Hardware)
+           b. Load pin mapping (Layer 2: Model-level application)
+           c. Get instance pin overrides (Layer 3: Instance-specific)
+           d. Merge three layers to build final register map
+           e. Create device instance with final config
 
         Note: Does NOT write startup frequencies.
         Call apply_startup_frequencies_with_health_check() after health check initialization.
@@ -123,12 +116,13 @@ class AsyncDeviceManager:
                 logger.warning(f"Skip device without port: {device_config.model}_{device_config.slave_id}")
                 continue
 
+            # Load driver config (Layer 1: Hardware definition)
             model_path: str = os.path.join(self.model_base_path, device_config.model_file)
             model_config_raw: dict = ConfigManager().load_yaml_file(model_path)
 
             model: str = model_config_raw["model"]
             if model not in self.driver_config_by_model:
-                # Cache model config to avoid re-loading same model file
+                # Cache driver config to avoid re-loading same model file
                 self.driver_config_by_model[model] = model_config_raw
 
             slave_id: int = device_config.slave_id
@@ -163,17 +157,34 @@ class AsyncDeviceManager:
             device_type: str = device_config.type
             device_id: str = f"{model}_{slave_id}"
 
-            # Get instance-level pin overrides
-            pins_override: dict = ConfigManager.get_instance_pins_from_schema(
+            # === Three-Layer Configuration Merging ===
+
+            # Layer 1: Load driver config (hardware definition)
+            driver_config = DriverConfig(**model_config_raw)
+
+            # Layer 2: Load pin mapping (model-level application definition)
+            try:
+                pin_mapping_config: PinMappingConfig = self.pin_mapping_manager.load_pin_mapping(
+                    driver_model=model.lower(), mapping_name="default"
+                )
+                pin_mappings = pin_mapping_config.pin_mappings
+            except FileNotFoundError:
+                logger.warning(f"[{device_id}] No pin mapping found, using driver defaults only")
+                pin_mappings = {}
+            except Exception as e:
+                logger.error(f"[{device_id}] Failed to load pin mapping: {e}, using driver defaults")
+                pin_mappings = {}
+
+            # Layer 3: Get instance-specific pin overrides
+            instance_pin_overrides: dict = ConfigManager.get_instance_pins_from_schema(
                 self.constraint_config_schema, model, slave_id
             )
 
-            # Merge register map with pin overrides
-            final_register_map: dict = _merge_register_map_with_pins(
-                driver_register_map=model_config_raw["register_map"],
-                pins_override=pins_override,
-                logger=logger,
-                device_id=device_id,
+            # Merge three layers to build final register map
+            final_register_map: dict = ConfigManagerExtension.build_final_register_map(
+                driver_register_map=driver_config.register_map,
+                pin_mappings=pin_mappings,
+                instance_pin_overrides=instance_pin_overrides,
             )
 
             # Create device instance
@@ -190,18 +201,16 @@ class AsyncDeviceManager:
                 write_hooks=model_config_raw.get("write_hooks", []),
                 port_lock=self._port_locks[port],
                 port=port,
-                model_config=model_config_raw,  # Pass full config for health check access
+                model_config=model_config_raw,
             )
 
             self.device_list.append(device)
 
-        logger.info(
-            "Device connections ready " "(startup frequencies will be applied after health check initialization)"
-        )
+        logger.info("Device connections ready (startup frequencies will be applied after health check initialization)")
 
     def get_device_by_model_and_slave_id(self, model: str, slave_id: str | int) -> AsyncGenericModbusDevice | None:
         """
-        Get device by model name and slave ID.
+        Get device instance by model name and slave ID.
 
         Args:
             model: Device model name
@@ -230,7 +239,9 @@ class AsyncDeviceManager:
         return device.constraints.allow("RW_HZ", frequency)
 
     async def shutdown(self) -> None:
-        """Close all underlying Modbus clients and clear cached devices."""
+        """
+        Close all underlying Modbus clients and clear cached devices.
+        """
         for client in self.client_dict.values():
             try:
                 result = client.close()
@@ -246,10 +257,10 @@ class AsyncDeviceManager:
         """
         Test if a device is online by attempting to read a register.
 
-        Note (Phase 1):
-        - Do NOT acquire port lock here.
-        - ModbusBus already serializes I/O using the shared per-port lock.
-        - Double-lock will deadlock (asyncio.Lock is not re-entrant).
+        Note:
+        - Do NOT acquire port lock here
+        - ModbusBus already serializes I/O using the shared per-port lock
+        - Double-lock will cause deadlock (asyncio.Lock is not re-entrant)
 
         Args:
             device_id: Device ID in format "MODEL_SLAVEID"
@@ -291,9 +302,9 @@ class AsyncDeviceManager:
         Fast connection test with reduced timeout.
 
         Note:
-        - Do NOT acquire port lock here.
-        - ModbusBus already serializes I/O using the shared per-port lock.
-        - Double-lock will deadlock (asyncio.Lock is not re-entrant).
+        - Do NOT acquire port lock here
+        - ModbusBus already serializes I/O using the shared per-port lock
+        - Double-lock will cause deadlock (asyncio.Lock is not re-entrant)
 
         Args:
             device_id: Device ID in format "MODEL_SLAVEID"
@@ -365,7 +376,7 @@ class AsyncDeviceManager:
         if success_rate >= min_success_rate:
             return True, None, details
 
-        error_msg = f"Low response rate: {passed_count}/{len(results)} parameters responded ({success_rate:.0%})"
+        error_msg = f"Low response rate: {passed_count}/{len(results)} parameters responded " f"({success_rate:.0%})"
         return False, error_msg, details
 
     def _get_device_port(self, device: AsyncGenericModbusDevice) -> str:

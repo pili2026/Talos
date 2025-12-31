@@ -18,6 +18,7 @@ DEFAULT_TARGET_BY_ACTION: dict[ControlActionType, str] = {
 VALUE_TOLERANCE: float = 0.0
 
 
+# TODO: Need Refactor and remove getattr
 class ControlExecutor:
     def __init__(self, device_manager: AsyncDeviceManager, health_manager: DeviceHealthManager | None = None):
         self.device_manager = device_manager

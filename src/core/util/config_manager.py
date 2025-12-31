@@ -1,9 +1,12 @@
+import logging
 import os
 import re
 
 import yaml
 
-from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema, DeviceConfig
+from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema, DeviceConfig, InstanceConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -15,7 +18,7 @@ class ConfigManager:
 
     @staticmethod
     def parse_env_var_with_default(value: str) -> bool | int | float | str | None:
-        match = re.match(r"\$\{(\w+)(?::-([^\}]*))?\}", value)  # Match ${VAR_NAME:-default} or ${VAR_NAME}
+        match = re.match(r"\$\{(\w+)(?::-([^\}]*))?\}", value)
         if not match:
             return value
 
@@ -37,7 +40,7 @@ class ConfigManager:
     def get_device_startup_frequency(config: ConstraintConfigSchema, model: str, slave_id: int) -> float | None:
         """Retrieve the startup frequency configuration for a device"""
         # 1. Check instance settings
-        device_config = config.devices.get(model)
+        device_config: DeviceConfig | None = config.devices.get(model)
         if device_config and device_config.instances:
             instance_config = device_config.instances.get(str(slave_id))
             if (
@@ -70,8 +73,9 @@ class ConfigManager:
         config: ConstraintConfigSchema, model: str, slave_id: int
     ) -> dict[str, ConstraintConfig]:
         """Retrieve instance-level constraint configuration from Schema"""
-        device_config = config.devices.get(model)
+        device_config: DeviceConfig | None = config.devices.get(model)
         if not device_config:
+            logger.warning(f"Model '{model}' not found in config.devices")
             return {}
 
         result: dict[str, ConstraintConfig] = {}
@@ -90,57 +94,42 @@ class ConfigManager:
     @staticmethod
     def get_instance_pins_from_schema(config: ConstraintConfigSchema, model: str, slave_id: int) -> dict[str, dict]:
         """
-        Pins override policy (Scheme A: baseline + delta):
-        - Use model-level pins as baseline: devices[model].pins
-        - Apply instance-level overrides: devices[model].instances[slave_id].pins
-        - Merge per-pin by fields (override wins)
+        Get instance-specific pin overrides.
+
+        Layer 3 (Instance Override) in the three-layer architecture:
+        - This method only returns instance-level pin overrides
+        - Model-level baseline is now in pin_mapping (Layer 2)
+        - Hardware definition is in driver (Layer 1)
+
+        Args:
+            config: Constraint configuration schema
+            model: Device model name
+            slave_id: Device slave ID
+
+        Returns:
+            Dictionary of pin overrides for this specific instance
         """
-        device_config = config.devices.get(model)
+        device_config: DeviceConfig | None = config.devices.get(model)
         if not device_config:
+            logger.debug(f"Model '{model}' not found in config.devices")
             return {}
 
-        def _to_dict(obj) -> dict:
-            if not obj:
-                return {}
-            if isinstance(obj, dict):
-                return dict(obj)
-            try:
-                return obj.model_dump(exclude_none=True)  # type: ignore[attr-defined]
-            except Exception:
-                return {}
-
-        # 1) baseline pins at model-level
-        base_pins_raw = getattr(device_config, "pins", None)
-        base_pins: dict[str, dict] = {}
-        for pin_name, pin_cfg in _to_dict(base_pins_raw).items():
-            if isinstance(pin_cfg, dict):
-                base_pins[pin_name] = dict(pin_cfg)
-
-        # 2) instance pins overrides
-        inst_pins: dict[str, dict] = {}
-        if device_config.instances:
-            instance_config = device_config.instances.get(str(slave_id))
-            if instance_config:
-                inst_pins_raw = getattr(instance_config, "pins", None)
-                for pin_name, pin_cfg in _to_dict(inst_pins_raw).items():
-                    if isinstance(pin_cfg, dict):
-                        inst_pins[pin_name] = dict(pin_cfg)
-
-        # 3) merge: baseline + override (override wins, per-field)
-        if not base_pins and not inst_pins:
+        # Only get instance-specific overrides
+        if not device_config.instances:
+            logger.debug(f"Model '{model}' has no instances defined")
             return {}
 
-        out: dict[str, dict] = {k: dict(v) for k, v in base_pins.items()}
-        for pin_name, override_cfg in inst_pins.items():
-            if pin_name in out and isinstance(out[pin_name], dict):
-                merged = dict(out[pin_name])
-                merged.update(override_cfg)
-                out[pin_name] = merged
-            else:
-                # allow "new pin" definition at instance level if you want (optional)
-                out[pin_name] = dict(override_cfg)
+        instance_config: InstanceConfig | None = device_config.instances.get(str(slave_id))
+        if not instance_config:
+            logger.debug(f"Instance '{model}_{slave_id}' has no specific config")
+            return {}
 
-        return out
+        # Return instance pins directly (no need for getattr)
+        if instance_config.pins:
+            logger.debug(f"Instance '{model}_{slave_id}' has {len(instance_config.pins)} pin overrides")
+            return dict(instance_config.pins)
+
+        return {}
 
     @staticmethod
     def get_device_auto_turn_on(config: ConstraintConfigSchema, model: str, slave_id: int) -> bool:

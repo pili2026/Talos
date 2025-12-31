@@ -1,4 +1,3 @@
-# device_instance_config.template.yml
 # Per-device instance override template.
 #
 # Purpose:
@@ -38,39 +37,24 @@ TECO_VFD:
     RW_HZ: { min: 35, max: 60 }
 
   instances:
-    # Cooling Water Pumps: slave 1~4 (legacy CWGroup_* MinHz=52 MaxHz=56)
     "1": { constraints: { RW_HZ: { min: 52, max: 56 } } }
-    "2": { constraints: { RW_HZ: { min: 52, max: 56 } } }
-    "3": { constraints: { RW_HZ: { min: 52, max: 56 } } }
-    "4": { constraints: { RW_HZ: { min: 52, max: 56 } } }
-
-    # Chillers: slave 5~8 (legacy ChillerGroup_* MinHz=56 MaxHz=58)
+    "2": {}
+    "3": {}
+    "4": {}
     "5": { constraints: { RW_HZ: { min: 56, max: 58 } } }
-    "6": { constraints: { RW_HZ: { min: 56, max: 58 } } }
-    "7": { constraints: { RW_HZ: { min: 56, max: 58 } } }
-    "8": { constraints: { RW_HZ: { min: 56, max: 58 } } }
-
-    # Fans: slave 9~12 (legacy FanGroup_* MinHz=58 MaxHz=60)
+    "6": {}
+    "7": {}
+    "8": {}
     "9":  { constraints: { RW_HZ: { min: 58, max: 60 } } }
-    "10": { constraints: { RW_HZ: { min: 58, max: 60 } } }
-    "11": { constraints: { RW_HZ: { min: 58, max: 60 } } }
-    "12": { constraints: { RW_HZ: { min: 58, max: 60 } } }
+    "10": {}
+    "11": {}
+    "12": {}
 
 # -------------------------------------------------------------------
 # AI Module - BAT08 (Scheme A: model baseline pins + instance delta)
 # -------------------------------------------------------------------
 BAT08:
   default_constraints: {}
-
-  pins:
-    AIn01: { name: Temp1, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
-    AIn02: { name: Temp2, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
-    AIn03: { name: Pressure3, formula: [0, 0.00097656, 0.0], type: pressure, unit: "bar", precision: 3 }
-    AIn04: { name: Temp4, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
-    AIn05: { name: Temp5, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
-    AIn06: { name: Pressure6, formula: [0, 0.00097656, 0.0], type: pressure, unit: "bar", precision: 3 }
-    AIn07: { name: Temp7, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
-    AIn08: { name: Temp8, formula: [0, 0.01220703125, 0.0], type: thermometer, unit: "°C", precision: 2 }
 
   instances:
     "16": {}
@@ -94,6 +78,24 @@ BAT08:
         AIn04: { formula: [0, 0.01220703125, -1.0] }
         AIn05: { formula: [0, 0.01220703125, -1.0] }
 
+ADAM-4117:
+  default_constraints: {}
+
+  instances:
+    "22": {}
+    "23": {}
+    "24": {}
+    "25": {}
+  
+SD4000:
+  default_constraints: {}
+
+  instances:
+    "26": {}
+    "27": {}
+    "28": {}
+    "29": {}
+
 # -------------------------------------------------------------------
 # IO Module - JY_DAM0404 (Room semantics via pins metadata)
 # Notes:
@@ -103,13 +105,6 @@ BAT08:
 # -------------------------------------------------------------------
 JY_DAM0404:
   default_constraints: {}
-
-  # Optional model-level baseline metadata. Instances can override remark/name as needed.
-  pins:
-    DIn01: { name: "RelayOld", remark: "" }
-    DIn02: { name: "RelayOld", remark: "" }
-    DIn03: { name: "RelayOld", remark: "" }
-    DIn04: { name: "RelayOld", remark: "" }
 
   instances:
     "18":
