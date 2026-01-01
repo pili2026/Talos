@@ -20,6 +20,14 @@ capabilities:
     on: 1
     off: 0
 
+health_check:
+  strategy: partial_bulk
+  registers: [DIn01, DIn02, DIn03]
+  timeout_ms: 3000
+  retry_on_failure: 1
+  register_type: discrete_input
+
+
 register_map:
   # ==================== Digital Inputs (16 channels) ====================
   # Optocoupler isolated inputs (5-24V)

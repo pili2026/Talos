@@ -259,6 +259,11 @@ class AsyncDeviceManager:
         """
         Test if a device is online by attempting to read a register.
 
+        Strategy:
+        1. Find first readable PHYSICAL register (skip computed fields)
+        2. Read that register
+        3. Return success if value != -1
+
         Note:
             - Do NOT acquire port lock here
             - ModbusBus already serializes I/O using the shared per-port lock
@@ -280,6 +285,7 @@ class AsyncDeviceManager:
             slave_id = int(slave_id_str)
         except ValueError as e:
             raise ParameterError(f"Invalid device_id format: {device_id}") from e
+
         device = self.get_device_by_model_and_slave_id(model, slave_id)
         if not device:
             raise DeviceNotFoundError(f"Device not found: model={model}, slave_id={slave_id}", device_id=device_id)
@@ -287,10 +293,36 @@ class AsyncDeviceManager:
         if not device.register_map:
             raise DeviceConfigError(f"Device {device_id} has no register map configured", device_id=device_id)
 
+        # Find first readable physical register (skip computed fields)
+        test_param = None
+        for param_name, param_config in device.register_map.items():
+            # Skip computed fields (CRITICAL FIX for devices with computed parameters)
+            if param_config.get("type") == "computed":
+                continue
+            # Skip non-readable parameters
+            if not param_config.get("readable", False):
+                continue
+            # Skip parameters without offset (safety check)
+            if "offset" not in param_config:
+                continue
+
+            test_param = param_name
+            break
+
+        if not test_param:
+            raise DeviceConfigError(f"Device {device_id} has no readable physical registers", device_id=device_id)
+
         try:
-            first_param: str = next(iter(device.register_map.keys()))
-            value: float | int = await device.read_value(first_param)
-            return value != DEFAULT_MISSING_VALUE
+            logger.debug(f"[DeviceManager] Testing {device_id} connectivity with parameter: {test_param}")
+            value: float | int = await device.read_value(test_param)
+            is_online: bool = value != DEFAULT_MISSING_VALUE
+
+            if is_online:
+                logger.debug(f"[DeviceManager] {device_id} connectivity test passed ({test_param}={value})")
+            else:
+                logger.debug(f"[DeviceManager] {device_id} connectivity test failed ({test_param}=-1)")
+
+            return is_online
 
         except (ModbusException, OSError, asyncio.TimeoutError) as e:
             logger.warning(f"Connection test failed for {device_id}: {e}")

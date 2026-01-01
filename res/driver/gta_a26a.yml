@@ -7,6 +7,14 @@ description: >
   - TOTALIZE uses 4-word 64-bit format.
   - MAX.D, DEMAND, RATE use 32-bit format (high word + low word).
 
+health_check:
+  strategy: partial_bulk
+  registers: [RATE_HI, MAXD_HI, DEMAND_HI]
+  register_type: holding
+  timeout_ms: 2000
+  retry_on_failure: 1
+
+
 register_map:
   # ========== Computed Fields (scaled, with decimal point) ==========
   TOTALIZE:

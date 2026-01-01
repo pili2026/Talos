@@ -108,10 +108,14 @@ class HealthCheckStrategyInferencer:
     ) -> HealthCheckConfig | None:
         """
         Inverter strategy (Rule 2):
-        Use smallest offset readable register (excluding RW_* control registers)
+        Use smallest offset readable register (excluding RW_* control registers and computed fields)
         """
         readable_regs = []
         for name, cfg in register_map.items():
+            # Skip computed fields
+            if cfg.get("type") == "computed":
+                continue
+
             # Exclude control registers
             if cfg.get("readable") and not name.startswith("RW_"):
                 offset = cfg.get("offset")
@@ -141,10 +145,14 @@ class HealthCheckStrategyInferencer:
     ) -> HealthCheckConfig | None:
         """
         I/O module strategy (Rule 3):
-        Use first 2-3 contiguous pins
+        Use first 2-3 contiguous pins (PHYSICAL registers only)
         """
         readable_regs = []
         for name, cfg in register_map.items():
+            # CRITICAL: Skip computed fields
+            if cfg.get("type") == "computed":
+                continue
+
             if cfg.get("readable"):
                 offset = cfg.get("offset")
                 if offset is not None:
@@ -208,10 +216,14 @@ class HealthCheckStrategyInferencer:
     ) -> HealthCheckConfig | None:
         """
         Power meter strategy (Rule 4):
-        Use first 3 contiguous registers
+        Use first 3 contiguous registers (PHYSICAL registers only)
         """
         readable_regs = []
         for name, cfg in register_map.items():
+            # CRITICAL: Skip computed fields
+            if cfg.get("type") == "computed":
+                continue
+
             if cfg.get("readable"):
                 offset = cfg.get("offset")
                 if offset is not None:
@@ -259,10 +271,14 @@ class HealthCheckStrategyInferencer:
     ) -> HealthCheckConfig | None:
         """
         Default strategy (Rule 5):
-        Use smallest offset readable register
+        Use smallest offset readable register (PHYSICAL registers only)
         """
         readable_regs = []
         for name, cfg in register_map.items():
+            # CRITICAL: Skip computed fields
+            if cfg.get("type") == "computed":
+                continue
+
             if cfg.get("readable"):
                 offset = cfg.get("offset")
                 if offset is not None:
