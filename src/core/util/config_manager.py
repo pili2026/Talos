@@ -75,7 +75,9 @@ class ConfigManager:
         """Retrieve instance-level constraint configuration from Schema"""
         device_config: DeviceConfig | None = config.devices.get(model)
         if not device_config:
-            logger.warning(f"Model '{model}' not found in config.devices")
+            logger.warning(
+                f"Model '{model}' not found in config.devices. " f"Available models={list(config.devices.keys())}"
+            )
             return {}
 
         result: dict[str, ConstraintConfig] = {}

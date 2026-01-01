@@ -1,62 +1,105 @@
+# ADAM-4117 Analog Input Pin Mapping and Conversion Parameters
+#
+# ActualValue = (raw + N1) * N2 + N3
+# - Temp sensors: 4–20 mA → 0–50 °C
+# - Pressure sensors: 4–20 mA → 0–4 kg/cm²
+
 model: ADAM-4117
+# register_type: holding
 register_type: input
 type: ai_module
 
-description: "Advantech ADAM-4117 8-Channel Isolated Analog Input Module"
+description: >
+  Advantech ADAM-4117 8-ch Analog Input Module
+  - Temperature channels scaled to 0-50 °C from 4-20 mA.
+  - Pressure channels scaled to 0-4 kg/cm² from 4-20 mA.
+  - Uses 16-bit signed raw values with linear formula: (raw + N1) * N2 + N3.
 
 register_map:
   AIn01:
     offset: 0
     format: u16
+    formula: [0, 0.00076293945, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
     readable: true
     writable: false
-    description: "Analog Input 01"
+    description: "Analog Input 01 - Temperature (0-50 °C)"
 
   AIn02:
     offset: 1
     format: u16
+    formula: [0, 0.00076293945, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
     readable: true
     writable: false
-    description: "Analog Input 02"
+    description: "Analog Input 02 - Temperature (0-50 °C)"
 
   AIn03:
     offset: 2
     format: u16
+    formula: [0, 0.00006103515625, 0]
+    type: pressure
+    unit: "kg/cm²"
+    precision: 3
     readable: true
     writable: false
-    description: "Analog Input 03"
+    description: "Analog Input 03 - Pressure (0-4 kg/cm²)"
 
   AIn04:
     offset: 3
     format: u16
+    formula: [0, 0.00076293945, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
     readable: true
     writable: false
-    description: "Analog Input 04"
+    description: "Analog Input 04 - Temperature (0-50 °C)"
 
   AIn05:
     offset: 4
     format: u16
+    formula: [0, 0.00076293945, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
     readable: true
     writable: false
-    description: "Analog Input 05"
+    description: "Analog Input 05 - Temperature (0-50 °C)"
 
   AIn06:
     offset: 5
     format: u16
+    formula: [0, 0.00006103515625, 0]
+    type: pressure
+    unit: "kg/cm²"
+    precision: 3
     readable: true
     writable: false
-    description: "Analog Input 06"
+    description: "Analog Input 06 - Pressure (0-4 kg/cm²)"
 
   AIn07:
     offset: 6
     format: u16
+    formula: [0, 0.00076293945, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
     readable: true
     writable: false
-    description: "Analog Input 07"
+    description: "Analog Input 07 - Temperature (0-50 °C)"
 
   AIn08:
     offset: 7
     format: u16
+    formula: [0, 0.00076293945, 0]
+    type: thermometer
+    unit: "°C"
+    precision: 2
     readable: true
     writable: false
-    description: "Analog Input 08"
+    description: "Analog Input 08 - Temperature (0-50 °C)"

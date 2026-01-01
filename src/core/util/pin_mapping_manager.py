@@ -37,6 +37,7 @@ class PinMappingManager:
             FileNotFoundError: Configuration file not found
             ValueError: Invalid configuration file format
         """
+        # TODO: ADAM-4117 model need to check
         cache_key = f"{driver_model}_{mapping_name}"
 
         # Check cache

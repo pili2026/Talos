@@ -82,6 +82,7 @@ class ModbusBus:
                     f"[DEBUG][Bus][Slave {self.slave_id}] Sending request: "
                     f"type={self.register_type}, offset={offset}, count={count}"
                 )
+
                 if self.register_type in (RegisterType.HOLDING, "holding"):
                     resp: ModbusPDU = await self.client.read_holding_registers(
                         address=int(offset),
@@ -90,6 +91,18 @@ class ModbusBus:
                     )
                 elif self.register_type in (RegisterType.INPUT, "input"):
                     resp: ModbusPDU = await self.client.read_input_registers(
+                        address=int(offset),
+                        count=int(count),
+                        slave=int(self.slave_id),
+                    )
+                elif self.register_type in (RegisterType.COIL, "coil"):
+                    resp: ModbusPDU = await self.client.read_coils(
+                        address=int(offset),
+                        count=int(count),
+                        slave=int(self.slave_id),
+                    )
+                elif self.register_type in (RegisterType.DISCRETE_INPUT, "discrete_input"):
+                    resp: ModbusPDU = await self.client.read_discrete_inputs(
                         address=int(offset),
                         count=int(count),
                         slave=int(self.slave_id),
@@ -106,26 +119,40 @@ class ModbusBus:
                 if resp.isError():
                     return await self._handle_modbus_error(resp, offset, count)
 
-                # Extract registers without getattr
+                # ---- decode payload by register_type ----
+                if self.register_type in (RegisterType.COIL, "coil", RegisterType.DISCRETE_INPUT, "discrete_input"):
+                    try:
+                        bits = resp.bits
+                    except AttributeError:
+                        bits = None
+
+                    if isinstance(bits, list) and len(bits) >= count:
+                        self._consecutive_errors = 0
+                        return [1 if b else 0 for b in bits[:count]]
+
+                    logger.error(
+                        f"[Bus][Slave {self.slave_id}] Invalid bit payload: "
+                        f"bits_type={type(bits)}, bits_len={len(bits) if isinstance(bits, list) else 'N/A'}"
+                    )
+                    await self._reset_connection_locked(reason="invalid_bit_payload", force_close=True)
+                    return [DEFAULT_MISSING_VALUE] * count
+
+                # holding/input path
                 try:
                     regs = resp.registers
                 except AttributeError:
                     regs = None
 
                 if isinstance(regs, list) and len(regs) >= count:
-                    logger.debug(
-                        f"[DEBUG][Bus][Slave {self.slave_id}] Success: got {len(regs)} registers, "
-                        f"values={regs[:min(5, len(regs))]}"  # Log first 5 values
-                    )
                     self._consecutive_errors = 0
                     return regs[:count]
-                else:
-                    logger.error(
-                        f"[Bus][Slave {self.slave_id}] Invalid payload: "
-                        f"regs_type={type(regs)}, regs_len={len(regs) if isinstance(regs, list) else 'N/A'}"
-                    )
-                    await self._reset_connection_locked(reason="invalid_payload", force_close=True)
-                    return [DEFAULT_MISSING_VALUE] * count
+
+                logger.error(
+                    f"[Bus][Slave {self.slave_id}] Invalid payload: "
+                    f"regs_type={type(regs)}, regs_len={len(regs) if isinstance(regs, list) else 'N/A'}"
+                )
+                await self._reset_connection_locked(reason="invalid_payload", force_close=True)
+                return [DEFAULT_MISSING_VALUE] * count
 
             except asyncio.CancelledError:
                 logger.warning(

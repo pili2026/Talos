@@ -363,27 +363,23 @@ class DeviceHealthManager:
     async def quick_health_check(
         self, device: AsyncGenericModbusDevice, device_id: str
     ) -> tuple[bool, HealthCheckResult | None]:
-        """
-        Perform quick health check on a device.
 
-        Args:
-            device: Device instance to check
-            device_id: Device identifier (format: "MODEL_SLAVEID")
-
-        Returns:
-            (is_online, result)
-        """
-
-        # Get health check config
         config: HealthCheckConfig | None = self._health_check_configs.get(device_id)
-        if not config:
-            logger.debug(f"[{device_id}] No health check config, skipping quick check")
-            return False, None
 
-        # Execute health check
+        # 1) No config -> fallback probe (do NOT treat as offline by default)
+        if not config:
+            result = await self._fallback_quick_probe(device=device, device_id=device_id)
+
+            if result.is_online:
+                await self.mark_success(device_id)
+            else:
+                await self.mark_failure(device_id)
+
+            return result.is_online, result
+
+        # 2) Normal path with config
         result: HealthCheckResult = await self._perform_health_check(device, device_id, config)
 
-        # Update health status
         if result.is_online:
             await self.mark_success(device_id)
         else:
@@ -405,6 +401,65 @@ class DeviceHealthManager:
                 max(0.0, health_status.next_allowed_poll_ts - now_ts) if not health_status.is_healthy else 0.0
             ),
         }
+
+    async def _fallback_quick_probe(self, device: AsyncGenericModbusDevice, device_id: str) -> bool:
+        """
+        Fallback probe when no HealthCheckConfig is provided.
+
+        Policy:
+        1) If device has any readable register, read the first one with a short timeout.
+        2) If no readable register exists, treat a successful read_all() (no exception) as ONLINE.
+           (Because some drivers may not expose readable map correctly but the bus/device is alive.)
+        """
+
+        # 1) Pick first readable pin from register_map if possible
+        try:
+            register_name: str | None = None
+            reg_map = getattr(device, "register_map", None) or {}
+            for name, cfg in reg_map.items():
+                if isinstance(cfg, dict) and cfg.get("readable"):
+                    register_name = name
+                    break
+
+            if register_name:
+                # short timeout probe
+                v = await asyncio.wait_for(device.read_value(register_name), timeout=0.3)
+                return (v is not None) and (v != DEFAULT_MISSING_VALUE)
+
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"[{device_id}] fallback probe(read_value) failed: {e}")
+
+        # 2) If cannot pick a readable pin, fallback to read_all() and judge by exception + content
+        try:
+            values = await asyncio.wait_for(device.read_all(), timeout=0.6)
+
+            # If we got any non-missing numeric value -> online
+            for v in (values or {}).values():
+                if v is None:
+                    continue
+                if isinstance(v, (int, float)) and v != DEFAULT_MISSING_VALUE:
+                    return True
+
+            # Even if all missing, reaching here without exception still means device replied.
+            # Depending on your system, you may decide this as ONLINE to avoid "perma -1".
+            return True
+
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"[{device_id}] fallback probe(read_all) failed: {e}")
+            return False
+
+    @staticmethod
+    def _pick_first_readable_pin(device: AsyncGenericModbusDevice) -> str | None:
+        reg_map = getattr(device, "register_map", None) or {}
+        for name, cfg in reg_map.items():
+            try:
+                if cfg.get("readable"):
+                    return name
+            except Exception:
+                continue
+        return None
 
     async def _perform_health_check(self, device, device_id: str, config: HealthCheckConfig) -> HealthCheckResult:
         """
@@ -460,10 +515,16 @@ class DeviceHealthManager:
         self, device: AsyncGenericModbusDevice, config: HealthCheckConfig, attempt: int
     ) -> bool:
         """Check device health by reading a single register"""
-        register_name: str | None = config.registers[0]
+
+        registers = config.registers or []
+        if not registers:
+            logger.warning("single_register strategy has no registers configured; " "fallback to full_read probe")
+            return await self._check_full_read(device, attempt)
+
+        register_name: str | None = registers[0]
         if not register_name:
-            logger.error("single_register strategy requires register name")
-            return False
+            logger.warning("single_register strategy first register is empty; " "fallback to full_read probe")
+            return await self._check_full_read(device, attempt)
 
         try:
             value = await asyncio.wait_for(device.read_value(register_name), timeout=config.timeout_sec)
@@ -486,39 +547,27 @@ class DeviceHealthManager:
     async def _check_partial_bulk(
         self, device: AsyncGenericModbusDevice, config: HealthCheckConfig, attempt: int
     ) -> bool:
-        """Check device health by reading a few registers"""
-        register_names = config.registers
+        register_names: list[str] = config.registers or []
         if not register_names:
             logger.error("partial_bulk strategy requires register names")
             return False
 
-        try:
-            # Read multiple registers concurrently
-            tasks = [asyncio.wait_for(device.read_value(name), timeout=config.timeout_sec) for name in register_names]
-            values = await asyncio.gather(*tasks, return_exceptions=True)
+        # Sequential check: one success is enough
+        for name in register_names:
+            try:
+                value = await asyncio.wait_for(device.read_value(name), timeout=config.timeout_sec)
+                if value != DEFAULT_MISSING_VALUE and value is not None:
+                    if attempt == 0 and logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Health check [{name}]: value={value} -> ONLINE")
+                    return True
+            except Exception as e:
+                # ignore and continue to next register
+                if attempt == 0 and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Health check [{name}]: exception {e}")
 
-            # Count valid values
-            valid_count = sum(
-                1
-                for value in values
-                if not isinstance(value, Exception) and value != DEFAULT_MISSING_VALUE and value is not None
-            )
-
-            is_online = valid_count > 0
-
-            if attempt == 0 and logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Health check [{', '.join(register_names)}]: valid={valid_count}/{len(register_names)}")
-
-            return is_online
-
-        except asyncio.TimeoutError:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Health check partial_bulk: timeout after {config.timeout_sec}s")
-            raise
-        except Exception as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Health check partial_bulk: exception {e}")
-            raise
+        if attempt == 0 and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Health check [{', '.join(register_names)}]: all failed -> OFFLINE")
+        return False
 
     async def _check_full_read(self, device: AsyncGenericModbusDevice, attempt: int) -> bool:
         """Check device health by reading all registers (fallback)"""

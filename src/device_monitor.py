@@ -290,19 +290,26 @@ class AsyncDeviceMonitor:
             logger.error("[Monitor] virtual device computation failed", exc_info=exc)
 
     async def __get_snapshot_for_device(self, device, device_id: str, should_recover: bool):
-        if not self.health_manager.is_healthy(device_id):
-            if not should_recover:
-                return self._create_offline_snapshot(device_id)
+        # Healthy: normal full read
+        if self.health_manager.is_healthy(device_id):
+            return await self._read_one_device(device, device_id)
 
-            is_online, health_result = await self.health_manager.quick_health_check(device=device, device_id=device_id)
-            if not is_online:
-                return self._create_offline_snapshot(device_id, error="health_check_failed")
+        # Unhealthy but not recovery: do lightweight check instead of hard offline
+        if not should_recover:
+            is_online, _ = await self.health_manager.quick_health_check(device=device, device_id=device_id)
+            if is_online:
+                return await self._read_one_device(device, device_id)
+            return self._create_offline_snapshot(device_id, error="cooldown_health_check_failed")
 
-            if health_result and logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"[{device_id}] ✓ Recovered "
-                    f"(check: {health_result.elapsed_ms:.0f}ms, "
-                    f"strategy: {health_result.strategy})"
-                )
+        # Unhealthy and recovery window: quick check then full read
+        is_online, health_result = await self.health_manager.quick_health_check(device=device, device_id=device_id)
+        if not is_online:
+            return self._create_offline_snapshot(device_id, error="health_check_failed")
+
+        if health_result and logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"[{device_id}] ✓ Recovered "
+                f"(check: {health_result.elapsed_ms:.0f}ms, strategy: {health_result.strategy})"
+            )
 
         return await self._read_one_device(device, device_id)

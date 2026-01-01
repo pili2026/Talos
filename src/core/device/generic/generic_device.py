@@ -132,7 +132,7 @@ class AsyncGenericModbusDevice(BaseDevice):
             bus = await self._get_or_create_bus(bulk_range.register_type)
 
             try:
-                registers = await bus.read_regs(bulk_range.start, bulk_range.count)
+                registers = await bus.read_value_by_type(bulk_range.start, bulk_range.count)
                 registers = list(registers)
             except Exception as exc:
                 self.logger.warning(

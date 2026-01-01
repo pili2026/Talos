@@ -80,6 +80,7 @@ class ConfigManagerExtension:
                 "writable": pin_def.writable,
                 "description": pin_def.description or "",
                 "name": pin_def.description or pin_name,
+                "register_type": pin_def.register_type,
             }
 
             # Check if driver provides fixed-spec fields (Inverter/Power Meter/Sensor)

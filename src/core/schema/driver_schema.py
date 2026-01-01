@@ -22,6 +22,9 @@ class PhysicalPinDefinition(BaseModel):
     unit: str | None = Field(None, description="Unit (for fixed-spec devices)")
     precision: int | None = Field(None, description="Decimal precision (for fixed-spec devices)")
     formula: list[float] | None = Field(None, description="Linear formula [offset, scale, constant]")
+    register_type: str | None = Field(
+        default=None, description="Register type override (holding, input, coil, discrete_input)"
+    )
 
 
 class ComputedPinDefinition(BaseModel):
