@@ -211,3 +211,14 @@ class WiFiConnectionResponse(BaseResponse):
     ssid: str
     connected: bool
     ip_address: str | None = None
+
+
+class ConnectivityResponse(BaseModel):
+    """Device connectivity check response."""
+
+    device_id: str = Field(..., description="Device identifier")
+    connection_status: str = Field(..., description="Connection status")
+    is_online: bool = Field(..., description="Whether device is online")
+
+    class Config:
+        json_schema_extra = {"example": {"device_id": "DEVICE_1", "connection_status": "online", "is_online": True}}

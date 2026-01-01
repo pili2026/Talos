@@ -10,8 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.dependency import get_device_service
 from api.model.enums import DeviceConnectionStatus, ResponseStatus
-from api.model.responses import DeviceInfo, DeviceListResponse
+from api.model.responses import ConnectivityResponse, DeviceInfo, DeviceListResponse
 from api.service.device_service import DeviceService
+from exception import ParameterError
 
 router = APIRouter()
 
@@ -85,28 +86,41 @@ async def get_device(
     summary="Check device connectivity",
     description="Test whether the connection to the specified device is functioning properly",
 )
-async def check_connectivity(device_id: str, service: DeviceService = Depends(get_device_service)) -> dict:
+async def check_connectivity(
+    device_id: str, service: DeviceService = Depends(get_device_service)
+) -> ConnectivityResponse:
     """
     Check the connection status of a device.
 
     Args:
-        device_id: Device identifier.
+        device_id: Device identifier in format "MODEL_SLAVEID".
+        service: Device service dependency.
 
     Returns:
-        dict: Dictionary containing connection status information.
+        ConnectivityResponse: Connection status information.
+
+    Raises:
+        HTTPException: 400 if device_id format is invalid.
+        HTTPException: 500 for unexpected errors.
     """
     try:
         status_enum = await service.check_device_connectivity(device_id)
 
-        # TODO: Make Response Model
-        return {
-            "device_id": device_id,
-            "connection_status": status_enum.value,
-            "is_online": status_enum == DeviceConnectionStatus.ONLINE,
-        }
+        return ConnectivityResponse(
+            device_id=device_id,
+            connection_status=status_enum.value,
+            is_online=status_enum == DeviceConnectionStatus.ONLINE,
+        )
+
+    except ParameterError as e:
+        logger.warning(f"Invalid device_id format: {device_id} - {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid device_id format: {str(e)}"
+        ) from e
+
     except Exception as e:
-        logger.error(f"Error checking connectivity for {device_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+        logger.error(f"Unexpected error checking connectivity for {device_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error") from e
 
 
 # api/router/device_router.py

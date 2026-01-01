@@ -297,15 +297,12 @@ TECO_VFD:
         - name: "Auxiliary Pump Fast Stepdown"
           code: "AUX_PUMP_FREQ_STEPDOWN_1H"
           priority: 60
-          
           composite:
             any:
               - type: time_elapsed
                 interval_hours: 1.0  # Every hour
-          
           policy:
             type: discrete_setpoint
-          
           actions:
             - model: LITEON_EVO6800
               slave_id: "3"

@@ -36,6 +36,8 @@ class DeviceConnectionStatus(StrEnum):
     UNKNOWN = "unknown"
     CONNECTING = "connecting"
     ERROR = "error"
+    NOT_FOUND = "not_found"
+    MISCONFIGURED = "misconfigured"
 
 
 class OperationType(StrEnum):

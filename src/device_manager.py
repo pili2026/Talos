@@ -3,6 +3,7 @@ import inspect
 import logging
 import os
 
+from pymodbus import ModbusException
 from pymodbus.client import AsyncModbusSerialClient
 
 from core.device.generic.constraints_policy import ConstraintPolicy
@@ -15,6 +16,7 @@ from core.schema.pin_mapping_schema import PinMappingConfig
 from core.util.config_manager import ConfigManager
 from core.util.config_manager_extension import ConfigManagerExtension
 from core.util.pin_mapping_manager import PinMappingManager
+from exception import DeviceConfigError, DeviceNotFoundError, ParameterError
 
 logger = logging.getLogger("DeviceManager")
 
@@ -258,39 +260,45 @@ class AsyncDeviceManager:
         Test if a device is online by attempting to read a register.
 
         Note:
-        - Do NOT acquire port lock here
-        - ModbusBus already serializes I/O using the shared per-port lock
-        - Double-lock will cause deadlock (asyncio.Lock is not re-entrant)
+            - Do NOT acquire port lock here
+            - ModbusBus already serializes I/O using the shared per-port lock
+            - Double-lock will cause deadlock (asyncio.Lock is not re-entrant)
 
         Args:
             device_id: Device ID in format "MODEL_SLAVEID"
 
         Returns:
             True if device responds, False otherwise
+
+        Raises:
+            ParameterError: Invalid device_id format
+            DeviceNotFoundError: Device not found in device manager
+            DeviceConfigError: Device has no register map configured
         """
         try:
             model, slave_id_str = device_id.rsplit("_", 1)
             slave_id = int(slave_id_str)
-        except ValueError:
-            logger.error(f"Invalid device_id format: {device_id}")
-            return False
-
+        except ValueError as e:
+            raise ParameterError(f"Invalid device_id format: {device_id}") from e
         device = self.get_device_by_model_and_slave_id(model, slave_id)
         if not device:
-            logger.warning(f"Device {device_id} not found in device manager")
-            return False
+            raise DeviceNotFoundError(f"Device not found: model={model}, slave_id={slave_id}", device_id=device_id)
+
+        if not device.register_map:
+            raise DeviceConfigError(f"Device {device_id} has no register map configured", device_id=device_id)
 
         try:
-            if not device.register_map:
-                return False
-
-            first_param = next(iter(device.register_map.keys()))
-            value = await device.read_value(first_param)
+            first_param: str = next(iter(device.register_map.keys()))
+            value: float | int = await device.read_value(first_param)
             return value != DEFAULT_MISSING_VALUE
 
-        except Exception as exc:
-            logger.error(f"Connection test failed for {device_id}: {exc}")
+        except (ModbusException, OSError, asyncio.TimeoutError) as e:
+            logger.warning(f"Connection test failed for {device_id}: {e}")
             return False
+
+        except Exception as e:
+            logger.error(f"Unexpected error testing {device_id}: {e}")
+            raise
 
     async def fast_test_device_connection(
         self,

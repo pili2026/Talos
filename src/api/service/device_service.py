@@ -7,13 +7,19 @@ Handles business logic related to devices:
 - Managing device information
 """
 
+import logging
 from typing import Any
+
+from pymodbus import ModbusException
 
 from api.model.enums import DeviceConnectionStatus
 from api.model.responses import DeviceInfo
 from api.repository.config_repository import ConfigRepository
 from core.util.device_health_manager import DeviceHealthManager
 from device_manager import AsyncDeviceManager
+from exception import DeviceConfigError, DeviceConnectionError, DeviceNotFoundError, DeviceTimeoutError, ParameterError
+
+logger = logging.getLogger("DeviceService")
 
 
 class DeviceService:
@@ -45,13 +51,23 @@ class DeviceService:
 
         Returns:
             list[DeviceInfo]: List of device information.
+            Devices with configuration errors are logged and skipped.
         """
         device_configs: dict[str, dict[str, Any]] = self._config_repo.get_all_device_configs()
         devices = []
 
         for device_id, config in device_configs.items():
-            device_info = await self._build_device_info(config, include_status=include_status)
-            devices.append(device_info)
+            try:
+                device_info = await self._build_device_info(config, include_status=include_status)
+                devices.append(device_info)
+
+            except ParameterError as e:
+                logger.error(f"Skip device {device_id} with invalid configuration: {e}")
+                continue
+
+            except Exception as e:
+                logger.error(f"Failed to build device info for {device_id}: {e}", exc_info=True)
+                continue
 
         return devices
 
@@ -80,12 +96,37 @@ class DeviceService:
             device_id: Device identifier.
 
         Returns:
-            DeviceConnectionStatus: Connection status.
+            DeviceConnectionStatus: Connection status (including error states).
+
+        Raises:
+            ParameterError: Invalid device_id format (caller's fault)
         """
         try:
-            is_connected = await self._device_manager.test_device_connection(device_id)
+            is_connected: bool = await self._device_manager.test_device_connection(device_id)
             return DeviceConnectionStatus.ONLINE if is_connected else DeviceConnectionStatus.OFFLINE
-        except Exception:
+
+        except ParameterError:
+            # Parameter error should propagate - this is caller's fault
+            raise
+
+        except DeviceNotFoundError as e:
+            # Device not in device_manager but may exist in config
+            logger.warning(f"Device {device_id} not found in manager: {e}")
+            return DeviceConnectionStatus.NOT_FOUND
+
+        except DeviceConfigError as e:
+            # Configuration issue
+            logger.error(f"Device {device_id} misconfigured: {e}")
+            return DeviceConnectionStatus.MISCONFIGURED
+
+        except (ModbusException, DeviceConnectionError, DeviceTimeoutError) as e:
+            # Real communication errors
+            logger.warning(f"Device {device_id} connection error: {e}")
+            return DeviceConnectionStatus.ERROR
+
+        except Exception as e:
+            # Unexpected errors also return ERROR instead of raising
+            logger.error(f"Unexpected error checking {device_id}: {e}", exc_info=True)
             return DeviceConnectionStatus.ERROR
 
     def get_all_device_models(self) -> list[dict[str, Any]]:
@@ -219,11 +260,14 @@ class DeviceService:
 
         Returns:
             DeviceInfo: Constructed device information object.
+
+        Raises:
+            ParameterError: Invalid device_id format in config
         """
-        device_id = config["device_id"]
+        device_id: str = config["device_id"]
 
         if include_status:
-            connection_status = await self.check_device_connectivity(device_id)
+            connection_status: DeviceConnectionStatus = await self.check_device_connectivity(device_id)
         else:
             connection_status = DeviceConnectionStatus.UNKNOWN
 

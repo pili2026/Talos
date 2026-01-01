@@ -10,10 +10,12 @@ Tests for DeviceService business logic, focusing on:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pymodbus.exceptions import ModbusException
 
 from api.model.enums import DeviceConnectionStatus
 from api.model.responses import DeviceInfo
 from api.service.device_service import DeviceService
+from exception import DeviceConfigError, DeviceConnectionError, DeviceNotFoundError, ParameterError
 
 
 @pytest.fixture
@@ -146,29 +148,87 @@ class TestGetAllDevices:
         assert teco_device.connection_status == DeviceConnectionStatus.ONLINE.value
 
     @pytest.mark.asyncio
-    async def test_when_connectivity_check_raises_exception_then_should_return_error_status(
-        self, device_service, mock_device_manager
+    async def test_when_connectivity_check_raises_parameter_error_then_skip_device(
+        self, device_service, mock_device_manager, mock_config_repo
     ):
         """
-        GIVEN connectivity check raises an exception
+        GIVEN connectivity check raises ParameterError for one device
         WHEN get_all_devices with include_status=True
-        THEN should return ERROR status for that device
+        THEN should skip that device and return others
         """
 
-        # Arrange: Make connectivity check raise exception
-        async def mock_connectivity_with_error(device_id):
-            if device_id == "ADAM_4117_12":
-                raise Exception("Connection timeout")
+        # Arrange: ParameterError will propagate and cause device to be skipped
+        async def mock_test_connection(device_id):
+            if device_id == "SD400_3":
+                raise ParameterError(f"Invalid device_id format: {device_id}")
             return True
 
-        mock_device_manager.test_device_connection.side_effect = mock_connectivity_with_error
+        mock_device_manager.test_device_connection.side_effect = mock_test_connection
 
         # Act
         devices = await device_service.get_all_devices(include_status=True)
 
-        # Assert
+        # Assert: SD400_3 should be skipped due to ParameterError
+        assert len(devices) == 2
+        device_ids = [d.device_id for d in devices]
+        assert "TECO_VFD_1" in device_ids
+        assert "ADAM_4117_12" in device_ids
+        assert "SD400_3" not in device_ids
+
+    @pytest.mark.asyncio
+    async def test_when_connectivity_check_fails_then_return_with_error_status(
+        self, device_service, mock_device_manager, mock_config_repo
+    ):
+        """
+        GIVEN connectivity check raises exception for one device
+        WHEN get_all_devices with include_status=True
+        THEN should return all devices with ERROR status for failed device
+        """
+        # Arrange
+        mock_config_repo.get_all_device_configs.return_value = {
+            "TECO_VFD_1": {
+                "device_id": "TECO_VFD_1",
+                "model": "TECO_VFD",
+                "slave_id": "1",
+                "available_parameters": ["Hz"],
+            },
+            "SD400_3": {
+                "device_id": "SD400_3",
+                "model": "SD400",
+                "slave_id": "3",
+                "available_parameters": ["AIn01"],
+            },
+            "ADAM_4117_12": {
+                "device_id": "ADAM_4117_12",
+                "model": "ADAM-4117",
+                "slave_id": "12",
+                "available_parameters": ["AIn01"],
+            },
+        }
+
+        async def mock_test_connection(device_id):
+            if device_id == "SD400_3":
+                raise Exception("Unexpected network error")
+            return True
+
+        mock_device_manager.test_device_connection.side_effect = mock_test_connection
+
+        # Act
+        devices = await device_service.get_all_devices(include_status=True)
+
+        # Assert: All devices should be returned
+        assert len(devices) == 3
+
+        # SD400_3 should have ERROR status
+        sd400_device = next(d for d in devices if d.device_id == "SD400_3")
+        assert sd400_device.connection_status == DeviceConnectionStatus.ERROR.value
+
+        # Other devices should be ONLINE
+        teco_device = next(d for d in devices if d.device_id == "TECO_VFD_1")
+        assert teco_device.connection_status == DeviceConnectionStatus.ONLINE.value
+
         adam_device = next(d for d in devices if d.device_id == "ADAM_4117_12")
-        assert adam_device.connection_status == DeviceConnectionStatus.ERROR.value
+        assert adam_device.connection_status == DeviceConnectionStatus.ONLINE.value
 
     @pytest.mark.asyncio
     async def test_when_no_devices_configured_then_should_return_empty_list(self, device_service, mock_config_repo):
@@ -287,22 +347,60 @@ class TestGetDeviceById:
         assert device.connection_status == DeviceConnectionStatus.OFFLINE.value
 
     @pytest.mark.asyncio
-    async def test_when_connectivity_check_raises_exception_then_should_return_error_status(
+    async def test_when_connectivity_check_returns_online_then_status_is_online(
         self, device_service, mock_device_manager
     ):
         """
-        GIVEN connectivity check raises an exception
+        GIVEN device is online
         WHEN get_device_by_id with include_status=True
-        THEN should return ERROR status
+        THEN should return device with ONLINE status
         """
         # Arrange
-        mock_device_manager.test_device_connection.side_effect = Exception("Modbus timeout")
+        mock_device_manager.test_device_connection.return_value = True
+
+        # Act
+        device = await device_service.get_device_by_id("ADAM_4117_12", include_status=True)
+
+        # Assert
+        assert device.connection_status == DeviceConnectionStatus.ONLINE.value
+
+    @pytest.mark.asyncio
+    async def test_when_connectivity_check_raises_modbus_error_then_status_is_error(
+        self, device_service, mock_device_manager
+    ):
+        """
+        GIVEN connectivity check raises ModbusException
+        WHEN get_device_by_id with include_status=True
+        THEN should return device with ERROR status
+        """
+        # Arrange
+        mock_device_manager.test_device_connection.side_effect = ModbusException("Timeout")
 
         # Act
         device = await device_service.get_device_by_id("ADAM_4117_12", include_status=True)
 
         # Assert
         assert device.connection_status == DeviceConnectionStatus.ERROR.value
+
+    @pytest.mark.asyncio
+    async def test_when_connectivity_check_raises_device_not_found_then_status_is_not_found(
+        self, device_service, mock_device_manager
+    ):
+        """
+        GIVEN device not found in device manager
+        WHEN get_device_by_id with include_status=True
+        THEN should return device with NOT_FOUND status
+        """
+        # Arrange
+        mock_device_manager.test_device_connection.side_effect = DeviceNotFoundError(
+            "Device not found", device_id="ADAM_4117_12"
+        )
+
+        # Act
+        device = await device_service.get_device_by_id("ADAM_4117_12", include_status=True)
+
+        # Assert
+        assert device.connection_status == DeviceConnectionStatus.NOT_FOUND.value
 
 
 class TestCheckDeviceConnectivity:
@@ -341,14 +439,102 @@ class TestCheckDeviceConnectivity:
         assert status == DeviceConnectionStatus.OFFLINE
 
     @pytest.mark.asyncio
-    async def test_when_exception_raised_then_should_return_error_status(self, device_service, mock_device_manager):
+    async def test_when_modbus_exception_raised_then_return_error_status(self, device_service, mock_device_manager):
         """
-        GIVEN test_device_connection raises an exception
+        GIVEN test_device_connection raises ModbusException
+        WHEN check_device_connectivity is called
+        THEN should return ERROR status
+        """
+        # Arrange: Known Modbus communication error
+        mock_device_manager.test_device_connection.side_effect = ModbusException("Connection timeout")
+
+        # Act
+        status = await device_service.check_device_connectivity("ADAM_4117_12")
+
+        # Assert
+        assert status == DeviceConnectionStatus.ERROR
+
+    @pytest.mark.asyncio
+    async def test_when_device_connection_error_raised_then_return_error_status(
+        self, device_service, mock_device_manager
+    ):
+        """
+        GIVEN test_device_connection raises DeviceConnectionError
         WHEN check_device_connectivity is called
         THEN should return ERROR status
         """
         # Arrange
-        mock_device_manager.test_device_connection.side_effect = Exception("Connection error")
+        mock_device_manager.test_device_connection.side_effect = DeviceConnectionError(
+            "Modbus communication failed", device_id="ADAM_4117_12"
+        )
+
+        # Act
+        status = await device_service.check_device_connectivity("ADAM_4117_12")
+
+        # Assert
+        assert status == DeviceConnectionStatus.ERROR
+
+    @pytest.mark.asyncio
+    async def test_when_device_not_found_then_return_not_found_status(self, device_service, mock_device_manager):
+        """
+        GIVEN device not found in device manager
+        WHEN check_device_connectivity is called
+        THEN should return NOT_FOUND status
+        """
+        # Arrange
+        mock_device_manager.test_device_connection.side_effect = DeviceNotFoundError(
+            "Device not found", device_id="ADAM_4117_12"
+        )
+
+        # Act
+        status = await device_service.check_device_connectivity("ADAM_4117_12")
+
+        # Assert
+        assert status == DeviceConnectionStatus.NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_when_device_misconfigured_then_return_misconfigured_status(
+        self, device_service, mock_device_manager
+    ):
+        """
+        GIVEN device has configuration error
+        WHEN check_device_connectivity is called
+        THEN should return MISCONFIGURED status
+        """
+        # Arrange
+        mock_device_manager.test_device_connection.side_effect = DeviceConfigError(
+            "No register map configured", device_id="ADAM_4117_12"
+        )
+
+        # Act
+        status = await device_service.check_device_connectivity("ADAM_4117_12")
+
+        # Assert
+        assert status == DeviceConnectionStatus.MISCONFIGURED
+
+    @pytest.mark.asyncio
+    async def test_when_parameter_error_then_should_raise(self, device_service, mock_device_manager):
+        """
+        GIVEN invalid device_id format
+        WHEN check_device_connectivity is called
+        THEN should raise ParameterError
+        """
+        # Arrange: Parameter error should propagate
+        mock_device_manager.test_device_connection.side_effect = ParameterError("Invalid device_id format")
+
+        # Act & Assert
+        with pytest.raises(ParameterError):
+            await device_service.check_device_connectivity("ADAM_4117_12")
+
+    @pytest.mark.asyncio
+    async def test_when_unexpected_exception_then_should_return_error_status(self, device_service, mock_device_manager):
+        """
+        GIVEN test_device_connection raises unexpected exception
+        WHEN check_device_connectivity is called
+        THEN should return ERROR status
+        """
+        # Arrange: Unexpected error also returns ERROR
+        mock_device_manager.test_device_connection.side_effect = Exception("Unexpected error")
 
         # Act
         status = await device_service.check_device_connectivity("ADAM_4117_12")
