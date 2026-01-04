@@ -109,24 +109,14 @@ class AsyncGenericModbusDevice(BaseDevice):
     # ==================== Public read/write methods ====================
 
     async def read_all(self) -> dict[str, Any]:
-        """
-        Bulk read all parameters.
-
-        Strategy:
-        1. Check connectivity
-        2. Bulk read contiguous register ranges
-        3. Fallback to individual reads for non-bulk pins
-        4. Apply computed fields
-        """
-        # Connectivity check
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
             return self.helpers.default_offline_snapshot()
 
         result: dict[str, Any] = {}
 
-        # Bulk read optimization
         bulk_ranges = self.bulk_reader.build_bulk_ranges(max_regs_per_req=120)
+        bulk_failed = bool(bulk_ranges)
 
         for bulk_range in bulk_ranges:
             bus = await self._get_or_create_bus(bulk_range.register_type)
@@ -134,20 +124,27 @@ class AsyncGenericModbusDevice(BaseDevice):
             try:
                 registers = await bus.read_value_by_type(bulk_range.start, bulk_range.count)
                 registers = list(registers)
+                bulk_failed = False  # ★ any success → device alive
+
             except Exception as exc:
                 self.logger.warning(
                     f"[{self.model}:{self.slave_id}] Bulk read failed "
                     f"rt={bulk_range.register_type} start={bulk_range.start} count={bulk_range.count}: {exc}"
                 )
-                for pin_name, _pin_cfg in bulk_range.items:
+                for pin_name, _ in bulk_range.items:
                     result[pin_name] = DEFAULT_MISSING_VALUE
                 continue
 
-            # Process bulk results
             bulk_results = self.bulk_reader.process_bulk_range_result(
                 bulk_range, registers, self.register_handler.is_invalid_raw
             )
             result.update(bulk_results)
+
+        if bulk_failed:
+            self.logger.warning(
+                f"[{self.model}:{self.slave_id}] All bulk reads failed; treat device as offline, skip per-pin fallback"
+            )
+            return self.helpers.default_offline_snapshot()
 
         # Fallback for non-bulk pins
         for pin_name, pin_cfg in self.register_map.items():
@@ -162,7 +159,6 @@ class AsyncGenericModbusDevice(BaseDevice):
                 self.logger.warning(f"[{self.model}:{self.slave_id}] Fallback read failed: {pin_name}: {exc}; set -1")
                 result[pin_name] = DEFAULT_MISSING_VALUE
 
-        # Apply computed fields
         result = self.computed_processor.compute(result)
         return result
 

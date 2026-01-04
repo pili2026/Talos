@@ -408,8 +408,9 @@ class DeviceHealthManager:
 
         Policy:
         1) If device has any readable register, read the first one with a short timeout.
-        2) If no readable register exists, treat a successful read_all() (no exception) as ONLINE.
-           (Because some drivers may not expose readable map correctly but the bus/device is alive.)
+        2) If no readable register exists:
+            - read_all() with at least one non-missing value -> ONLINE
+            - all values missing (-1) -> OFFLINE
         """
 
         # 1) Pick first readable pin from register_map if possible
@@ -423,6 +424,7 @@ class DeviceHealthManager:
 
             if register_name:
                 # short timeout probe
+                logger.info("[TRACE] _fallback_quick_probe")
                 v = await asyncio.wait_for(device.read_value(register_name), timeout=0.3)
                 return (v is not None) and (v != DEFAULT_MISSING_VALUE)
 
@@ -441,9 +443,8 @@ class DeviceHealthManager:
                 if isinstance(v, (int, float)) and v != DEFAULT_MISSING_VALUE:
                     return True
 
-            # Even if all missing, reaching here without exception still means device replied.
-            # Depending on your system, you may decide this as ONLINE to avoid "perma -1".
-            return True
+            # All missing (-1 / None) -> offline
+            return False
 
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
@@ -527,6 +528,7 @@ class DeviceHealthManager:
             return await self._check_full_read(device, attempt)
 
         try:
+            logger.info("[TRACE] _check_single_register")
             value = await asyncio.wait_for(device.read_value(register_name), timeout=config.timeout_sec)
             is_valid = value != DEFAULT_MISSING_VALUE and value is not None
 
@@ -555,6 +557,7 @@ class DeviceHealthManager:
         # Sequential check: one success is enough
         for name in register_names:
             try:
+                logger.info("[TRACE] _check_partial_bulk")
                 value = await asyncio.wait_for(device.read_value(name), timeout=config.timeout_sec)
                 if value != DEFAULT_MISSING_VALUE and value is not None:
                     if attempt == 0 and logger.isEnabledFor(logging.DEBUG):

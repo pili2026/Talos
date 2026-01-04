@@ -290,18 +290,20 @@ class AsyncDeviceMonitor:
             logger.error("[Monitor] virtual device computation failed", exc_info=exc)
 
     async def __get_snapshot_for_device(self, device, device_id: str, should_recover: bool):
-        # Healthy: normal full read
+        # 0) Global gate (prevents full read storms)
+        allowed, reason = await self.health_manager.should_poll(device_id)
+        if not allowed:
+            return self._create_offline_snapshot(device_id, error=reason)
+
+        # 1) Healthy: normal full read
         if self.health_manager.is_healthy(device_id):
             return await self._read_one_device(device, device_id)
 
-        # Unhealthy but not recovery: do lightweight check instead of hard offline
+        # 2) Unhealthy and not recovery: do NOT probe every cycle
         if not should_recover:
-            is_online, _ = await self.health_manager.quick_health_check(device=device, device_id=device_id)
-            if is_online:
-                return await self._read_one_device(device, device_id)
-            return self._create_offline_snapshot(device_id, error="cooldown_health_check_failed")
+            return self._create_offline_snapshot(device_id, error="cooldown")
 
-        # Unhealthy and recovery window: quick check then full read
+        # 3) Unhealthy and recovery window: quick check then full read
         is_online, health_result = await self.health_manager.quick_health_check(device=device, device_id=device_id)
         if not is_online:
             return self._create_offline_snapshot(device_id, error="health_check_failed")
