@@ -20,7 +20,7 @@ register_map:
     register_type: discrete_input    # ← Pin-level override
     readable: true
     writable: false
-    format: u16
+    format: bit
     description: "Digital Input 1"
     unit: ""
   
@@ -29,7 +29,7 @@ register_map:
     register_type: discrete_input
     readable: true
     writable: false
-    format: u16
+    format: bit
     description: "Digital Input 2"
     unit: ""
   
@@ -38,7 +38,7 @@ register_map:
     register_type: discrete_input
     readable: true
     writable: false
-    format: u16
+    format: bit
     description: "Digital Input 3"
     unit: ""
   
@@ -47,7 +47,7 @@ register_map:
     register_type: discrete_input
     readable: true
     writable: false
-    format: u16
+    format: bit
     description: "Digital Input 4"
     unit: ""
   
@@ -58,7 +58,7 @@ register_map:
     register_type: coil              # ← Pin-level override
     readable: true
     writable: true
-    format: u16
+    format: bit
     description: "Digital Output 1 / Relay 1"
     unit: ""
     notes: "10A/30VDC or 10A/250VAC"
@@ -68,7 +68,7 @@ register_map:
     register_type: coil
     readable: true
     writable: true
-    format: u16
+    format: bit
     description: "Digital Output 2 / Relay 2"
     unit: ""
     notes: "10A/30VDC or 10A/250VAC"

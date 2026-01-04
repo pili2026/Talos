@@ -90,14 +90,23 @@ class HealthCheckStrategyInferencer:
         """Search for STATUS-like registers (Rule 1)"""
         for keyword in cls.STATUS_KEYWORDS:
             for name, cfg in register_map.items():
+                if not isinstance(cfg, dict):
+                    continue
+
+                # Skip computed/composed (status should be physical)
+                if cfg.get("type") == "computed":
+                    continue
+                if cfg.get("kind") == "composed":
+                    continue
+
                 if keyword.lower() in name.lower() and cfg.get("readable"):
-                    register_type = cfg.get("register_type", default_register_type)
+                    rt = cls._coerce_register_type(cfg.get("register_type"), default_register_type)
                     return HealthCheckConfig(
                         strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
                         register=name,
-                        register_type=RegisterType(register_type),
+                        register_type=rt,
                         retry_on_failure=1,
-                        timeout_sec=1.5,  # > modbus timeout (1.0)
+                        timeout_sec=1.5,
                         reason=f"Found status register: {name}",
                     )
         return None
@@ -107,36 +116,106 @@ class HealthCheckStrategyInferencer:
         cls, register_map: dict, default_register_type: RegisterType
     ) -> HealthCheckConfig | None:
         """
-        Inverter strategy (Rule 2):
-        Use smallest offset readable register (excluding RW_* control registers and computed fields)
+        Inverter/VFD strategy (Rule 2):
+        Use smallest offset readable register (excluding RW_*)
         """
-        readable_regs = []
+        readable_regs: list[tuple[str, int, RegisterType]] = []
+
         for name, cfg in register_map.items():
-            # Skip computed fields
-            if cfg.get("type") == "computed":
+            if not isinstance(cfg, dict):
                 continue
 
-            # Exclude control registers
-            if cfg.get("readable") and not name.startswith("RW_"):
-                offset = cfg.get("offset")
-                if offset is not None:
-                    register_type = cfg.get("register_type", default_register_type)
-                    readable_regs.append((name, offset, register_type))
+            # Skip computed/composed
+            if cfg.get("type") == "computed":
+                continue
+            if cfg.get("kind") == "composed":
+                continue
+
+            if not cfg.get("readable"):
+                continue
+
+            # Skip RW_ registers (control registers)
+            if name.startswith("RW_"):
+                continue
+
+            offset = cfg.get("offset")
+            if offset is None:
+                continue
+
+            rt = cls._coerce_register_type(cfg.get("register_type"), default_register_type)
+            readable_regs.append((name, int(offset), rt))
 
         if not readable_regs:
             return None
 
-        # Sort by offset, pick smallest
         readable_regs.sort(key=lambda x: x[1])
-        name, offset, register_type = readable_regs[0]
+        name, offset, rt = readable_regs[0]
 
         return HealthCheckConfig(
             strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
             register=name,
-            register_type=RegisterType(register_type),
+            register_type=rt,
             retry_on_failure=1,
             timeout_sec=1.5,
             reason=f"Inverter: smallest offset register {name} (offset {offset})",
+        )
+
+    @classmethod
+    def _infer_power_meter_strategy(
+        cls, register_map: dict, default_register_type: RegisterType
+    ) -> HealthCheckConfig | None:
+        """
+        Power meter strategy (Rule 4):
+        Use first 3 contiguous registers (PHYSICAL registers only)
+        """
+        readable_regs: list[tuple[str, int, RegisterType]] = []
+
+        for name, cfg in register_map.items():
+            if not isinstance(cfg, dict):
+                continue
+
+            if cfg.get("type") == "computed":
+                continue
+            if cfg.get("kind") == "composed":
+                continue
+
+            if not cfg.get("readable"):
+                continue
+
+            offset = cfg.get("offset")
+            if offset is None:
+                continue
+
+            rt = cls._coerce_register_type(cfg.get("register_type"), default_register_type)
+            readable_regs.append((name, int(offset), rt))
+
+        if not readable_regs:
+            return None
+
+        readable_regs.sort(key=lambda x: x[1])
+        first_n = readable_regs[: min(3, len(readable_regs))]
+
+        if len(first_n) == 1:
+            name, _, rt = first_n[0]
+            return HealthCheckConfig(
+                strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
+                register=name,
+                register_type=rt,
+                retry_on_failure=1,
+                timeout_sec=1.5,
+                reason=f"Power meter: single available register {name}",
+            )
+
+        names = [name for name, _, _ in first_n]
+        rt = first_n[0][2]
+
+        return HealthCheckConfig(
+            strategy=HealthCheckStrategyEnum.PARTIAL_BULK,
+            registers=names,
+            register_type=rt,
+            retry_on_failure=1,
+            timeout_sec=1.5,
+            reason=f"Power meter: first {len(names)} registers",
         )
 
     @classmethod
@@ -153,8 +232,10 @@ class HealthCheckStrategyInferencer:
             if not isinstance(cfg, dict):
                 continue
 
-            # Skip computed fields
+            # Skip computed/composed fields
             if cfg.get("type") == "computed":
+                continue
+            if cfg.get("kind") == "composed":
                 continue
 
             if not cfg.get("readable"):
@@ -164,8 +245,8 @@ class HealthCheckStrategyInferencer:
             if offset is None:
                 continue
 
-            rt = HealthCheckStrategyInferencer._coerce_register_type(cfg.get("register_type"), default_register_type)
-            readable_regs.append((name, int(offset), rt))
+            register_type: RegisterType = cls._coerce_register_type(cfg.get("register_type"), default_register_type)
+            readable_regs.append((name, int(offset), register_type))
 
         if not readable_regs:
             return None
@@ -174,11 +255,11 @@ class HealthCheckStrategyInferencer:
 
         # Bit-packed (multiple pins share same offset)
         if len(readable_regs) > 1 and readable_regs[0][1] == readable_regs[1][1]:
-            name, offset, rt = readable_regs[0]
+            name, offset, register_type = readable_regs[0]
             return HealthCheckConfig(
                 strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
                 registers=[name],
-                register_type=rt,
+                register_type=register_type,
                 retry_on_failure=1,
                 timeout_sec=1.5,
                 reason=f"I/O module: bit-packed register {name} (offset {offset})",
@@ -190,81 +271,26 @@ class HealthCheckStrategyInferencer:
         if len(first_n) > 1:
             offset_diff = first_n[-1][1] - first_n[0][1]
             if offset_diff > 10:
-                name, offset, rt = first_n[0]
+                name, offset, register_type = first_n[0]
                 return HealthCheckConfig(
                     strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
                     registers=[name],
-                    register_type=rt,
+                    register_type=register_type,
                     retry_on_failure=1,
                     timeout_sec=1.5,
                     reason=f"I/O module: non-contiguous, using first pin {name}",
                 )
 
         names = [n for n, _, _ in first_n]
-        rt = first_n[0][2]
-
-        return HealthCheckConfig(
-            strategy=HealthCheckStrategyEnum.PARTIAL_BULK,
-            registers=names,
-            register_type=rt,
-            retry_on_failure=1,
-            timeout_sec=1.5,
-            reason=f"I/O module: first {len(names)} contiguous pins",
-        )
-
-    @classmethod
-    def _infer_power_meter_strategy(
-        cls, register_map: dict, default_register_type: RegisterType
-    ) -> HealthCheckConfig | None:
-        """
-        Power meter strategy (Rule 4):
-        Use first 3 contiguous registers (PHYSICAL registers only)
-        """
-        readable_regs = []
-        for name, cfg in register_map.items():
-            # CRITICAL: Skip computed fields
-            if cfg.get("type") == "computed":
-                continue
-
-            if cfg.get("readable"):
-                offset = cfg.get("offset")
-                if offset is not None:
-                    register_type = cfg.get("register_type", default_register_type)
-                    readable_regs.append((name, offset, register_type))
-
-        if not readable_regs:
-            return None
-
-        # Sort by offset
-        readable_regs.sort(key=lambda x: x[1])
-
-        # Take first 3 (or fewer)
-        take_count = min(3, len(readable_regs))
-        first_n = readable_regs[:take_count]
-
-        if take_count == 1:
-            # Only one register
-            name, offset, register_type = first_n[0]
-            return HealthCheckConfig(
-                strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
-                register=name,
-                register_type=RegisterType(register_type),
-                retry_on_failure=1,
-                timeout_sec=1.5,
-                reason=f"Power meter: single available register {name}",
-            )
-
-        # Multiple registers
-        names = [name for name, _, _ in first_n]
         register_type = first_n[0][2]
 
         return HealthCheckConfig(
             strategy=HealthCheckStrategyEnum.PARTIAL_BULK,
             registers=names,
-            register_type=RegisterType(register_type),
+            register_type=register_type,
             retry_on_failure=1,
             timeout_sec=1.5,
-            reason=f"Power meter: first {len(names)} registers",
+            reason=f"I/O module: first {len(names)} contiguous pins",
         )
 
     @classmethod
@@ -275,29 +301,37 @@ class HealthCheckStrategyInferencer:
         Default strategy (Rule 5):
         Use smallest offset readable register (PHYSICAL registers only)
         """
-        readable_regs = []
+        readable_regs: list[tuple[str, int, RegisterType]] = []
+
         for name, cfg in register_map.items():
-            # CRITICAL: Skip computed fields
-            if cfg.get("type") == "computed":
+            if not isinstance(cfg, dict):
                 continue
 
-            if cfg.get("readable"):
-                offset = cfg.get("offset")
-                if offset is not None:
-                    register_type = cfg.get("register_type", default_register_type)
-                    readable_regs.append((name, offset, register_type))
+            if cfg.get("type") == "computed":
+                continue
+            if cfg.get("kind") == "composed":
+                continue
+
+            if not cfg.get("readable"):
+                continue
+
+            offset = cfg.get("offset")
+            if offset is None:
+                continue
+
+            rt = cls._coerce_register_type(cfg.get("register_type"), default_register_type)
+            readable_regs.append((name, int(offset), rt))
 
         if not readable_regs:
             return None
 
-        # Sort by offset, pick smallest
         readable_regs.sort(key=lambda x: x[1])
-        name, offset, register_type = readable_regs[0]
+        name, offset, rt = readable_regs[0]
 
         return HealthCheckConfig(
             strategy=HealthCheckStrategyEnum.SINGLE_REGISTER,
             register=name,
-            register_type=RegisterType(register_type),
+            register_type=rt,
             retry_on_failure=1,
             timeout_sec=1.5,
             reason=f"Default: smallest offset register {name} (offset {offset})",

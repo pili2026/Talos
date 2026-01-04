@@ -315,26 +315,29 @@ class AsyncGenericModbusDevice(BaseDevice):
 
     async def _apply_transformations(self, config: dict, value: int | float, bus: ModbusBus) -> int | float:
         """Apply all transformations to a raw value."""
+
         # Bit extraction
         if config.get("bit") is not None:
             value = self.decoder.extract_bit(value, config["bit"])
 
         # Linear formula
-        if config.get("formula"):
+        if config.get("formula") is not None:
             value = self.decoder.apply_linear_formula(value, config["formula"])
 
         # Constant scale
-        value = self.decoder.apply_scale(value, config.get("scale", 1.0))
+        scale_value = config.get("scale")
+        if scale_value is not None:
+            value = self.decoder.apply_scale(value, scale_value)
 
         # Dynamic scale
-        scale_from: str = config.get("scale_from")
-        if scale_from:
+        scale_from = config.get("scale_from")
+        if scale_from is not None:
             factor = await self.helpers.resolve_dynamic_scale(scale_from, bus)
             value = self.decoder.apply_scale(value, factor)
 
         # Value precision
-        precision: int = config.get("precision")
-        if precision:
-            value: float | int = round(value, precision)
+        precision = config.get("precision")
+        if precision is not None:
+            value = round(value, precision)
 
         return value

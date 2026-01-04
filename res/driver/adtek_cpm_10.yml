@@ -216,6 +216,7 @@ register_map:
 
   # ========== Pre-combined energy outputs ==========
   Kwh_SUM:
+    kind: composed
     readable: true
     composed_of: ["Kwh_W1_HI", "Kwh_W2_MD", "Kwh_W3_LO"]
     compose_format: u48_be
@@ -227,6 +228,7 @@ register_map:
     description: "Combined 48-bit active energy total"
 
   Kvarh_SUM:
+    kind: composed
     readable: true
     composed_of: ["Kvarh_W1_HI", "Kvarh_W2_MD", "Kvarh_W3_LO"]
     compose_format: u48_be
