@@ -424,7 +424,6 @@ class DeviceHealthManager:
 
             if register_name:
                 # short timeout probe
-                logger.info("[TRACE] _fallback_quick_probe")
                 v = await asyncio.wait_for(device.read_value(register_name), timeout=0.3)
                 return (v is not None) and (v != DEFAULT_MISSING_VALUE)
 
@@ -528,7 +527,6 @@ class DeviceHealthManager:
             return await self._check_full_read(device, attempt)
 
         try:
-            logger.info("[TRACE] _check_single_register")
             value = await asyncio.wait_for(device.read_value(register_name), timeout=config.timeout_sec)
             is_valid = value != DEFAULT_MISSING_VALUE and value is not None
 
@@ -557,7 +555,6 @@ class DeviceHealthManager:
         # Sequential check: one success is enough
         for name in register_names:
             try:
-                logger.info("[TRACE] _check_partial_bulk")
                 value = await asyncio.wait_for(device.read_value(name), timeout=config.timeout_sec)
                 if value != DEFAULT_MISSING_VALUE and value is not None:
                     if attempt == 0 and logger.isEnabledFor(logging.DEBUG):

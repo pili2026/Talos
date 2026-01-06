@@ -42,7 +42,9 @@ from core.util.pubsub.subscriber.constraint_evaluator_subscriber import Constrai
 from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
 from core.util.pubsub.subscriber.initialization_subscriber import InitializationSubscriber
 from core.util.sub_registry import SubscriberRegistry
+from core.util.systemd_watchdog import SystemdWatchdog
 from core.util.virtual_device_manager import VirtualDeviceManager
+from core.util.watchdog_heartbeat import WatchdogHeartbeat, WatchdogHeartbeatConfig, install_sigusr1_stackdump
 from device_manager import AsyncDeviceManager
 from device_monitor import AsyncDeviceMonitor
 from repository.control_execution_store import ControlExecutionStore
@@ -114,14 +116,46 @@ async def main():
     cleanup_task_handle: asyncio.Task | None = None
     snapshot_db_manager: SQLiteSnapshotDBManager | None = None
 
+    watchdog: WatchdogHeartbeat | None = None
+    watchdog_task: asyncio.Task | None = None
+
+    systemd_watchdog: SystemdWatchdog | None = None
+    systemd_watchdog_task: asyncio.Task | None = None
+
     try:
         # ========== Load System Configuration ==========
         logger.info("")
         logger.info("Loading System Configuration")
         logger.info("-" * 80)
 
-        system_config_raw = ConfigManager.load_yaml_file(args.system_config)
+        system_config_raw: dict = ConfigManager.load_yaml_file(args.system_config)
         system_config = SystemConfig(**system_config_raw)
+
+        # =====================================================================
+        # Watchdog Heartbeat + SIGUSR1 stackdump
+        # =====================================================================
+        try:
+            install_sigusr1_stackdump()
+
+            heartbeat_path = Path(system_config.PATHS.STATE_DIR) / "heartbeat.txt"
+
+            watchdog_cfg = WatchdogHeartbeatConfig(
+                heartbeat_path=str(heartbeat_path),
+                interval_sec=5.0,
+                lag_check_sec=1.0,
+                lag_warn_sec=1.5,
+                lag_critical_sec=5.0,
+                json_mode=True,
+                atomic_write=True,
+            )
+            watchdog = WatchdogHeartbeat(watchdog_cfg)
+            watchdog_task = asyncio.create_task(watchdog.run())
+            logger.info(f"[WatchdogHeartbeat] started: path={heartbeat_path}")
+        except Exception as e:
+            logger.warning(f"[WatchdogHeartbeat] init failed: {e}")
+
+        systemd_watchdog = SystemdWatchdog()
+        systemd_watchdog_task = asyncio.create_task(systemd_watchdog.run())
 
         poll_interval: float = system_config.MONITOR_INTERVAL_SECONDS
         logger.info(f"Monitor interval: {poll_interval}s")
@@ -318,6 +352,8 @@ async def main():
         app.state.talos.unified_mode = True
         app.state.talos.snapshot_db_path = snapshot_storage.db_path
         app.state.talos.snapshot_config_path = args.snapshot_storage_config
+        app.state.talos.heartbeat_path = str(heartbeat_path)
+        app.state.talos.heartbeat_max_age_sec = 60.0  # TODO: make configurable
 
         logger.info("Shared instances injected:")
         logger.info("  - AsyncDeviceManager")
@@ -369,6 +405,9 @@ async def main():
             else:
                 logger.info(f"{name} (disabled)")
 
+        if systemd_watchdog:
+            systemd_watchdog.notify_ready(status="Talos unified service running")
+
         logger.info("")
         logger.info("=" * 80)
         logger.info("TALOS UNIFIED SERVICE RUNNING")
@@ -400,6 +439,20 @@ async def main():
         logger.info("=" * 80)
 
         try:
+            # ========== Stop Watchdog Heartbeat ==========
+            if watchdog is not None:
+                watchdog.stop()
+            if watchdog_task is not None:
+                watchdog_task.cancel()
+                await asyncio.gather(watchdog_task, return_exceptions=True)
+                logger.info("[WatchdogHeartbeat] stopped")
+
+            if systemd_watchdog:
+                systemd_watchdog.stop()
+            if systemd_watchdog_task:
+                systemd_watchdog_task.cancel()
+                await asyncio.gather(systemd_watchdog_task, return_exceptions=True)
+
             if "subscriber_registry" in locals():
                 await subscriber_registry.stop_all()
                 logger.info("All subscribers stopped")

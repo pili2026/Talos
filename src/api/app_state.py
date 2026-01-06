@@ -30,24 +30,24 @@ class TalosAppState(BaseModel):
     async_device_manager: AsyncDeviceManager | None = Field(
         default=None, description="Shared Modbus device manager instance"
     )
-
     pubsub: PubSub | None = Field(
         default=None, description="Message bus for Core/API communication (unified mode only)"
     )
-
     constraint_schema: ConstraintConfigSchema | None = Field(
         default=None, description="Device constraint configuration"
     )
-
     health_manager: DeviceHealthManager | None = None
 
     # Snapshot storage
     snapshot_db_path: str | None = Field(default=None, description="Path to SQLite snapshot database")
-
     snapshot_config_path: str | None = Field(default=None, description="Path to snapshot storage config file")
 
     # Deployment mode flag
     unified_mode: bool = Field(default=False, description="True if running in unified mode (Core + API)")
+
+    # Heartbeat
+    heartbeat_path: str | None = None
+    heartbeat_max_age_sec: float = 60.0
 
     class Config:
         """Pydantic configuration."""
