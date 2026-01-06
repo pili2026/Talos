@@ -5,7 +5,8 @@ from typing import Any
 
 from core.device.generic.generic_device import AsyncGenericModbusDevice
 from core.model.device_constant import DEFAULT_MISSING_VALUE
-from core.util.device_health_manager import DeviceHealthManager
+from core.schema.health_check_config_schema import HealthCheckConfig
+from core.util.device_health_manager import DeviceHealthManager, DeviceHealthStatus
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.pubsub_topic import PubSubTopic
 from core.util.time_util import TIMEZONE_INFO, now_timestamp
@@ -180,6 +181,37 @@ class AsyncDeviceMonitor:
                 self._queue.task_done()
 
     async def _read_one_device(self, device: AsyncGenericModbusDevice, device_id: str) -> dict[str, Any]:
+        health_status: DeviceHealthStatus | None = self.health_manager._health_status.get(device_id)
+        has_recent_failures = (
+            health_status
+            and health_status.consecutive_failures > 0  # Has failed before
+            and health_status.last_failure_ts
+            and (now_timestamp() - health_status.last_failure_ts) < 300  # Failed within 5 minutes
+        )
+
+        # If has recent failure history, do quick health check first
+        if has_recent_failures:
+            health_check_config: HealthCheckConfig | None = self.health_manager._health_check_configs.get(device_id)
+            if health_check_config:
+                try:
+                    is_online, health_result = await self.health_manager.quick_health_check(
+                        device=device, device_id=device_id
+                    )
+
+                    if not is_online:
+                        # Quick detection: device is offline
+                        await self.health_manager.mark_failure(device_id)
+                        logger.debug(
+                            f"[{device_id}] Detected offline via adaptive health check "
+                            f"(check: {health_result.elapsed_ms:.0f}ms, "
+                            f"consecutive_failures: {health_status.consecutive_failures})"
+                        )
+                        return self._create_offline_snapshot(device_id, error="adaptive_health_check_failed")
+
+                except Exception as exc:
+                    logger.debug(f"[{device_id}] Adaptive health check error: {exc}")
+                    # Continue to try read_all
+
         try:
             values: dict[str, Any] = await asyncio.wait_for(device.read_all(), timeout=self.device_timeout_sec)
 

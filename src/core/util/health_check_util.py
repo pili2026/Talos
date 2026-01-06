@@ -116,6 +116,61 @@ async def apply_startup_frequencies_with_health_check(
     logger.info(f"Startup init summary: {stats}")
 
 
+async def perform_initial_health_check_for_all_devices(
+    device_manager: AsyncDeviceManager, health_manager: DeviceHealthManager
+) -> dict[str, int]:
+    """
+    Perform initial health check on all devices during startup.
+
+    This ensures offline devices are marked as unhealthy BEFORE monitor starts,
+    preventing Monitor from attempting slow read_all() on each parameter.
+
+    Returns:
+        Dict with counts: {"online": int, "offline": int, "failed": int}
+    """
+    logger.info("=" * 60)
+    logger.info("Performing Initial Health Check for All Devices")
+    logger.info("=" * 60)
+
+    stats = {"online": 0, "offline": 0, "failed": 0}
+
+    for device in device_manager.device_list:
+        device_id = f"{device.model}_{device.slave_id}"
+
+        try:
+            is_online, health_result = await health_manager.quick_health_check(device=device, device_id=device_id)
+
+            if is_online:
+                stats["online"] += 1
+                logger.info(
+                    f"[{device_id}] ✓ ONLINE "
+                    f"(check: {health_result.elapsed_ms:.0f}ms, "
+                    f"strategy: {health_result.strategy})"
+                )
+            else:
+                stats["offline"] += 1
+                logger.warning(
+                    f"[{device_id}] ✗ OFFLINE "
+                    f"(check: {health_result.elapsed_ms:.0f}ms, "
+                    f"strategy: {health_result.strategy})"
+                )
+
+        except Exception as exc:
+            stats["failed"] += 1
+            logger.warning(f"[{device_id}] Health check failed: {exc}")
+            # Mark as failure so Monitor won't try full read
+            await health_manager.mark_failure(device_id)
+
+    logger.info("=" * 60)
+    logger.info(
+        f"Initial Health Check Complete: "
+        f"{stats['online']} online, {stats['offline']} offline, {stats['failed']} failed"
+    )
+    logger.info("=" * 60)
+
+    return stats
+
+
 async def _apply_frequency(
     device: AsyncGenericModbusDevice, device_id: str, startup_freq: float, stats: InitStats, elapsed_ms: float
 ):

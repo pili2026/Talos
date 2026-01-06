@@ -29,7 +29,11 @@ from core.util.factory.sender_factory import build_sender_subscriber, init_sende
 from core.util.factory.snapshot_factory import build_snapshot_subscriber
 from core.util.factory.time_factory import build_time_control_subscriber
 from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
-from core.util.health_check_util import apply_startup_frequencies_with_health_check, initialize_health_check_configs
+from core.util.health_check_util import (
+    apply_startup_frequencies_with_health_check,
+    initialize_health_check_configs,
+    perform_initial_health_check_for_all_devices,
+)
 from core.util.logger_config import LOG_LEVEL_MAP, setup_logging
 from core.util.logging_noise import install_asyncio_noise_suppressor
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
@@ -188,6 +192,17 @@ async def main():
 
         initialize_health_check_configs(async_device_manager, health_manager)
         logger.info("Health check configs initialized")
+
+        initial_health_stats: dict[str, int] = await perform_initial_health_check_for_all_devices(
+            device_manager=async_device_manager, health_manager=health_manager
+        )
+
+        logger.info("")
+        logger.info("Initial Health Check Summary:")
+        logger.info(f"  Online devices:  {initial_health_stats['online']}")
+        logger.info(f"  Offline devices: {initial_health_stats['offline']}")
+        logger.info(f"  Failed checks:   {initial_health_stats['failed']}")
+        logger.info("")
 
         await apply_startup_frequencies_with_health_check(
             device_manager=async_device_manager, health_manager=health_manager, constraint_schema=constraint_schema

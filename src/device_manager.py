@@ -138,7 +138,7 @@ class AsyncDeviceManager:
 
             # Create and connect Modbus client
             if port not in self.client_dict:
-                client = AsyncModbusSerialClient(port=port, baudrate=baudrate, timeout=timeout)
+                client = AsyncModbusSerialClient(port=port, baudrate=baudrate, timeout=timeout, retries=1)
                 is_connected: bool = await client.connect()
                 if not is_connected:
                     logger.warning(f"Failed to connect to port {port}")
