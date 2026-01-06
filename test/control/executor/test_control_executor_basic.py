@@ -1,5 +1,8 @@
 import pytest
 
+from core.evaluator.composite_evaluator import CompositeEvaluator
+from core.model.control_composite import CompositeNode
+from core.model.enum.condition_enum import ConditionOperator, ConditionType
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
@@ -103,3 +106,18 @@ class TestControlExecutorBasic:
 
         # Assert: Both writes should be attempted despite first one failing
         assert mock_device.write_value.call_count == 2
+
+    def test_when_alert_not_zero_then_trigger_recovery(self):
+        evaluator = CompositeEvaluator()
+
+        node = CompositeNode(
+            type=ConditionType.THRESHOLD,
+            sources=["ALERT"],
+            operator=ConditionOperator.NOT_EQUAL,
+            threshold=0.0,
+        )
+
+        snapshot = {"ALERT": 2.0}
+        result = evaluator.evaluate_composite_node(node, lambda k: snapshot.get(k))
+
+        assert result is True

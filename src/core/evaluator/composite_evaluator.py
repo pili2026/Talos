@@ -274,6 +274,13 @@ class CompositeEvaluator:
                 return value == threshold
             return abs(value - threshold) <= self.comparison_tolerance
 
+        if operator == ConditionOperator.NOT_EQUAL:
+            if threshold is None:
+                return False
+            if self.comparison_tolerance is None:
+                return value != threshold
+            return abs(value - threshold) > self.comparison_tolerance
+
         if operator == ConditionOperator.BETWEEN:
             return (min_value is not None) and (max_value is not None) and (min_value <= value <= max_value)
 

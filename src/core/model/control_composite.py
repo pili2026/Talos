@@ -221,9 +221,20 @@ class CompositeNode(BaseModel):
                     )
 
             # ------------------------------
+            # NOT_EQUAL
+            # ------------------------------
+            case ConditionOperator.NOT_EQUAL:
+                if self.threshold is None:
+                    problems.append("NOT_EQUAL operator requires 'threshold' value")
+
+                if self.min is not None or self.max is not None:
+                    problems.append("NOT_EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
+
+            # ------------------------------
             # Default: no additional validation
             # ------------------------------
             case _:
+                logger.warning(f"Operator '{operator.value}' is not supported")
                 pass
 
         return problems
@@ -334,7 +345,14 @@ class CompositeNode(BaseModel):
                 if self.min is None or self.max is None:
                     problems.append("difference-BETWEEN requires 'min' and 'max' values")
 
-            case ConditionOperator.GREATER_THAN | ConditionOperator.LESS_THAN | ConditionOperator.EQUAL:
+            case (
+                ConditionOperator.GREATER_THAN
+                | ConditionOperator.LESS_THAN
+                | ConditionOperator.EQUAL
+                | ConditionOperator.GREATER_THAN_OR_EQUAL
+                | ConditionOperator.LESS_THAN_OR_EQUAL
+                | ConditionOperator.NOT_EQUAL
+            ):
                 if self.threshold is None:
                     problems.append(f"difference-{self.operator.value.upper()} requires 'threshold' value")
 
@@ -375,6 +393,7 @@ class CompositeNode(BaseModel):
                 | ConditionOperator.EQUAL
                 | ConditionOperator.GREATER_THAN_OR_EQUAL
                 | ConditionOperator.LESS_THAN_OR_EQUAL
+                | ConditionOperator.NOT_EQUAL
             ):
                 if self.threshold is None:
                     problems.append(f"{agg_type}-{self.operator.value.upper()} requires 'threshold' value")
