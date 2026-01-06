@@ -84,6 +84,10 @@ class LegacySenderAdapter:
         self._resend_wakeup: asyncio.Event = asyncio.Event()
         self._stopping: bool = False
 
+        # ---- Main tasks handles (IMPORTANT) ----
+        self._warmup_task: asyncio.Task | None = None
+        self._scheduler_task: asyncio.Task | None = None
+
         # ---- Outbox store ----
         self._store = OutboxStore(
             dirpath=self.resend_dir,
@@ -104,7 +108,6 @@ class LegacySenderAdapter:
         try:
             self._system_info = SystemInfoCollector()
             logger.info("[LegacySender] System info collector initialized")
-
             self._system_info.increment_reboot_count()
         except Exception as e:
             logger.error(f"[LegacySender] Failed to initialize SystemInfoCollector: {e}")
@@ -142,20 +145,30 @@ class LegacySenderAdapter:
     async def start(self):
         """
         Start background tasks:
-          - Create shared AsyncClient + Transport
+          - Create shared AsyncClient + Transport with full timeout config
           - _warmup_send_once(): wait first snapshot → send immediately
           - _scheduler_loop(): aligned periodic sending
           - _resend_worker_loop(): background resend
         """
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=10.0)
-            logger.info("[Sender] Shared HTTP client created (timeout=10.0s)")
+            timeout = httpx.Timeout(
+                connect=5.0,  # TCP connection timeout
+                read=10.0,  # Response read timeout
+                write=5.0,  # Request write timeout
+                pool=5.0,  # Connection pool timeout
+            )
+            self._client = httpx.AsyncClient(timeout=timeout)
+            logger.info("[Sender] Shared HTTP client created (connect=5.0s, read=10.0s, write=5.0s, pool=5.0s)")
 
         if self._transport is None:
             self._transport = ResendTransport(self.ima_url, self._client, self._is_ok)
 
-        asyncio.create_task(self._warmup_send_once())
-        asyncio.create_task(self._scheduler_loop())
+        # Keep task handles so stop() can cancel/await them.
+        if self._warmup_task is None or self._warmup_task.done():
+            self._warmup_task = asyncio.create_task(self._warmup_send_once())
+
+        if self._scheduler_task is None or self._scheduler_task.done():
+            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
 
         # Start background resend worker (optional by config)
         if self.fail_resend_enabled:
@@ -167,20 +180,35 @@ class LegacySenderAdapter:
             )
 
     async def stop(self):
-        """Graceful shutdown: stop worker first, then close HTTP client."""
+        """Graceful shutdown: stop tasks first, then close HTTP client."""
+        self._stopping = True
+
+        # 1) stop scheduler / warmup
+        for tname, task in [("scheduler", self._scheduler_task), ("warmup", self._warmup_task)]:
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(f"[Sender] {tname} task cancelled")
+                except Exception as e:
+                    logger.warning(f"[Sender] {tname} task stop error: {e}")
+
+        # 2) stop resend worker
         try:
-            self._stopping = True
             self._resend_wakeup.set()
-            if self._resend_task is not None:
+            if self._resend_task is not None and not self._resend_task.done():
                 self._resend_task.cancel()
                 try:
                     await self._resend_task
                 except asyncio.CancelledError:
-                    pass
+                    logger.info("[ResendWorker] cancelled")
+                except Exception as e:
+                    logger.warning(f"[Sender] resend worker stop error: {e}")
         except Exception as e:
             logger.warning(f"[Sender] Error stopping resend worker: {e}")
 
-        # ---- Stop client ----
+        # 3) close client
         try:
             if self._client is not None:
                 await self._client.aclose()
@@ -203,6 +231,9 @@ class LegacySenderAdapter:
         except asyncio.TimeoutError:
             logger.debug("Warm-up: no snapshot within timeout; skip immediate send.")
             return
+        except asyncio.CancelledError:
+            logger.info("[Warmup] cancelled")
+            raise
 
         if debounce_s > 0:
             await asyncio.sleep(debounce_s)
@@ -300,16 +331,13 @@ class LegacySenderAdapter:
         try:
             logger.debug(f"[DAE_PM210] {device_id}: Calculating averages (meter already applied PT/CT)")
 
-            # ========== Determine effective phase count (based on voltage) ==========
             phase_v = [
                 float(values.get("Phase_A_Voltage", 0) or 0),
                 float(values.get("Phase_B_Voltage", 0) or 0),
                 float(values.get("Phase_C_Voltage", 0) or 0),
             ]
-
             logger.debug(f"[DAE_PM210] {device_id}: Phase voltages: {phase_v}")
 
-            # If all phase voltages are zero, fall back to line voltages
             if all(v == 0 for v in phase_v):
                 phase_v = [
                     float(values.get("Line_AB_Voltage", 0) or 0),
@@ -318,15 +346,12 @@ class LegacySenderAdapter:
                 ]
                 logger.debug(f"[DAE_PM210] {device_id}: Fallback to line voltages: {phase_v}")
 
-            # Count number of active phases (non-zero voltages)
             active_phase_count = sum(1 for v in phase_v if v != 0)
             if active_phase_count == 0:
-                active_phase_count = 1  # avoid division by zero
+                active_phase_count = 1
 
             logger.info(f"[DAE_PM210] {device_id}: Active phase count = {active_phase_count}")
 
-            # ========== Compute average voltage ==========
-            # Note: NO PT multiplication - meter already applied PT ratio
             active_v = [v for v in phase_v if v != 0]
             if active_v:
                 values["AverageVoltage"] = sum(active_v) / len(active_v)
@@ -338,8 +363,6 @@ class LegacySenderAdapter:
                 values["AverageVoltage"] = 0.0
                 logger.warning(f"[DAE_PM210] {device_id}: All voltages are 0")
 
-            # ========== Compute average current ==========
-            # Note: NO CT multiplication - meter already applied CT ratio
             i1 = float(values.get("Phase_A_Current", 0) or 0)
             i2 = float(values.get("Phase_B_Current", 0) or 0)
             i3 = float(values.get("Phase_C_Current", 0) or 0)
@@ -352,9 +375,6 @@ class LegacySenderAdapter:
                 f"[DAE_PM210] {device_id}: AverageCurrent = {values['AverageCurrent']:.2f}A "
                 f"(sum of all phases / {active_phase_count})"
             )
-
-            # Note: Individual phase values and power values (Kw, Kva, Kvar)
-            # are kept as-is because meter already applied PT/CT ratios
 
             logger.info(
                 f"[DAE_PM210] {device_id}: Final - "
@@ -397,33 +417,66 @@ class LegacySenderAdapter:
                     self._latest_per_window.pop(wstart, None)
 
     async def _post_with_retry(self, payload: dict) -> bool:
+        """
+        POST payload with retry logic and comprehensive error handling.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.debug(f"[POST] Starting at {datetime.now(TIMEZONE_INFO).strftime('%H:%M:%S')}")
+
         payload = self._normalize_missing_deep(payload)
-        backoffs = [1, 2][: max(self.__attempt_count - 1, 0)]  # 1s, 2s...
+        backoffs = [1, 2][: max(self.__attempt_count - 1, 0)]
 
         temp_client = None
         transport = self._transport
         if transport is None:
-            temp_client = httpx.AsyncClient(timeout=5.0)
+            timeout = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+            temp_client = httpx.AsyncClient(timeout=timeout)
             transport = ResendTransport(self.ima_url, temp_client, self._is_ok)
 
         try:
             for i in range(self.__attempt_count):
                 try:
+                    logger.debug(f"[POST] Attempt {i+1}/{self.__attempt_count}")
                     ok, status, text = await transport.send(payload)
+
                     if ok:
-                        logger.info(f"[POST][Payload]: {payload}")
-                        logger.info(f"[POST] ok: {status}")
-                        # update last success time & wake worker to clear backlog
+                        logger.debug(f"[POST][Payload]: {payload}")
+                        logger.info(f"[POST] ✓ Success: status={status}")
                         self.last_post_ok_at = datetime.now(TIMEZONE_INFO)
                         self._resend_wakeup.set()
                         return True
-                    else:
-                        logger.warning(f"[POST] not ok (status={status}) preview={text[:200]!r}")
+
+                    logger.warning(f"[POST] ✗ Failed: status={status}, preview={text[:200]!r}")
+
+                except asyncio.CancelledError:
+                    logger.info("[POST] cancelled")
+                    raise
+                except asyncio.TimeoutError:
+                    logger.error(f"[POST] ✗ Attempt {i+1} TIMEOUT (asyncio.TimeoutError)")
+                except httpx.ConnectTimeout as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} CONNECT TIMEOUT: {e}")
+                except httpx.ReadTimeout as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} READ TIMEOUT: {e}")
+                except httpx.WriteTimeout as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} WRITE TIMEOUT: {e}")
+                except httpx.PoolTimeout as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} POOL TIMEOUT: {e}")
+                except httpx.TimeoutException as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} TIMEOUT (httpx): {e}")
+                except httpx.ConnectError as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} CONNECT ERROR: {e}")
+                except httpx.NetworkError as e:
+                    logger.error(f"[POST] ✗ Attempt {i+1} NETWORK ERROR: {e}")
                 except Exception as e:
-                    logger.exception(f"[POST] attempt {i+1} failed: {e}")
+                    logger.exception(f"[POST] ✗ Attempt {i+1} UNEXPECTED ERROR: {e}")
 
                 if i < len(backoffs):
                     await asyncio.sleep(backoffs[i])
+
+            logger.warning(f"[POST] ✗ All {self.__attempt_count} attempts exhausted")
+
         finally:
             if temp_client is not None:
                 try:
@@ -431,26 +484,29 @@ class LegacySenderAdapter:
                 except Exception:
                     pass
 
-        self._store.enforce_budget()
+        await asyncio.to_thread(self._store.enforce_budget)
         return False
 
     @staticmethod
     def _window_start(ts: datetime, interval_sec: int, tz: ZoneInfo = TIMEZONE_INFO) -> datetime:
-        """Align `sampling_datetime` to the start of its tumbling window (for internal cache indexing only; does not affect sending)."""
-        timestamp_tz = ts.astimezone(tz).replace(microsecond=0)
+        """
+        Align `sampling_datetime` to tumbling window start by epoch-based alignment.
+        This is ONLY for internal cache bucket key (does not affect sending timestamp).
+        """
         interval = int(interval_sec)
-        second: int = (timestamp_tz.second // interval) * interval
-        return timestamp_tz.replace(second=second)
+        if interval <= 0:
+            interval = 1
+
+        ts_tz = ts.astimezone(tz) if ts.tzinfo else ts.replace(tzinfo=tz)
+        ts_tz = ts_tz.replace(microsecond=0)
+
+        epoch = datetime(1970, 1, 1, tzinfo=tz)
+        elapsed = int((ts_tz - epoch).total_seconds())
+        aligned_elapsed = (elapsed // interval) * interval
+        return epoch + timedelta(seconds=aligned_elapsed)
 
     @staticmethod
     def _resolve_gateway_id(config_gateway_id: str) -> str:
-        """
-        Logic for selecting gateway_id:
-          1. If hostname is exactly 11 characters:
-             - If it equals the default '99999999999' → use config_gid[:11]
-             - Otherwise → use hostname
-          2. In all other cases → use config_gid[:11]
-        """
         hostname: str = socket.gethostname()
 
         if len(hostname) == 11:
@@ -468,14 +524,12 @@ class LegacySenderAdapter:
 
     @staticmethod
     def _normalize_missing_value(v):
-        """Normalize -1.0 / -1 into int(-1); leave other values unchanged."""
         if isinstance(v, (int, float)) and v == -1:
             return -1
         return v
 
     @staticmethod
     def _normalize_missing_deep(obj):
-        """Recursively convert all -1.0 values in a payload back to -1 (supports nested dict/list)."""
         if isinstance(obj, dict):
             return {
                 k: LegacySenderAdapter._normalize_missing_deep(LegacySenderAdapter._normalize_missing_value(v))
@@ -490,25 +544,68 @@ class LegacySenderAdapter:
         return (resp is not None) and (resp.status_code == 200) and ("00000" in (resp.text or ""))
 
     async def _scheduler_loop(self):
+        """
+        Main scheduler loop with timeout protection.
+
+        IMPORTANT:
+        - Total timeout here should NOT cancel the underlying send, to avoid outbox half-state.
+        - Use shield(send_task) so scheduler can move on, while send continues safely.
+        """
         logger.info(
             f"Scheduler: anchor={self.anchor_offset_sec}s, interval={self.send_interval_sec}s, "
             f"fail_resend_enabled={self.fail_resend_enabled}, fail_resend_interval_sec={self.fail_resend_interval_sec}, "
             f"fail_resend_batch={self.fail_resend_batch}, last_post_ok_within_sec={self.last_post_ok_within_sec}"
         )
+
         next_label = self._compute_next_label_time(datetime.now(TIMEZONE_INFO))
 
-        while True:
-            now = datetime.now(TIMEZONE_INFO)
-            wait_sec = (next_label - now).total_seconds()
-            if wait_sec > 0:
-                await asyncio.sleep(wait_sec)
+        try:
+            while not self._stopping:
+                now = datetime.now(TIMEZONE_INFO)
+                logger.debug(
+                    f"[Scheduler] Cycle start: now={now.strftime('%H:%M:%S')}, "
+                    f"next_label={next_label.strftime('%H:%M:%S')}"
+                )
 
-            if self.tick_grace_sec > 0:
-                await asyncio.sleep(self.tick_grace_sec)
+                wait_sec = (next_label - now).total_seconds()
+                if wait_sec > 0:
+                    await asyncio.sleep(wait_sec)
 
-            await self._send_at_label_time(next_label)
+                if self._stopping:
+                    break
 
-            next_label = next_label + timedelta(seconds=self.send_interval_sec)
+                if self.tick_grace_sec > 0:
+                    await asyncio.sleep(self.tick_grace_sec)
+
+                if self._stopping:
+                    break
+
+                logger.info(f"[Scheduler] Starting send at {next_label.strftime('%H:%M:%S')}")
+
+                send_task = asyncio.create_task(self._send_at_label_time(next_label))
+                try:
+                    await asyncio.wait_for(asyncio.shield(send_task), timeout=30.0)
+                    logger.info(f"[Scheduler] Send completed at {datetime.now(TIMEZONE_INFO).strftime('%H:%M:%S')}")
+                except asyncio.TimeoutError:
+                    logger.error(
+                        f"[Scheduler] SEND TIMEOUT at {next_label.strftime('%H:%M:%S')} "
+                        f"(exceeded 30s wait) - send continues in background"
+                    )
+                except asyncio.CancelledError:
+                    logger.info("[Scheduler] cancelled")
+                    raise
+                except Exception as e:
+                    logger.error(
+                        f"[Scheduler] Unexpected error at {next_label.strftime('%H:%M:%S')}: {e}", exc_info=True
+                    )
+
+                next_label = next_label + timedelta(seconds=self.send_interval_sec)
+
+        except asyncio.CancelledError:
+            logger.info("[Scheduler] cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"[Scheduler] crashed: {e}", exc_info=True)
 
     def _compute_next_label_time(self, now: datetime) -> datetime:
         base_datatime = now.replace(microsecond=0)
@@ -566,14 +663,10 @@ class LegacySenderAdapter:
                 all_items.extend(converted)
                 sent_candidates_ts[dev_id] = snap_ts
 
-        # Add gateway heartbeat
         gw_item = await self._make_gw_heartbeat(label_time)
         all_items.append(gw_item)
 
-        # ---- Build payload ONCE ----
         payload = self._store.wrap_items_as_payload(all_items, label_time)
-
-        # ---- Persist ONE payload file ----
         outbox_file = await self._store.persist_payload(payload)
 
         logger.debug(f"Scheduled send: {len(all_items)} items")
@@ -590,12 +683,11 @@ class LegacySenderAdapter:
 
     async def _make_gw_heartbeat(self, report_datetime: datetime) -> dict:
         cpu_temp_task = asyncio.create_task(self._system_info.get_cpu_temperature())
-
         cpu_temp: float = await cpu_temp_task
         ssh_port: int = self._get_reverse_ssh_port()
 
         return {
-            "DeviceID": f"{self.gateway_id}_{self.series_number}00{EquipmentType.GW}",  # TODO: GW ID need to modify by config on future
+            "DeviceID": f"{self.gateway_id}_{self.series_number}00{EquipmentType.GW}",
             "Data": {
                 "HB": 1,
                 "report_ts": report_datetime.isoformat(),
@@ -610,34 +702,26 @@ class LegacySenderAdapter:
     async def _resend_worker_loop(self) -> None:
         """
         Background resend loop with time alignment.
-
-        Features:
-        - Each execution is aligned to `resend_anchor_offset_sec`
-        - Can be woken up early by `_resend_wakeup` (used to quickly drain backlog after a success)
-        - Health gate protection (only runs if there has been a recent successful upload)
         """
         try:
             while not self._stopping:
-                # Compute the next aligned run time
                 now = datetime.now(TIMEZONE_INFO)
                 next_run = self._compute_next_resend_time(now)
                 wait_sec = (next_run - now).total_seconds()
 
-                logger.debug(f"[ResendWorker] next run at {next_run.strftime('%H:%M:%S')}, " f"waiting {wait_sec:.1f}s")
+                logger.debug(f"[ResendWorker] next run at {next_run.strftime('%H:%M:%S')}, waiting {wait_sec:.1f}s")
 
-                # Wait until the next run time (or get woken up earlier)
                 try:
                     await asyncio.wait_for(self._resend_wakeup.wait(), timeout=wait_sec)
                     logger.debug("[ResendWorker] woken up early by success signal")
                 except asyncio.TimeoutError:
-                    pass  # Normal timeout, reached scheduled run
+                    pass
                 finally:
                     self._resend_wakeup.clear()
 
                 if self._stopping:
                     break
 
-                # === Health Gate Check ===
                 now = datetime.now(TIMEZONE_INFO)
                 if self.last_post_ok_within_sec > 0:
                     if self.last_post_ok_at is None:
@@ -654,7 +738,6 @@ class LegacySenderAdapter:
                         )
                         continue
 
-                # === Execute Resend Batch ===
                 try:
                     processed, success = await self._resend_process_batch(self.fail_resend_batch)
 
@@ -662,9 +745,8 @@ class LegacySenderAdapter:
                         logger.debug("[ResendWorker] no files to process")
                         continue
 
-                    logger.info(f"[ResendWorker] processed {processed} files, " f"succeeded {success}")
+                    logger.info(f"[ResendWorker] processed {processed} files, succeeded {success}")
 
-                    # If there were successes, wake up early for the next round (to drain backlog faster)
                     if success > 0:
                         self._resend_wakeup.set()
 
@@ -673,6 +755,7 @@ class LegacySenderAdapter:
 
         except asyncio.CancelledError:
             logger.info("[ResendWorker] cancelled")
+            raise
         except Exception as e:
             logger.error(f"[ResendWorker] crashed: {e}", exc_info=True)
 
@@ -690,7 +773,6 @@ class LegacySenderAdapter:
             return None
 
     def _ts_from_filename(self, filename: str) -> datetime | None:
-        # Support resend_YYYYmmddHHMMSS_ms_xxxx(.retryN)?.json
         match = re.match(r"resend_(\d{14})_", filename)
         if not match:
             return None
@@ -701,30 +783,22 @@ class LegacySenderAdapter:
             return None
 
     async def _resend_process_batch(self, batch: int) -> tuple[int, int]:
-        """
-        Pick up to `batch` files.
-        - Full packets are sent as-is (their own Timestamp).
-        - Single-item files are grouped by report_ts (fallback: filename ts -> now),
-        and each group is sent ONCE as a merged PushIMAData payload using that ts.
-        Returns: (total files processed, total files successfully deleted)
-        """
-        files: list[str] = self._store.pick_batch(batch, min_age_sec=0.0)
+        files: list[str] = await asyncio.to_thread(self._store.pick_batch, batch, min_age_sec=0.0)
         if not files:
             return 0, 0
 
-        # Prepare transport (use existing client if available)
         temp_client: httpx.AsyncClient | None = None
         transport = self._transport
         if transport is None:
-            temp_client = httpx.AsyncClient(timeout=5.0)
+            timeout = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+            temp_client = httpx.AsyncClient(timeout=timeout)
             transport = ResendTransport(self.ima_url, temp_client, self._is_ok)
 
         processed = 0
         deleted_total = 0
 
-        # Stage 1: read & bucketize
-        full_packets: list[tuple[str, dict]] = []  # [(file_path, packet_json)]
-        item_groups: dict[str, dict] = {}  # ts_key -> { "ts": datetime, "items": [dict], "paths": [str] }
+        full_packets: list[tuple[str, dict]] = []
+        item_groups: dict[str, dict] = {}
 
         for file_path in files:
             file_name = os.path.basename(file_path)
@@ -737,7 +811,6 @@ class LegacySenderAdapter:
                 continue
             except Exception as e:
                 logger.warning(f"[ResendWorker] read failed for {file_name}: {e}")
-                # Even if the file cannot be loaded, you still need to retry/fail to avoid getting stuck.
                 _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
                 if failed:
                     logger.warning(f"[ResendWorker] marked .fail: {file_name}")
@@ -748,38 +821,30 @@ class LegacySenderAdapter:
             try:
                 json_obj = json.loads(raw)
             except Exception:
-                # Not a valid JSON, treated as raw (using now instead of ts)
                 json_obj = None
 
             if isinstance(json_obj, dict) and "FUNC" in json_obj:
-                # Complete packet: sent independently
                 full_packets.append((file_path, json_obj))
             elif isinstance(json_obj, dict) and "DeviceID" in json_obj:
-                # Single item: grouped by report_ts
                 report_timestamp: str = (json_obj.get("Data") or {}).get("report_ts")
                 ts_dt = (
                     self._parse_iso_timestamp(report_timestamp)
                     or self._ts_from_filename(file_name)
                     or datetime.now(TIMEZONE_INFO)
                 )
-                ts_key = ts_dt.strftime(
-                    "%Y%m%d%H%M%S"
-                )  # Use second-level time as the key to make the outer timestamp consistent
+                ts_key = ts_dt.strftime("%Y%m%d%H%M%S")
                 item_group: dict = item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
                 item_group["items"].append(json_obj)
                 item_group["paths"].append(file_path)
             else:
-                # Unable to determine the structure, treat it as a separate raw packet and use the file name time/now as the Timestamp
                 ts_dt: datetime = self._ts_from_filename(file_name) or datetime.now(TIMEZONE_INFO)
                 ts_key: str = f"RAW-{ts_dt.strftime('%Y%m%d%H%M%S')}#{file_name}"
                 item_groups.setdefault(ts_key, {"ts": ts_dt, "items": [], "paths": []})
-                # Wrap it into a single item of Data using raw (keep it as is)
                 item_groups[ts_key]["items"].append(json_obj if isinstance(json_obj, dict) else {"_raw": raw})
                 item_groups[ts_key]["paths"].append(file_path)
 
             processed += 1
 
-        # Stage 2: send full packets one-by-one
         for file_path, packet in full_packets:
             file_name = os.path.basename(file_path)
             try:
@@ -794,30 +859,27 @@ class LegacySenderAdapter:
                     _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
                     if failed:
                         logger.warning(f"[ResendWorker] marked .fail: {file_name}")
+            except asyncio.CancelledError:
+                logger.info("[ResendWorker] cancelled during packet send")
+                raise
             except Exception as e:
                 logger.warning(f"[ResendWorker] failed (packet) for {file_name}: {e}")
                 _, failed = self._store.retry_or_fail(file_path, max_retry=self.__max_retry)
                 if failed:
                     logger.warning(f"[ResendWorker] marked .fail: {file_name}")
 
-        # Stage 3: send grouped single-items (one request per Timestamp)
-        # Send in order of ts to ensure FIFO
         for ts_key, item_group in sorted(item_groups.items(), key=lambda kv: kv[1]["ts"]):
             ts_dt = item_group["ts"]
             items = []
-            # Filter out the previously inserted RAW styles and only accept legal items
             for it in item_group["items"]:
                 if isinstance(it, dict) and "DeviceID" in it:
                     items.append(it)
-                else:
-                    # If necessary, you can also wrap RAW into a special DeviceID here; this version will skip this.
-                    pass
 
             if not items:
                 continue
 
             payload = self._store.wrap_items_as_payload(items, ts_dt)
-            logger.info(f"[ResendWorker] {payload}")
+            logger.debug(f"[ResendWorker] Sending group ts={ts_key} with {len(items)} items")
             file_paths = item_group["paths"]
 
             try:
@@ -830,11 +892,13 @@ class LegacySenderAdapter:
                     self.last_post_ok_at = datetime.now(TIMEZONE_INFO)
                     logger.info(f"[ResendWorker] success, deleted group of {len(file_paths)} file(s) for ts={ts_key}")
                 else:
-                    # When a failure occurs, each file in the group must advance once retry/fail
                     for p in file_paths:
                         _, failed = self._store.retry_or_fail(p, max_retry=self.__max_retry)
                         if failed:
                             logger.warning(f"[ResendWorker] marked .fail: {os.path.basename(p)}")
+            except asyncio.CancelledError:
+                logger.info("[ResendWorker] cancelled during group send")
+                raise
             except Exception as e:
                 logger.warning(f"[ResendWorker] failed (group ts={ts_key}): {e}")
                 for p in file_paths:
@@ -842,34 +906,22 @@ class LegacySenderAdapter:
                     if failed:
                         logger.warning(f"[ResendWorker] marked .fail: {os.path.basename(p)}")
 
-        # Cleanup & return
         if temp_client is not None:
             try:
                 await temp_client.aclose()
             except Exception:
                 pass
 
-        self._store.enforce_budget()
+        await asyncio.to_thread(self._store.enforce_budget)
         return processed, deleted_total
 
     async def _delayed_resend_start(self):
         """
         Delayed start for Resend Worker, aligned to the configured anchor offset.
-
-        Flow:
-        1. Compute the earliest allowed start time = now + resend_start_delay_sec
-        2. Find the first aligned point after that earliest time
-        3. Wait until the aligned point
-        4. Start the worker loop
         """
         now = datetime.now(TIMEZONE_INFO)
-
-        # Compute the earliest allowed start time
         min_start_time = now + timedelta(seconds=self.resend_start_delay_sec)
-
-        # Compute the next aligned time
         next_aligned = self._compute_next_resend_time(min_start_time)
-
         wait_sec = (next_aligned - now).total_seconds()
 
         logger.info(
@@ -882,49 +934,25 @@ class LegacySenderAdapter:
 
         await asyncio.sleep(wait_sec)
 
+        if self._stopping:
+            logger.info("[ResendWorker] start aborted: stopping=True")
+            return
+
         logger.info(f"[ResendWorker] starting now at {datetime.now(TIMEZONE_INFO).strftime('%H:%M:%S')}")
         self._resend_task = asyncio.create_task(self._resend_worker_loop())
 
     def _compute_next_resend_time(self, after: datetime) -> datetime:
-        """
-        Compute the next time aligned to resend_anchor_offset_sec.
-
-        Args:
-            after: The first aligned point strictly after this timestamp
-
-        Returns:
-            Aligned datetime (tz-aware)
-
-        Examples:
-            >>> # resend_anchor_offset_sec = 5, fail_resend_interval_sec = 120
-            >>> # after = 2025-01-01 12:02:30
-            >>> result = _compute_next_resend_time(after)
-            >>> # result = 2025-01-01 12:03:05
-
-            >>> # after = 2025-01-01 12:03:10
-            >>> result = _compute_next_resend_time(after)
-            >>> # result = 2025-01-01 12:05:05
-        """
         interval = self.fail_resend_interval_sec
         anchor = self.resend_anchor_offset_sec
 
-        # Compute relative to epoch (ensures consistent timezone)
         epoch = datetime(1970, 1, 1, tzinfo=TIMEZONE_INFO)
         after_tz = after.astimezone(TIMEZONE_INFO) if after.tzinfo else after.replace(tzinfo=TIMEZONE_INFO)
 
-        # Calculate elapsed seconds since epoch
         elapsed_sec = int((after_tz - epoch).total_seconds())
-
-        # Determine the current cycle (starting from 0)
-        # Example: elapsed=245, anchor=5, interval=120
-        #   -> cycle = (245 - 5) // 120 = 240 // 120 = 2
         cycle = (elapsed_sec - anchor) // interval
-
-        # Compute the next aligned point (cycle + 1)
         next_aligned_sec = (cycle + 1) * interval + anchor
         next_aligned = epoch + timedelta(seconds=next_aligned_sec)
 
-        # Ensure result is strictly later than `after` (handle edge cases)
         while next_aligned <= after_tz:
             next_aligned += timedelta(seconds=interval)
 
@@ -939,9 +967,8 @@ class LegacySenderAdapter:
                 if isinstance(reverse_ssh.PORT, int):
                     return reverse_ssh.PORT
                 logger.warning("[LegacySender] REVERSE_SSH.PORT invalid or missing")
-                return 22  # Default SSH port
+                return 22
 
-            # mqtt (future)
             logger.info("[LegacySender] REVERSE_SSH.PORT_SOURCE=mqtt (not implemented)")
             return 0
 
