@@ -516,6 +516,8 @@ class ModbusBus:
         if self.client.connected:
             return True
 
+        await self._safe_close_client(reason="pre_reconnect_cleanup")
+
         try:
             ok = await self.client.connect()
             if not ok:
