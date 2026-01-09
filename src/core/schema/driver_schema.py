@@ -28,6 +28,9 @@ class PhysicalPinDefinition(BaseModel):
     register_type: str | None = Field(
         default=None, description="Register type override (holding, input, coil, discrete_input)"
     )
+    bit: int | None = Field(
+        default=None, ge=0, le=15, description="Bit index within the register word (0-15) for bit-level DI/DO mapping"
+    )
 
 
 class ComputedPinDefinition(BaseModel):

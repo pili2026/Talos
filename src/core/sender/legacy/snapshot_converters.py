@@ -76,6 +76,23 @@ def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
         return 0
 
 
+def _get_bypass_value(snapshot: dict, *, default: int = 0) -> int:
+    """
+    ByPass is module-level status; should be the same for all SR records of this device.
+    Degrade to default(0) if missing/invalid.
+    """
+    if "ByPass" not in snapshot:
+        return default
+    try:
+        bypass_value = int(float(snapshot.get("ByPass")))
+        return 1 if bypass_value != 0 else 0
+    except Exception as e:
+        logger.warning(
+            f"[LegacyFormat] Invalid ByPass value: {snapshot.get('ByPass')}, error: {e} - degrading to {default}"
+        )
+        return default
+
+
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str], model: str) -> list[dict]:
     """
     Convert Digital Input module to legacy format.
@@ -151,6 +168,8 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
     """
     result = []
 
+    bypass_value: int = _get_bypass_value(snapshot, default=0)
+
     # Dynamically match all DIn pins (DIn01, DIn02, ..., DIn99)
     di_pattern = re.compile(r"^DIn(\d+)$")
     di_pins = []
@@ -197,10 +216,10 @@ def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[st
 
         data = {
             "Relay0": pin_value,  # DI state: 0/1/-1 (where -1 = read failed)
-            "Relay1": 0,  # Reserved
+            "Relay1": 0,
             "MCStatus0": mc_status0,  # DO state: 0/1 (degrades to 0 on failure)
-            "MCStatus1": 0,  # Reserved
-            "ByPass": 0,  # Reserved
+            "MCStatus1": 0,
+            "ByPass": bypass_value,
         }
 
         result.append({"DeviceID": device_id, "Data": data})

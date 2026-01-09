@@ -145,6 +145,8 @@ class ConfigManagerExtension:
                 base_config["scale"] = pin_def.scale
             if pin_def.scale_from is not None:
                 base_config["scale_from"] = pin_def.scale_from
+            if pin_def.bit is not None:
+                base_config["bit"] = pin_def.bit
 
             final_map[pin_name] = base_config
 
