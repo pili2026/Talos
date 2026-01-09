@@ -17,14 +17,15 @@ class InitStats:
     hz_written: int = 0
     turned_on: int = 0
     skipped_offline: int = 0
+    skipped_no_config: int = 0
     failed: int = 0
     turn_on_failed: int = 0
 
     def __str__(self) -> str:
         return (
             f"hz_written={self.hz_written}, turned_on={self.turned_on}, "
-            f"skipped_offline={self.skipped_offline}, failed={self.failed}, "
-            f"turn_on_failed={self.turn_on_failed}"
+            f"skipped_offline={self.skipped_offline}, skipped_no_config={self.skipped_no_config}, "
+            f"failed={self.failed}, turn_on_failed={self.turn_on_failed}"
         )
 
 
@@ -91,7 +92,8 @@ async def apply_startup_frequencies_with_health_check(
             constraint_schema, device.model, device.slave_id
         )
 
-        if not (startup_freq or auto_turn_on):
+        if startup_freq is None and auto_turn_on is not True:
+            stats.skipped_no_config += 1
             continue
 
         try:
@@ -106,7 +108,7 @@ async def apply_startup_frequencies_with_health_check(
             if startup_freq is not None:
                 await _apply_frequency(device, device_id, startup_freq, stats, elapsed_ms)
 
-            if auto_turn_on:
+            if auto_turn_on is True:
                 await _apply_turn_on(device, device_id, stats)
 
         except Exception as exc:

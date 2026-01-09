@@ -123,6 +123,6 @@ register_map:
     type: reset
     unit: "-"
     precision: 0
-    readable: false
+    readable: true
     writable: true
     description: "Fault reset command"

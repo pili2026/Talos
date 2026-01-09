@@ -4,11 +4,10 @@ Tests for ConfigManagerExtension - Three-Layer Configuration Merging
 
 import logging
 
-import pytest
 
-from src.core.schema.driver_schema import DriverPinDefinition
-from src.core.schema.pin_mapping_schema import PinMapping
-from src.core.util.config_manager_extension import ConfigManagerExtension
+from core.schema.driver_schema import PhysicalPinDefinition
+from core.schema.pin_mapping_schema import PinMapping
+from core.util.config_manager_extension import ConfigManagerExtension
 
 
 def test_build_final_register_map_layer1_only_driver():
@@ -17,10 +16,10 @@ def test_build_final_register_map_layer1_only_driver():
     Should create register map with hardware + default application config
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
-        "AIn02": DriverPinDefinition(
+        "AIn02": PhysicalPinDefinition(
             offset=1, format="i16", readable=True, writable=False, description="Analog Input 02"
         ),
     }
@@ -48,7 +47,7 @@ def test_build_final_register_map_layer2_pin_mapping_override():
     Test Layer 2: Pin Mapping overrides driver defaults
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -78,7 +77,7 @@ def test_build_final_register_map_layer3_instance_override():
     Test Layer 3: Instance-specific overrides (highest priority)
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -110,10 +109,10 @@ def test_build_final_register_map_three_layer_priority():
     Test priority: Instance Override > Pin Mapping > Driver
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
-        "AIn02": DriverPinDefinition(
+        "AIn02": PhysicalPinDefinition(
             offset=1, format="i16", readable=True, writable=False, description="Analog Input 02"
         ),
     }
@@ -145,7 +144,7 @@ def test_build_final_register_map_partial_pin_mapping_override():
     Test partial override: Only some fields in pin mapping
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -179,7 +178,7 @@ def test_build_final_register_map_unknown_pin_in_mapping_warns(caplog):
     caplog.set_level(logging.WARNING)
 
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -211,7 +210,7 @@ def test_build_final_register_map_unknown_pin_in_instance_override_warns(caplog)
     caplog.set_level(logging.WARNING)
 
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -238,7 +237,7 @@ def test_build_final_register_map_formula_list_copy():
     Test that formula list is copied, not referenced
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -264,7 +263,7 @@ def test_build_final_register_map_empty_inputs():
     Test with empty pin mappings and no instance overrides
     """
     driver_register_map = {
-        "AIn01": DriverPinDefinition(
+        "AIn01": PhysicalPinDefinition(
             offset=0, format="i16", readable=True, writable=False, description="Analog Input 01"
         ),
     }
@@ -285,9 +284,9 @@ def test_build_final_register_map_bat08_real_world_scenario():
     """
     # Layer 1: Driver (hardware)
     driver_register_map = {
-        "AIn01": DriverPinDefinition(offset=0, format="i16", readable=True, writable=False),
-        "AIn02": DriverPinDefinition(offset=1, format="i16", readable=True, writable=False),
-        "AIn03": DriverPinDefinition(offset=2, format="i16", readable=True, writable=False),
+        "AIn01": PhysicalPinDefinition(offset=0, format="i16", readable=True, writable=False),
+        "AIn02": PhysicalPinDefinition(offset=1, format="i16", readable=True, writable=False),
+        "AIn03": PhysicalPinDefinition(offset=2, format="i16", readable=True, writable=False),
     }
 
     # Layer 2: Pin Mapping (model-level baseline)

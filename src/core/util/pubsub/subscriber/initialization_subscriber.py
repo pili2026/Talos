@@ -130,6 +130,12 @@ class InitializationSubscriber:
             logger.debug(f"[INIT] [{model_slave}] No initialization config found")
             return
 
+        logger.info(
+            f"[INIT] [{model_slave}] Resolved config: "
+            f"startup_frequency={init_config.startup_frequency}, "
+            f"auto_turn_on={init_config.auto_turn_on}"
+        )
+
         # Build and execute initialization actions
         actions: list[ControlActionSchema] = []
 
@@ -146,7 +152,7 @@ class InitializationSubscriber:
                 )
             )
 
-        if init_config.auto_turn_on:
+        if init_config.auto_turn_on is True:
             actions.append(
                 ControlActionSchema(
                     type=ControlActionType.TURN_ON,
@@ -163,7 +169,15 @@ class InitializationSubscriber:
             logger.debug(f"[INIT] [{model_slave}] No initialization actions to execute")
             return
 
-        logger.info(f"[INIT] [{model_slave}] Executing {len(actions)} initialization actions")
+        logger.info(f"[INIT] [{model_slave}] Initialization actions prepared ({len(actions)}):")
+
+        for action in actions:
+            logger.info(
+                f"[INIT] [{model_slave}] → {action.type.value}"
+                + (f" target={action.target}" if action.target else "")
+                + (f" value={action.value}" if action.value is not None else "")
+                + f" priority={action.priority}"
+            )
 
         try:
             await self.executor.execute(actions)
@@ -188,7 +202,7 @@ class InitializationSubscriber:
         Returns:
             Merged InitializationConfig or None if no config found
         """
-        merged: dict[str, Any] = {}
+        merged: dict[str, float | bool] = {}
 
         # Level 1: Global defaults
         if self.constraint_schema.global_defaults and self.constraint_schema.global_defaults.initialization:

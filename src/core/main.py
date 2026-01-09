@@ -21,7 +21,7 @@ from core.util.factory.time_factory import build_time_control_subscriber
 from core.util.factory.virtual_device_factory import initialize_virtual_device_manager
 from core.util.health_check_util import apply_startup_frequencies_with_health_check, initialize_health_check_configs
 from core.util.logger_config import setup_logging
-from core.util.logging_noise import install_asyncio_noise_suppressor, quiet_pymodbus_logs
+from core.util.logging_noise import install_asyncio_noise_suppressor
 from core.util.pubsub.in_memory_pubsub import InMemoryPubSub
 from core.util.pubsub.pubsub_util import PUBSUB_POLICIES, pubsub_drop_metrics_loop
 from core.util.pubsub.subscriber.constraint_evaluator_subscriber import ConstraintSubscriber

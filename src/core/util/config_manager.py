@@ -38,9 +38,20 @@ class ConfigManager:
 
     @staticmethod
     def get_device_startup_frequency(config: ConstraintConfigSchema, model: str, slave_id: int) -> float | None:
-        """Retrieve the startup frequency configuration for a device"""
-        # 1. Check instance settings
+        """
+        Retrieve the startup frequency configuration for a device.
+
+        Precedence (higher overrides lower):
+        1. Instance level: devices[model].instances[slave_id].initialization.startup_frequency
+        2. Model level: devices[model].initialization.startup_frequency
+        3. Global level: global_defaults.initialization.startup_frequency
+
+        Returns:
+            float | None: Startup frequency in Hz, or None if not configured at any level
+        """
         device_config: DeviceConfig | None = config.devices.get(model)
+
+        # 1. Check instance settings
         if device_config and device_config.instances:
             instance_config = device_config.instances.get(str(slave_id))
             if (
@@ -134,11 +145,33 @@ class ConfigManager:
         return {}
 
     @staticmethod
-    def get_device_auto_turn_on(config: ConstraintConfigSchema, model: str, slave_id: int) -> bool:
-        """Get auto_turn_on setting with priority: instance > model > global."""
+    def get_device_auto_turn_on(config: ConstraintConfigSchema, model: str, slave_id: int) -> bool | None:
+        """
+        Get auto_turn_on setting with hierarchical precedence.
+
+        Precedence (higher overrides lower):
+        1. Instance level: devices[model].instances[slave_id].initialization.auto_turn_on
+        2. Model level: devices[model].initialization.auto_turn_on
+        3. Global level: global_defaults.initialization.auto_turn_on
+
+        Returns:
+            bool | None:
+                - True: Should auto turn on device
+                - False: Should NOT auto turn on (explicitly disabled)
+                - None: Not configured at any level
+
+        Example:
+            >>> # Model has auto_turn_on=True, instance doesn't specify
+            >>> get_device_auto_turn_on(config, "TECO_VFD", 3)
+            True  # Inherits from model
+
+            >>> # Instance explicitly sets auto_turn_on=False
+            >>> get_device_auto_turn_on(config, "TECO_VFD", 4)
+            False  # Overrides model setting
+        """
         device_config: DeviceConfig | None = config.devices.get(model)
 
-        # Instance level
+        # Instance level (highest priority)
         if device_config and device_config.instances:
             instance = device_config.instances.get(str(slave_id))
             if instance and instance.initialization and instance.initialization.auto_turn_on is not None:
@@ -148,11 +181,15 @@ class ConfigManager:
         if device_config and device_config.initialization and device_config.initialization.auto_turn_on is not None:
             return device_config.initialization.auto_turn_on
 
-        # Global level
-        if config.global_defaults and config.global_defaults.initialization:
-            return config.global_defaults.initialization.auto_turn_on or False
+        # Global level (lowest priority)
+        if (
+            config.global_defaults
+            and config.global_defaults.initialization
+            and config.global_defaults.initialization.auto_turn_on is not None
+        ):
+            return config.global_defaults.initialization.auto_turn_on
 
-        return False
+        return None
 
     @staticmethod
     def _parse_value_by_type(value: str) -> bool | int | float | str:

@@ -2,8 +2,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class InitializationConfig(BaseModel):
-    startup_frequency: float | None = Field(None, description="Device startup frequency in Hz")
-    auto_turn_on: bool = Field(default=False, description="Turn on device on recovered (offline->online)")
+    startup_frequency: float | None = Field(default=None, description="Device startup frequency in Hz")
+    auto_turn_on: bool | None = Field(default=None, description="Turn on device on recovered (offline->online)")
 
 
 class ConstraintConfig(BaseModel):
@@ -38,16 +38,29 @@ class ConstraintConfigSchema(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def split_global_and_devices(cls, data: dict):
+        """
+        Handle two input formats:
+        1. YAML format: devices at top level
+           {"global_defaults": {...}, "TECO_VFD": {...}, "ADAM_4117": {...}}
+
+        2. Direct construction: devices already in dict
+           {"global_defaults": {...}, "devices": {"TECO_VFD": {...}}}
+        """
         if not isinstance(data, dict):
             return data
 
         global_defaults = data.pop("global_defaults", None)
 
-        devices: dict[str, dict] = {}
-
-        for key, value in list(data.items()):
-            if isinstance(value, dict):
-                devices[key] = value
+        # Check if devices already exists and is properly formatted
+        if "devices" in data and isinstance(data.get("devices"), dict):
+            # Format 2: devices already collected
+            devices = data.pop("devices")
+        else:
+            # Format 1: collect devices from top level
+            devices: dict[str, dict] = {}
+            for key, value in list(data.items()):
+                if isinstance(value, dict):
+                    devices[key] = value
 
         return {
             "global_defaults": global_defaults,
