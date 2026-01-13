@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class AlertState(str, Enum):
+class AlertState(StrEnum):
     """
     Alert lifecycle states:
     NORMAL: No violation detected

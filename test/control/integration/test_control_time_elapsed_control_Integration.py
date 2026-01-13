@@ -14,7 +14,8 @@ import pytest
 
 from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.control_composite import CompositeNode
-from core.model.enum.condition_enum import ConditionType
+from core.model.enum.condition_enum import ConditionOperator, ConditionType
+from core.util.time_util import TIMEZONE_INFO
 from repository.control_execution_store import ControlExecutionStore
 
 
@@ -38,7 +39,7 @@ class TestTimeElapsedControlIntegration:
     @pytest.fixture
     def evaluator_with_real_store(self, execution_store):
         """Create CompositeEvaluator with real execution store"""
-        return CompositeEvaluator(execution_store=execution_store, timezone="Asia/Taipei")
+        return CompositeEvaluator(execution_store=execution_store, timezone=TIMEZONE_INFO)
 
     @pytest.fixture
     def time_elapsed_node(self):
@@ -82,7 +83,7 @@ class TestTimeElapsedControlIntegration:
         """Test that execution history survives system restart"""
         # Phase 1: Initial run
         store1 = ControlExecutionStore(temp_db, timezone="Asia/Taipei")
-        evaluator1 = CompositeEvaluator(execution_store=store1, timezone="Asia/Taipei")
+        evaluator1 = CompositeEvaluator(execution_store=store1, timezone=TIMEZONE_INFO)
 
         rule_code = "FREQ_STEPDOWN_4H"
         evaluator1.set_evaluation_context(rule_code, "TECO_VFD", "4")
@@ -100,7 +101,7 @@ class TestTimeElapsedControlIntegration:
 
         # Phase 2: After restart (new objects, same database)
         store2 = ControlExecutionStore(temp_db, timezone="Asia/Taipei")
-        evaluator2 = CompositeEvaluator(execution_store=store2, timezone="Asia/Taipei")
+        evaluator2 = CompositeEvaluator(execution_store=store2, timezone=TIMEZONE_INFO)
         evaluator2.set_evaluation_context(rule_code, "TECO_VFD", "4")
 
         # Should not trigger yet (interval not elapsed)
@@ -249,8 +250,6 @@ class TestCompositeNodeValidation:
     def test_when_time_elapsed_with_operator_then_validation_fails(self):
         """Test that time_elapsed should not have operator"""
         # Act
-        from core.model.enum.condition_enum import ConditionOperator
-
         node = CompositeNode(
             type=ConditionType.TIME_ELAPSED,
             interval_hours=4.0,
@@ -290,8 +289,6 @@ class TestBuildCompositReasonSummary:
         """Test that time_elapsed appears correctly in composite conditions"""
         # Arrange
         evaluator = CompositeEvaluator()
-
-        from core.model.enum.condition_enum import ConditionOperator
 
         # Create composite with time_elapsed OR threshold
         node = CompositeNode(

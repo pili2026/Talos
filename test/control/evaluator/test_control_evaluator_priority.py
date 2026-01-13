@@ -293,7 +293,8 @@ class TestControlEvaluatorPriorityHandling:
         condition.code = code
         condition.name = name
         condition.priority = priority
-        condition.blocking = False  # ← 新增 blocking 欄位
+        condition.blocking = False
+        condition.active_time_ranges = None
 
         # Mock composite
         condition.composite = Mock()
@@ -312,7 +313,7 @@ class TestControlEvaluatorPriorityHandling:
         mock_action.emergency_override = False
         mock_action.model_copy.return_value = mock_action  # Return self for simplicity
 
-        condition.actions = [mock_action]  # ← 改成 list
+        condition.actions = [mock_action]
 
         return condition
 
@@ -368,6 +369,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         condition.composite.invalid = False
         condition.policy = Mock()
         condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
+        condition.active_time_ranges = None
 
         mock_action = Mock(spec=ControlActionSchema)
         mock_action.model = "TECO_VFD"
@@ -409,6 +411,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         none_priority_condition.composite.invalid = False
         none_priority_condition.policy = Mock()
         none_priority_condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
+        none_priority_condition.active_time_ranges = None
 
         mock_action1 = Mock(
             spec_set=[
@@ -443,6 +446,7 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         normal_condition.composite.invalid = False
         normal_condition.policy = Mock()
         normal_condition.policy.type = ControlPolicyType.DISCRETE_SETPOINT
+        normal_condition.active_time_ranges = None
 
         mock_action2 = Mock(
             spec_set=[

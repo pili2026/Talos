@@ -1,6 +1,8 @@
 import logging
+from datetime import datetime, time
 from functools import partial
-from typing import Callable
+from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
@@ -8,6 +10,7 @@ from core.schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
 from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema
 from core.schema.control_config_schema import ControlConfig
 from core.schema.policy_schema import PolicyConfig
+from core.util.time_util import TIMEZONE_INFO
 from repository.control_execution_store import ControlExecutionStore
 
 logger = logging.getLogger(__name__)
@@ -21,10 +24,12 @@ class ControlEvaluator:
         control_config: ControlConfig,
         constraint_config_schema: ConstraintConfigSchema,
         execution_store: ControlExecutionStore = None,
+        timezone: ZoneInfo | None = TIMEZONE_INFO,
     ):
         self.control_config = control_config
         self.constraint_config_schema = constraint_config_schema
         self.composite_evaluator = CompositeEvaluator(execution_store=execution_store)
+        self.timezone = timezone
 
     def get_snapshot_value(self, snapshot: dict[str, float], key: str) -> float | None:
         """Fetch a numeric value by key from the given snapshot."""
@@ -46,8 +51,18 @@ class ControlEvaluator:
         triggered_rule_list: list[ConditionSchema] = []
         get_value_by_snapshot: Callable[[str], float | None] = partial(self.get_snapshot_value, snapshot)
 
+        # Get current time for time-based conditions
+        datetime_now = datetime.now(self.timezone)
+        current_time = datetime_now.time()
+
         for rule in condition_list:
             if rule.composite is None or rule.composite.invalid:
+                continue
+
+            # Check time-based activation
+
+            if not self._is_time_active(rule, current_time):
+                logger.debug(f"[EVAL] [{model}_{slave_id}] Skip '{rule.code}': " f"outside active time ranges")
                 continue
 
             # Set evaluation context before evaluating
@@ -157,6 +172,53 @@ class ControlEvaluator:
 
         return result_action_list
 
+    # Time-based activation check
+    def _is_time_active(self, rule: ConditionSchema, current_time: datetime.time) -> bool:
+        """
+        Check if rule is active based on time ranges
+
+        Args:
+            rule: Control condition rule
+            current_time: Current datetime (timezone-aware)
+
+        Returns:
+            True if rule is active:
+            - If no active_time_ranges specified → always active
+            - If within any time range → active
+            - Otherwise → inactive
+        """
+        # No time restriction → always active
+        if not rule.active_time_ranges:
+            return True
+
+        # Check if within any time range
+        for time_range in rule.active_time_ranges:
+            try:
+                start = time.fromisoformat(time_range.start)
+                end = time.fromisoformat(time_range.end)
+
+                # Handle overnight ranges (e.g., 22:00 - 06:00)
+                if start <= end:
+                    # Normal range (e.g., 09:00 - 17:00)
+                    if start <= current_time <= end:
+                        return True
+                else:
+                    # Overnight range (e.g., 22:00 - 06:00)
+                    # Active if: time >= start OR time <= end
+                    if current_time >= start or current_time <= end:
+                        return True
+            except ValueError as e:
+                logger.error(
+                    f"[EVAL] Invalid time range format in rule '{rule.code}': "
+                    f"start='{time_range.start}', end='{time_range.end}'. Error: {e}"
+                )
+                continue
+
+        # Not within any range
+        return False
+
+    # Below: All existing methods (unchanged
+
     def _apply_policy_to_action(
         self, condition: ConditionSchema, action: ControlActionSchema, snapshot: dict[str, float]
     ) -> ControlActionSchema | None:
@@ -169,26 +231,25 @@ class ControlEvaluator:
         if policy.type == ControlPolicyType.DISCRETE_SETPOINT:
             return action
 
-        elif policy.type == ControlPolicyType.ABSOLUTE_LINEAR:
+        if policy.type == ControlPolicyType.ABSOLUTE_LINEAR:
             return self._apply_absolute_linear_policy(action=action, policy=policy, snapshot=snapshot)
 
-        elif policy.type == ControlPolicyType.INCREMENTAL_LINEAR:
+        if policy.type == ControlPolicyType.INCREMENTAL_LINEAR:
             return self._apply_incremental_linear_policy(action=action, policy=policy, snapshot=snapshot)
 
-        else:
-            logger.warning(f"[EVAL] Unsupported policy type: {policy.type}")
-            return action
+        logger.warning(f"[EVAL] Unsupported policy type: {policy.type}")
+        return action
 
     def _get_condition_value(self, policy: PolicyConfig, snapshot: dict[str, float]) -> float | None:
         """Get condition value based on policy type"""
         if policy.condition_type == ConditionType.THRESHOLD:
             # Single sensor value
             if not policy.sources or len(policy.sources) != 1:
-                logger.warning(f"[EVAL] THRESHOLD policy requires exactly 1 source")
+                logger.warning("[EVAL] THRESHOLD policy requires exactly 1 source")
                 return None
             return snapshot.get(policy.sources[0])
 
-        elif policy.condition_type == ConditionType.DIFFERENCE:
+        if policy.condition_type == ConditionType.DIFFERENCE:
             # Difference between two sensors
             if not policy.sources or len(policy.sources) != 2:
                 return None
@@ -197,15 +258,14 @@ class ControlEvaluator:
                 return None
             return v1 - v2
 
-        else:
-            logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
-            return None
+        logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
+        return None
 
     def _apply_absolute_linear_policy(
         self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
     ) -> ControlActionSchema | None:
         if not policy.sources or len(policy.sources) != 1:
-            logger.warning(f"[EVAL] ABSOLUTE_LINEAR requires exactly 1 source")
+            logger.warning("[EVAL] ABSOLUTE_LINEAR requires exactly 1 source")
             return None
 
         temp_value = snapshot.get(policy.sources[0])
@@ -215,11 +275,11 @@ class ControlEvaluator:
 
         # Validate required fields
         if policy.base_temp is None:
-            logger.warning(f"[EVAL] ABSOLUTE_LINEAR missing base_temp")
+            logger.warning("[EVAL] ABSOLUTE_LINEAR missing base_temp")
             return None
 
         # Calculate target frequency: base_freq + (temp - base_temp) * gain
-        target_freq = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
+        target_freq: float | Any = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
 
         new_action: ControlActionSchema = action.model_copy()
         new_action.value = target_freq
@@ -235,7 +295,7 @@ class ControlEvaluator:
         # Temperature difference control
         condition_value = self._get_condition_value(policy, snapshot)  # Calculate temperature difference
         if condition_value is None:
-            logger.warning(f"[EVAL] Cannot get condition value for incremental_linear policy")
+            logger.warning("[EVAL] Cannot get condition value for incremental_linear policy")
             return None
 
         adjustment = policy.gain_hz_per_unit
@@ -246,15 +306,8 @@ class ControlEvaluator:
         logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
         return new_action
 
-    # TODO: Maybe Need to update to support other action types in future
     def _handle_emergency_override(self, action: ControlActionSchema) -> ControlActionSchema | None:
-        """Handle emergency override logic: ensure the target can reach 60 Hz if needed.
-
-        Rules:
-        - If constraint max exists and is below 60 → override to 60.
-        - If constraint max equals 60 → use 60.
-        - If constraint max is unknown (None) → keep original value but note unknown in reason.
-        """
+        """Handle emergency override logic: ensure the target can reach 60 Hz if needed."""
         constraint_max = self._get_constraint_max(action.model, action.slave_id)
 
         new_action = action.model_copy()
@@ -281,7 +334,6 @@ class ControlEvaluator:
 
         return new_action
 
-    # TODO: Maybe Need to update to support other constraint types in future
     def _get_constraint_max(self, model: str, slave_id: str) -> float | None:
         """Return the max RW_HZ constraint for the given device (instance → model default → None)."""
         if self.constraint_config_schema is None:

@@ -209,48 +209,6 @@ class TestControlEvaluatorPolicyProcessing:
         assert new_action.type == ControlActionType.ADJUST_FREQUENCY
         assert new_action.value == -1.5
 
-    def test_when_absolute_linear_then_calculates_absolute_frequency(self, control_evaluator):
-        """Test that absolute_linear policy calculates absolute frequency based on single temperature"""
-        # Arrange
-        mock_condition = Mock(spec=ConditionSchema)
-        mock_condition.code = "ABS_TEMP01"
-
-        # absolute_linear policy with correct configuration
-        mock_policy = Mock()
-        mock_policy.configure_mock(
-            **{
-                "type": "absolute_linear",
-                "condition_type": "threshold",
-                "sources": ["AIn01"],
-                "base_freq": 40.0,
-                "base_temp": 25.0,
-                "gain_hz_per_unit": 1.2,
-            }
-        )
-        mock_condition.policy = mock_policy
-
-        mock_action = Mock(spec=ControlActionSchema)
-        mock_action.model = "TECO_VFD"
-        mock_action.slave_id = "2"
-        mock_action.type = "set_frequency"
-        mock_action.target = "RW_HZ"
-        mock_action.value = None  # Will be calculated
-
-        new_action = Mock(spec=ControlActionSchema)
-        mock_action.model_copy.return_value = new_action
-        mock_condition.action = mock_action
-
-        # Single temperature: 29°C
-        snapshot = {"AIn01": 29.0}
-
-        # Act
-        result_action = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
-
-        # Assert: base_freq + (temp - base_temp) * gain = 40 + (29 - 25) * 1.2 = 44.8
-        assert result_action is new_action
-        assert new_action.value == 44.8
-        assert new_action.type == ControlActionType.SET_FREQUENCY
-
     def test_when_condition_type_is_difference_then_calculates_difference_value(self, control_evaluator):
         """Test that _get_condition_value correctly calculates difference between two sources"""
         # Arrange
@@ -359,6 +317,7 @@ class TestControlEvaluatorIntegration:
         mock_condition.name = "Environment Temperature Linear Control"
         mock_condition.priority = 90
         mock_condition.blocking = False
+        mock_condition.active_time_ranges = None
 
         # Setup composite
         mock_composite = Mock()

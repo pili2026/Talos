@@ -9,7 +9,6 @@ Tests the time_elapsed condition evaluation logic integrated into CompositeEvalu
 - Error handling
 """
 
-import logging
 from datetime import datetime, timedelta
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
@@ -19,6 +18,7 @@ import pytest
 from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.control_composite import CompositeNode
 from core.model.enum.condition_enum import ConditionType
+from core.util.time_util import TIMEZONE_INFO
 
 
 class TestTimeElapsedEvaluator:
@@ -47,15 +47,13 @@ class TestTimeElapsedEvaluator:
     @pytest.fixture
     def evaluator(self, mock_execution_store):
         """Create CompositeEvaluator with execution_store"""
-        return CompositeEvaluator(execution_store=mock_execution_store, timezone="Asia/Taipei")
+        return CompositeEvaluator(execution_store=mock_execution_store, timezone=TIMEZONE_INFO)
 
     # ========================================
     # Test: First Execution
     # ========================================
 
-    def test_when_first_execution_then_triggers_immediately(
-        self, evaluator, mock_execution_store, mock_composite_node, tz
-    ):
+    def test_when_first_execution_then_triggers_immediately(self, evaluator, mock_execution_store, mock_composite_node):
         """Test that first execution (no history) triggers immediately"""
         # Arrange
         mock_execution_store.get_last_execution.return_value = None

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
 from core.schema.control_condition_schema import CompositeNode
+from core.util.time_util import TIMEZONE_INFO
 from repository.control_execution_store import ControlExecutionStore
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class CompositeEvaluator:
         *,
         comparison_tolerance: float | None = None,
         execution_store: ControlExecutionStore = None,  # ControlExecutionStore for time_elapsed
-        timezone: str = "Asia/Taipei",  # Timezone for time calculations
+        timezone: ZoneInfo | None = TIMEZONE_INFO,
     ):
         """
         :param comparison_tolerance: If provided, EQUAL treats |a-b| <= comparison_tolerance as equal;
@@ -381,9 +382,7 @@ class CompositeEvaluator:
         device_slave_id = self._current_context.get("device_slave_id", "<unknown>")
 
         try:
-
-            tz = ZoneInfo(self.timezone)
-            now = datetime.now(tz)
+            datetime_now = datetime.now(self.timezone)
 
             # Get last execution time
             last_execution: datetime | None = self.execution_store.get_last_execution(rule_code)
@@ -393,11 +392,11 @@ class CompositeEvaluator:
                 logger.info(
                     f"[EVAL] time_elapsed: '{rule_code}' first execution " f"for {device_model}_{device_slave_id}"
                 )
-                self.execution_store.update_execution(rule_code, now, device_model, device_slave_id)
+                self.execution_store.update_execution(rule_code, datetime_now, device_model, device_slave_id)
                 return True
 
             # Calculate elapsed time
-            elapsed_hours = (now - last_execution).total_seconds() / 3600
+            elapsed_hours = (datetime_now - last_execution).total_seconds() / 3600
 
             # Check if interval has elapsed
             if elapsed_hours >= node.interval_hours:
@@ -413,7 +412,7 @@ class CompositeEvaluator:
                 )
 
                 # Update execution time
-                self.execution_store.update_execution(rule_code, now, device_model, device_slave_id)
+                self.execution_store.update_execution(rule_code, datetime_now, device_model, device_slave_id)
                 return True
 
             # Not yet time

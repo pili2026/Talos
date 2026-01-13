@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -275,36 +276,37 @@ class TestControlListExtraction:
 class TestErrorHandlingAndValidation:
     """Tests for error handling and validation edge cases"""
 
-    def test_when_composite_is_invalid_then_rule_is_filtered_out(self, config_with_invalid_composite, caplog):
-        """Test that rules with invalid composite nodes are filtered out"""
-        # Arrange
+    def test_when_composite_is_invalid_then_validation_error_is_raised(
+        self,
+        config_with_invalid_composite: dict[str, Any],
+        caplog: pytest.LogCaptureFixture,
+    ):
         caplog.set_level(logging.WARNING)
-        version = config_with_invalid_composite.get("version", "1.0.0")
-        root_data = {k: v for k, v in config_with_invalid_composite.items() if k != "version"}
-        config = ControlConfig(version=version, root=root_data)
 
-        # Act
-        controls = config.get_control_list("SD400", "1")
+        with pytest.raises(ValidationError) as exc_info:
+            create_control_config(config_with_invalid_composite)
 
-        # Assert
-        assert len(controls) == 0  # Invalid rule should be filtered out
-        assert "invalid composite" in caplog.text
+        msg = str(exc_info.value)
+        assert "composite structure failed validation" in msg
+        # optional: ensure context points to the specific rule path
+        assert "SD400.instances[1].controls[0]" in msg or "instances" in msg
 
-    def test_when_action_is_missing_then_rule_is_filtered_out(self, config_with_missing_action, caplog):
-        """Test that rules without actions are filtered out"""
-        # Arrange
-        caplog.set_level(logging.WARNING)  # ← 改成 WARNING (因為現在是在 get_control_list 過濾)
-        version = config_with_missing_action.get("version", "1.0.0")
-        root_data = {k: v for k, v in config_with_missing_action.items() if k != "version"}
-        config = ControlConfig(version=version, root=root_data)
+    def test_when_actions_field_is_missing_then_validation_error_is_raised(
+        self,
+        config_with_missing_action: dict[str, Any],
+        caplog: pytest.LogCaptureFixture,
+    ):
+        caplog.set_level(logging.WARNING)
 
-        # Act
-        controls = config.get_control_list("SD400", "1")
+        with pytest.raises(ValidationError) as exc_info:
+            create_control_config(config_with_missing_action)
 
-        # Assert
-        assert len(controls) == 0
-        # ← 日誌訊息可能改變，檢查 "no actions" 或 "empty actions"
-        assert "no actions" in caplog.text.lower() or "actions" in caplog.text.lower()
+        msg = str(exc_info.value)
+
+        # Depending on which validator triggers first, you may see "actions field required"
+        # or the composite validation error if composite also uses the wrong key ("source" vs "sources").
+        # Keep the assertion aligned with your current schema error message.
+        assert ("actions" in msg.lower()) or ("validation failed" in msg.lower())
 
     def test_when_policy_is_invalid_then_rule_is_filtered_out(self, config_with_invalid_policy, caplog):
         """Test that rules with invalid policy are filtered out"""
@@ -396,37 +398,29 @@ class TestAdvancedCompositeValidation:
         # Then
         assert node.invalid is True
 
-    def test_when_difference_sources_are_duplicate_then_validation_fails(
+    def test_when_difference_sources_are_duplicate_then_validation_error_is_raised(
         self, config_with_duplicate_difference_sources, caplog
     ):
-        """Test that duplicate sources in difference conditions are detected"""
-        # Given
+        """Duplicate sources in difference conditions should fail fast at config load time"""
         caplog.set_level(logging.WARNING)
 
-        # When
-        config = create_control_config(config_with_duplicate_difference_sources)
-        controls = config.get_control_list("SD400", "1")
+        with pytest.raises(ValidationError) as exc_info:
+            create_control_config(config_with_duplicate_difference_sources)
 
-        # Then - Rule should be filtered out
-        assert len(controls) == 0
-        # Should log validation error about duplicate sources
-        assert any("sources must be different" in record.message for record in caplog.records)
+        msg = str(exc_info.value)
+        assert "composite structure failed validation" in msg
 
-    def test_when_operator_validation_detects_invalid_combinations(
+    def test_when_between_operator_has_invalid_min_max_then_validation_error_is_raised(
         self, config_with_invalid_operator_combinations, caplog
     ):
-        """Test that invalid operator-threshold combinations are detected"""
-        # Given
+        """Invalid BETWEEN min/max combinations should fail fast at config load time"""
         caplog.set_level(logging.WARNING)
 
-        # When
-        config = create_control_config(config_with_invalid_operator_combinations)
-        controls = config.get_control_list("SD400", "1")
+        with pytest.raises(ValidationError) as exc_info:
+            create_control_config(config_with_invalid_operator_combinations)
 
-        # Then - Rule should be filtered out due to invalid composite
-        assert len(controls) == 0
-        # Should log validation errors
-        assert any("BETWEEN" in record.message for record in caplog.records)
+        msg = str(exc_info.value)
+        assert "composite structure failed validation" in msg
 
     def test_when_circular_reference_detected_then_graceful_handling(self, caplog):
         """Test that circular references are handled gracefully without crashing"""

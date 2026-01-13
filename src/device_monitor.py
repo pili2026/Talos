@@ -76,7 +76,7 @@ class AsyncDeviceMonitor:
             device_type: str = device.device_type
             self.health_manager.register_device(device_id, device_type=device_type)
 
-        self._queue: asyncio.Queue[AsyncGenericModbusDevice] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[AsyncGenericModbusDevice, bool, dict[str, dict[str, Any]]]] = asyncio.Queue()
 
     # ------------------------------------------------------------------
 
