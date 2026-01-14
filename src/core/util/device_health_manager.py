@@ -368,7 +368,7 @@ class DeviceHealthManager:
 
         # 1) No config -> fallback probe (do NOT treat as offline by default)
         if not config:
-            result = await self._fallback_quick_probe(device=device, device_id=device_id)
+            result: HealthCheckResult = await self._fallback_quick_probe(device=device, device_id=device_id)
 
             if result.is_online:
                 await self.mark_success(device_id)
@@ -402,7 +402,7 @@ class DeviceHealthManager:
             ),
         }
 
-    async def _fallback_quick_probe(self, device: AsyncGenericModbusDevice, device_id: str) -> bool:
+    async def _fallback_quick_probe(self, device: AsyncGenericModbusDevice, device_id: str) -> HealthCheckResult:
         """
         Fallback probe when no HealthCheckConfig is provided.
 
@@ -412,43 +412,54 @@ class DeviceHealthManager:
             - read_all() with at least one non-missing value -> ONLINE
             - all values missing (-1) -> OFFLINE
         """
+        start_time = asyncio.get_running_loop().time()
+        error_msg: str | None = None
 
-        # 1) Pick first readable pin from register_map if possible
+        # 1) Pick first readable pin
         try:
-            register_name: str | None = None
-            reg_map = getattr(device, "register_map", None) or {}
-            for name, cfg in reg_map.items():
-                if isinstance(cfg, dict) and cfg.get("readable"):
-                    register_name = name
-                    break
-
+            register_name: str | None = self._pick_first_readable_pin(device)
             if register_name:
-                # short timeout probe
                 v = await asyncio.wait_for(device.read_value(register_name), timeout=0.3)
-                return (v is not None) and (v != DEFAULT_MISSING_VALUE)
-
+                is_online: bool = (v is not None) and (v != DEFAULT_MISSING_VALUE)
+                elapsed_ms: float = (asyncio.get_running_loop().time() - start_time) * 1000
+                return HealthCheckResult(
+                    device_id=device_id,
+                    is_online=is_online,
+                    elapsed_ms=elapsed_ms,
+                    strategy="fallback_single_register",
+                    attempt=1,
+                    error_msg=None if is_online else "all_missing_or_none",
+                )
         except Exception as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"[{device_id}] fallback probe(read_value) failed: {e}")
+            error_msg = str(e)
 
-        # 2) If cannot pick a readable pin, fallback to read_all() and judge by exception + content
+        # 2) Fallback to read_all
         try:
-            values = await asyncio.wait_for(device.read_all(), timeout=0.6)
-
-            # If we got any non-missing numeric value -> online
-            for v in (values or {}).values():
-                if v is None:
-                    continue
-                if isinstance(v, (int, float)) and v != DEFAULT_MISSING_VALUE:
-                    return True
-
-            # All missing (-1 / None) -> offline
-            return False
-
+            values: dict = await asyncio.wait_for(device.read_all(), timeout=0.6)
+            is_online: bool = any(
+                (v is not None) and (v != DEFAULT_MISSING_VALUE)
+                for v in (values or {}).values()
+                if isinstance(v, (int, float))
+            )
+            elapsed_ms: float = (asyncio.get_running_loop().time() - start_time) * 1000
+            return HealthCheckResult(
+                device_id=device_id,
+                is_online=is_online,
+                elapsed_ms=elapsed_ms,
+                strategy="fallback_full_read",
+                attempt=1,
+                error_msg=None if is_online else (error_msg or "all_missing_or_none"),
+            )
         except Exception as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"[{device_id}] fallback probe(read_all) failed: {e}")
-            return False
+            elapsed_ms = (asyncio.get_running_loop().time() - start_time) * 1000
+            return HealthCheckResult(
+                device_id=device_id,
+                is_online=False,
+                elapsed_ms=elapsed_ms,
+                strategy="fallback_full_read",
+                attempt=1,
+                error_msg=str(e),
+            )
 
     @staticmethod
     def _pick_first_readable_pin(device: AsyncGenericModbusDevice) -> str | None:

@@ -39,8 +39,19 @@ class ModbusBulkReader:
             if not self._is_bulk_eligible(pin_cfg):
                 continue
 
-            register_type = pin_cfg.get("register_type", self.default_register_type)
-            start_offset = int(pin_cfg.get("offset"))
+            register_type = pin_cfg.get("register_type") or self.default_register_type
+
+            offset = pin_cfg.get("offset")
+            if offset is None:
+                self.logger.error(f"[BulkReader] pin '{pin_name}' missing offset, skip bulk. cfg={pin_cfg}")
+                continue
+
+            try:
+                start_offset = int(offset)
+            except Exception:
+                self.logger.error(f"[BulkReader] pin '{pin_name}' invalid offset={offset}, skip bulk. cfg={pin_cfg}")
+                continue
+
             decode_format = pin_cfg.get("format", DecodeFormat.U16)
             word_count = required_word_count(decode_format)
 
@@ -56,8 +67,13 @@ class ModbusBulkReader:
         result: dict[str, Any] = {}
 
         for pin_name, pin_cfg in bulk_range.items:
+            offset = pin_cfg.get("offset")
+            if offset is None:
+                result[pin_name] = DEFAULT_MISSING_VALUE
+                continue
+
             try:
-                pin_offset = int(pin_cfg["offset"])
+                pin_offset = int(offset)
             except Exception:
                 result[pin_name] = DEFAULT_MISSING_VALUE
                 continue
@@ -121,9 +137,10 @@ class ModbusBulkReader:
                 current_range_pins = [(pin_name, pin_cfg)]
                 continue
 
+            max_gap = 0
             should_split = (
                 register_type != current_register_type
-                or next_range_start != current_range_end
+                or next_range_start > current_range_end + max_gap
                 or (next_range_end - current_range_start) > max_regs
             )
 
@@ -167,8 +184,8 @@ class ModbusBulkReader:
 
         value = self.decoder.apply_scale(value, config.get("scale", 1.0))
 
-        precision: int = config.get("precision")
-        if precision:
-            value = round(value, precision)
+        precision = config.get("precision")
+        if precision is not None:
+            value = round(value, int(precision))
 
         return value

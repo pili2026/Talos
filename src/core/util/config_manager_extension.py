@@ -187,15 +187,21 @@ class ConfigManagerExtension:
                     logger.warning(f"Instance override for '{pin_name}' but pin not in register_map, skipping")
                     continue
 
-                # Computed: generally should not be overridden here (unless you explicitly want it)
+                if not isinstance(override_dict, dict):
+                    logger.warning(f"Instance override for '{pin_name}' is not a dict, skipping")
+                    continue
+
+                # Computed: generally should not be overridden here
                 if final_map[pin_name].get("type") == "computed":
                     logger.warning(f"Instance override for computed field '{pin_name}' is not allowed, skipping")
                     continue
 
-                # Composed: allow only safe subset
+                # Composed: allow only safe subset (and ignore None)
                 if final_map[pin_name].get("kind") == "composed":
                     allowed = {"scale", "scale_from", "unit", "precision", "description", "name", "type"}
                     for field, value in override_dict.items():
+                        if value is None:
+                            continue
                         if field not in allowed:
                             logger.warning(
                                 f"Override field '{field}' for composed pin '{pin_name}' is not allowed, skipping"
@@ -204,8 +210,10 @@ class ConfigManagerExtension:
                         final_map[pin_name][field] = value
                     continue
 
-                # Physical: allow all fields
+                # Physical: allow all fields BUT DO NOT overwrite with None
                 for field, value in override_dict.items():
+                    if value is None:
+                        continue
                     if field == "formula" and isinstance(value, list):
                         final_map[pin_name]["formula"] = list(value)
                     else:

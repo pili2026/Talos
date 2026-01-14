@@ -9,7 +9,7 @@ from core.device.generic.constraints_policy import ConstraintPolicy
 from core.device.generic.hooks import HookManager
 from core.device.generic.modbus_bus import ModbusBus
 from core.device.generic.scales import ScaleService
-from core.device.modbus.bulk_reader import ModbusBulkReader
+from core.device.modbus.bulk_reader import BulkRange, ModbusBulkReader
 from core.device.modbus.device_helper import ModbusDeviceHelper
 from core.device.modbus.register_handler import ModbusRegisterHandler
 from core.model.device_constant import DEFAULT_MISSING_VALUE, REG_RW_ON_OFF
@@ -107,7 +107,6 @@ class AsyncGenericModbusDevice(BaseDevice):
         return None
 
     # ==================== Public read/write methods ====================
-
     async def read_all(self) -> dict[str, Any]:
         if not await self.bus.ensure_connected():
             self.logger.warning("[OFFLINE] default bus not connected; return default -1 snapshot")
@@ -115,8 +114,17 @@ class AsyncGenericModbusDevice(BaseDevice):
 
         result: dict[str, Any] = {}
 
-        bulk_ranges = self.bulk_reader.build_bulk_ranges(max_regs_per_req=120)
-        bulk_failed = bool(bulk_ranges)
+        try:
+            bulk_ranges: list[BulkRange] = self.bulk_reader.build_bulk_ranges(max_regs_per_req=120)
+        except Exception as exc:
+            self.logger.error(
+                f"[{self.model}:{self.slave_id}] build_bulk_ranges failed: {exc}; treat as offline",
+                exc_info=True,
+            )
+            return self.helpers.default_offline_snapshot()
+
+        any_bulk_attempted = len(bulk_ranges) > 0
+        any_bulk_success = False
 
         for bulk_range in bulk_ranges:
             bus = await self._get_or_create_bus(bulk_range.register_type)
@@ -124,8 +132,7 @@ class AsyncGenericModbusDevice(BaseDevice):
             try:
                 registers = await bus.read_value_by_type(bulk_range.start, bulk_range.count)
                 registers = list(registers)
-                bulk_failed = False  # ★ any success → device alive
-
+                any_bulk_success = True  # any success -> device alive
             except Exception as exc:
                 self.logger.warning(
                     f"[{self.model}:{self.slave_id}] Bulk read failed "
@@ -140,7 +147,8 @@ class AsyncGenericModbusDevice(BaseDevice):
             )
             result.update(bulk_results)
 
-        if bulk_failed:
+        # Only treat as offline if we attempted bulk but none succeeded
+        if any_bulk_attempted and not any_bulk_success:
             self.logger.warning(
                 f"[{self.model}:{self.slave_id}] All bulk reads failed; treat device as offline, skip per-pin fallback"
             )

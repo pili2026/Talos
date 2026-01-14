@@ -23,7 +23,7 @@ capabilities:
 health_check:
   strategy: partial_bulk
   registers: [DIn01, DIn02, DIn03]
-  timeout_ms: 3000
+  timeout_sec: 1
   retry_on_failure: 1
   register_type: discrete_input
 

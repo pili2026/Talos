@@ -137,12 +137,25 @@ class ConfigManager:
             logger.debug(f"Instance '{model}_{slave_id}' has no specific config")
             return {}
 
-        # Return instance pins directly (no need for getattr)
-        if instance_config.pins:
-            logger.debug(f"Instance '{model}_{slave_id}' has {len(instance_config.pins)} pin overrides")
-            return dict(instance_config.pins)
+        pins: dict[str, dict] = instance_config.pins or {}
+        if not pins:
+            return {}
 
-        return {}
+        cleaned: dict[str, dict] = {}
+        for pin_name, override in pins.items():
+            if not isinstance(override, dict):
+                logger.warning(f"[{model}_{slave_id}] pin override '{pin_name}' is not dict, skip")
+                continue
+
+            # Remove None values so they won't overwrite driver defaults
+            data = {k: v for k, v in override.items() if v is not None}
+            if not data:
+                continue
+            cleaned[pin_name] = data
+
+        if cleaned:
+            logger.debug(f"Instance '{model}_{slave_id}' has {len(cleaned)} pin overrides (cleaned)")
+        return cleaned
 
     @staticmethod
     def get_device_auto_turn_on(config: ConstraintConfigSchema, model: str, slave_id: int) -> bool | None:

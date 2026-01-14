@@ -11,7 +11,7 @@ health_check:
   strategy: partial_bulk
   registers: [RATE_HI, MAXD_HI, DEMAND_HI]
   register_type: holding
-  timeout_ms: 2000
+  timeout_sec: 1
   retry_on_failure: 1
 
 
@@ -19,6 +19,7 @@ register_map:
   # ========== Computed Fields (scaled, with decimal point) ==========
   TOTALIZE:
     type: computed
+    readable: false
     formula: combine_64bit_4word_with_dp
     inputs: [TOTALIZE_W3, TOTALIZE_W2, TOTALIZE_W1, TOTALIZE_W0, DPT]
     output_format: float
@@ -26,6 +27,7 @@ register_map:
 
   RATE:
     type: computed
+    readable: false
     formula: combine_32bit_be_with_dp
     inputs: [RATE_HI, RATE_LO, DPR]
     output_format: float
@@ -33,6 +35,7 @@ register_map:
 
   MAXD:
     type: computed
+    readable: false
     formula: combine_32bit_be_with_dp
     inputs: [MAXD_HI, MAXD_LO, DPR]
     output_format: float
@@ -40,6 +43,7 @@ register_map:
 
   DEMAND:
     type: computed
+    readable: false
     formula: combine_32bit_be_with_dp
     inputs: [DEMAND_HI, DEMAND_LO, DPR]
     output_format: float
@@ -63,6 +67,7 @@ register_map:
   # ========== Computed Fields (raw combined values) ==========
   TOTALIZE_RAW:
     type: computed
+    readable: false
     formula: combine_64bit_4word
     inputs: [TOTALIZE_W3, TOTALIZE_W2, TOTALIZE_W1, TOTALIZE_W0]
     output_format: u64
@@ -70,6 +75,7 @@ register_map:
 
   MAXD_RAW:
     type: computed
+    readable: false
     formula: combine_32bit_be
     inputs: [MAXD_HI, MAXD_LO]
     output_format: u32
@@ -77,6 +83,7 @@ register_map:
 
   DEMAND_RAW:
     type: computed
+    readable: false
     formula: combine_32bit_be
     inputs: [DEMAND_HI, DEMAND_LO]
     output_format: u32
@@ -84,6 +91,7 @@ register_map:
 
   RATE_RAW:
     type: computed
+    readable: false
     formula: combine_32bit_be
     inputs: [RATE_HI, RATE_LO]
     output_format: u32
