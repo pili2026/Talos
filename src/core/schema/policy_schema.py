@@ -73,9 +73,12 @@ class PolicyConfig(BaseModel):
             if self.condition_type == ConditionType.THRESHOLD:
                 if not self.sources or len(self.sources) != 1:
                     problems.append("policy.sources must contain exactly 1 item when condition_type='threshold'")
-            else:  # ConditionType.DIFFERENCE
+            elif self.condition_type == ConditionType.DIFFERENCE:
                 if not self.sources or len(self.sources) != 2:
                     problems.append("policy.sources must contain exactly 2 items when condition_type='difference'")
+            elif self.condition_type == ConditionType.AVERAGE:
+                if not self.sources or len(self.sources) < 2:
+                    problems.append("policy.sources must contain at least 2 items when condition_type='average'")
 
         # Policy-specific requirement validation
         if self.type == ControlPolicyType.ABSOLUTE_LINEAR:

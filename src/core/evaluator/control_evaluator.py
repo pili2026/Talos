@@ -258,19 +258,32 @@ class ControlEvaluator:
                 return None
             return v1 - v2
 
+        if policy.condition_type == ConditionType.AVERAGE:
+            if not policy.sources or len(policy.sources) < 2:
+                logger.warning("[EVAL] AVERAGE policy requires at least 2 sources")
+                return None
+
+            value_list = []
+            for source in policy.sources:
+                val: float | None = snapshot.get(source)
+                if val is not None:
+                    value_list.append(val)
+
+            if not value_list:
+                return None
+
+            return sum(value_list) / len(value_list)
+
         logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
         return None
 
     def _apply_absolute_linear_policy(
         self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
     ) -> ControlActionSchema | None:
-        if not policy.sources or len(policy.sources) != 1:
-            logger.warning("[EVAL] ABSOLUTE_LINEAR requires exactly 1 source")
-            return None
+        condition_value = self._get_condition_value(policy, snapshot)
 
-        temp_value = snapshot.get(policy.sources[0])
-        if temp_value is None:
-            logger.warning(f"[EVAL] Cannot get temperature value for {policy.sources[0]}")
+        if condition_value is None:
+            logger.warning("[EVAL] Cannot get condition value for absolute_linear policy")
             return None
 
         # Validate required fields
@@ -279,13 +292,15 @@ class ControlEvaluator:
             return None
 
         # Calculate target frequency: base_freq + (temp - base_temp) * gain
-        target_freq: float | Any = policy.base_freq + (temp_value - policy.base_temp) * policy.gain_hz_per_unit
+        target_freq: float = policy.base_freq + (condition_value - policy.base_temp) * policy.gain_hz_per_unit
 
         new_action: ControlActionSchema = action.model_copy()
         new_action.value = target_freq
         new_action.type = ControlActionType.SET_FREQUENCY  # Absolute setting
+
         logger.info(
-            f"[EVAL] Absolute linear: temp={temp_value}°C, base_temp={policy.base_temp}°C, target_freq={target_freq}Hz"
+            f"[EVAL] Absolute linear: condition_value={condition_value:.2f}, "
+            f"base_temp={policy.base_temp}°C, target_freq={target_freq:.2f}Hz"
         )
         return new_action
 
@@ -376,11 +391,7 @@ class ControlEvaluator:
         return f"{prefix} {text}"
 
     def _pretty_log_matched_rules(
-        self,
-        model: str,
-        slave_id: str,
-        matched_rules: list[ConditionSchema],
-        snapshot: dict[str, float],
+        self, model: str, slave_id: str, matched_rules: list[ConditionSchema], snapshot: dict[str, float]
     ) -> None:
         """
         Print a human-readable summary for all matched rules.
@@ -416,21 +427,30 @@ class ControlEvaluator:
                 if policy.condition_type == ConditionType.THRESHOLD and policy.sources and len(policy.sources) == 1:
                     src = policy.sources[0]
                     mv = snapshot.get(src)
-                    cond_line = f"Source: {src} = {mv if mv is not None else 'NA'} | {comp_summary}"
+                    condition_line = f"Source: {src} = {mv if mv is not None else 'NA'} | {comp_summary}"
                 elif policy.condition_type == ConditionType.DIFFERENCE and policy.sources and len(policy.sources) == 2:
                     s1, s2 = policy.sources
                     v1, v2 = snapshot.get(s1), snapshot.get(s2)
                     if (v1 is not None) and (v2 is not None):
                         dt = v1 - v2
-                        cond_line = f"Sources: {s1}={v1}, {s2}={v2} -> Δ={dt} | {comp_summary}"
+                        condition_line = f"Sources: {s1}={v1}, {s2}={v2} -> Δ={dt} | {comp_summary}"
                     else:
-                        cond_line = f"Sources: {s1}={v1}, {s2}={v2} | {comp_summary}"
+                        condition_line = f"Sources: {s1}={v1}, {s2}={v2} | {comp_summary}"
+                elif policy.condition_type == ConditionType.AVERAGE and policy.sources and len(policy.sources) >= 2:
+                    value_list = [snapshot.get(src) for src in policy.sources]
+                    valid_value_list = [v for v in value_list if v is not None]
+                    if valid_value_list:
+                        avg: float = sum(valid_value_list) / len(valid_value_list)
+                        sources_str = ", ".join([f"{src}={snapshot.get(src)}" for src in policy.sources])
+                        condition_line = f"Sources: {sources_str} -> AVG={avg:.2f} | {comp_summary}"
+                    else:
+                        condition_line = f"Sources: {', '.join(policy.sources)} (all NA) | {comp_summary}"
                 else:
-                    cond_line = f"Condition: {comp_summary}"
+                    condition_line = f"Condition: {comp_summary}"
             else:
-                cond_line = f"Condition: {comp_summary}"
+                condition_line = f"Condition: {comp_summary}"
 
-            logger.info(" │   " + cond_line)
+            logger.info(" │   " + condition_line)
 
             # List all actions for the rule
             if not rule.actions:
