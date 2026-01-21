@@ -693,8 +693,8 @@ class WiFiService:
         """
         Save wpa_supplicant configuration (with diagnostics)
 
-        If configuration file is read-only, error message will explicitly state that
-        settings will be lost after reboot.
+        Note: This method uses sudo wpa_cli, so it has root permissions.
+        Do not check file permissions with os.access() as it checks current process permissions.
 
         Args:
             ifname: Network interface name
@@ -706,19 +706,50 @@ class WiFiService:
         if not enabled:
             return False, None
 
-        # Check if configuration file is writable (best-effort)
-        conf_path = Path("/etc/wpa_supplicant/wpa_supplicant.conf")
-        if conf_path.exists() and not os.access(conf_path, os.W_OK):
-            return False, "Configuration file is read-only. Changes will be lost after reboot."
-
         try:
+            logger.debug(f"[WiFiService] Attempting save_config on {ifname}")
             out = await self._run_wpa_cli(ifname, "save_config")
+
             if out.strip().upper() == "OK":
+                logger.info(f"[WiFiService] Configuration saved successfully on {ifname}")
                 return True, None
-            return False, f"save_config returned: {out!r}"
+
+            # save_config returned non-OK response
+            error_msg = f"save_config returned: {out!r}"
+
+            # Provide hints for common issues
+            if "fail" in out.lower():
+                # Check common configuration issues
+                try:
+                    # Try to detect if update_config is disabled
+                    config_paths = [
+                        f"/etc/wpa_supplicant/wpa_supplicant-{ifname}.conf",
+                        "/etc/wpa_supplicant/wpa_supplicant.conf",
+                    ]
+
+                    for config_path in config_paths:
+                        if Path(config_path).exists():
+                            error_msg += f" (Check if update_config=1 in {config_path})"
+                            break
+                except Exception:
+                    pass
+
+            logger.warning(f"[WiFiService] {error_msg}")
+            return False, error_msg
+
+        except RuntimeError as e:
+            error_str = str(e)
+            logger.error(f"[WiFiService] save_config failed on {ifname}: {error_str}")
+
+            # Check if it's a real read-only filesystem issue
+            if "read-only" in error_str.lower() or "permission denied" in error_str.lower():
+                return False, "Unable to save configuration. File system may be read-only or permissions issue."
+
+            return False, f"Failed to persist configuration: {error_str}"
+
         except Exception as e:
-            logger.error(f"[WiFiService] save_config failed (ifname={ifname}): {e}")
-            return False, f"Failed to persist configuration: {e}. Changes will be lost after reboot."
+            logger.error(f"[WiFiService] save_config exception on {ifname}: {e}", exc_info=True)
+            return False, f"Unexpected error while saving configuration: {e}"
 
     async def _trigger_rescue_fallback(self, ifname: str) -> None:
         """
