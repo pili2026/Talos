@@ -22,6 +22,7 @@ fi
 export PYTHONUNBUFFERED=1
 
 # Run Talos with configs
+# --virtual_device_config "$BASE_DIR/res/virtual_device.yml" \
 exec python "$BASE_DIR/src/main_service.py" \
   --modbus_device "$BASE_DIR/res/modbus_device.yml" \
   --instance_config "$BASE_DIR/res/device_instance_config.yml" \
@@ -32,7 +33,6 @@ exec python "$BASE_DIR/src/main_service.py" \
   --time_config "$BASE_DIR/res/time_condition.yml" \
   --sender_config "$BASE_DIR/res/sender_config.yml" \
   --notifier_config "$BASE_DIR/res/notifier_config.yml" \
-  # --virtual_device_config "$BASE_DIR/res/virtual_device.yml" \
   --api-host "0.0.0.0" \
   --api-port "8000" \
   --log-level "INFO"
