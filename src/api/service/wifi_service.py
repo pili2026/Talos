@@ -80,9 +80,9 @@ class WiFiService:
         # Per-interface operation locks (prevent concurrent wpa_cli conflicts)
         self._operation_locks: dict[str, asyncio.Lock] = {}
 
-        self._auto_fallback_enabled = True
-        self._fallback_check_interval_sec = 30
-        self._fallback_retry_threshold = 3
+        self._auto_fallback_enabled = os.getenv("TALOS_WIFI_AUTO_FALLBACK", "true").lower() == "true"
+        self._fallback_check_interval_sec = int(os.getenv("TALOS_WIFI_FALLBACK_CHECK_INTERVAL", "10"))
+        self._fallback_retry_threshold = int(os.getenv("TALOS_WIFI_FALLBACK_RETRY_THRESHOLD", "2"))
         self._connection_failures: dict[str, int] = {}
 
         logger.info(
