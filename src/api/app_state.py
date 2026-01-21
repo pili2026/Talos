@@ -38,6 +38,8 @@ class TalosAppState(BaseModel):
     )
     health_manager: DeviceHealthManager | None = None
 
+    wifi_service: object | None = Field(default=None, description="WiFi management service with auto-fallback monitor")
+
     # Snapshot storage
     snapshot_db_path: str | None = Field(default=None, description="Path to SQLite snapshot database")
     snapshot_config_path: str | None = Field(default=None, description="Path to snapshot storage config file")
@@ -52,7 +54,7 @@ class TalosAppState(BaseModel):
     class Config:
         """Pydantic configuration."""
 
-        arbitrary_types_allowed = True  # Allow AsyncDeviceManager, PubSub types
+        arbitrary_types_allowed = True  # Allow AsyncDeviceManager, PubSub, WiFiService types
         validate_assignment = True  # Validate on assignment
         extra = "forbid"  # Forbid extra fields
 
@@ -122,10 +124,22 @@ class TalosAppState(BaseModel):
             raise RuntimeError("DeviceHealthManager not initialized")
         return self.health_manager
 
+    def get_wifi_service(self) -> "WiFiService":  # type: ignore
+        """Get WiFi service instance."""
+        if self.wifi_service is None:
+            raise RuntimeError("WiFiService not initialized")
+        return self.wifi_service
+
     def __repr__(self) -> str:
         """String representation for logging."""
         mode = "unified" if self.is_unified_mode() else "standalone"
         device_count = self.get_device_count()
         pubsub_status = "OK" if self.pubsub else "NO"
+        wifi_status = "OK" if self.wifi_service else "NO"
 
-        return f"TalosAppState(mode={mode}, " f"devices={device_count}, " f"pubsub={pubsub_status})"
+        return (
+            f"TalosAppState(mode={mode}, "
+            f"devices={device_count}, "
+            f"pubsub={pubsub_status}, "
+            f"wifi={wifi_status})"
+        )

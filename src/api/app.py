@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.app_state import TalosAppState
+from api.service.wifi_service import WiFiService
 
 env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
@@ -43,11 +44,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifecycle management"""
     await startup_event(app)
+
+    wifi_service = WiFiService.create_with_auto_discovery()
+    app.state.talos.wifi_service = wifi_service
+    await wifi_service.start_auto_fallback_monitor()
+
     try:
         yield
     finally:
+        if wifi_service:
+            await wifi_service.stop_auto_fallback_monitor()
         await shutdown_event(app)
 
 

@@ -8,14 +8,12 @@ from functools import lru_cache
 
 from fastapi import Depends, Request
 
-from api.model.wifi_config import WiFiConfig
 from api.repository.config_repository import ConfigRepository
 from api.service.constraint_service import ConstraintService
 from api.service.device_service import DeviceService
 from api.service.parameter_service import ParameterService
 from api.service.snapshot_service import SnapshotService
 from api.service.wifi_service import WiFiService
-from api.util.wifi_util import WiFiUtil
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
@@ -35,33 +33,9 @@ def get_config_repository() -> ConfigRepository:
     return ConfigRepository()
 
 
-@lru_cache()
-def get_wifi_service() -> WiFiService:
-    """
-    Return a singleton WiFiService instance.
-
-    The service is initialized by:
-    - Loading configuration from environment variables
-    - Discovering system wireless interfaces and using them as an allowlist
-
-    Returns:
-        A WiFiService instance.
-    """
-    # Load configuration from environment variables
-    config = WiFiConfig.from_env()
-
-    # Discover system wireless interfaces as the allowlist
-    allowed_ifnames: set[str] = WiFiUtil.discover_wireless_interfaces()
-
-    service = WiFiService(config=config, allowed_ifnames=allowed_ifnames)
-
-    logger.info(
-        "[Dependency] WiFiService initialized: default_ifname=%s, allowed_ifnames=%s",
-        config.default_ifname,
-        allowed_ifnames,
-    )
-
-    return service
+def get_wifi_service(request: Request) -> WiFiService:
+    """Get WiFi service from app state."""
+    return request.app.state.talos.get_wifi_service()
 
 
 # ===== AsyncDeviceManager & Device-related Services =====

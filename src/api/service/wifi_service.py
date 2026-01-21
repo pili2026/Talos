@@ -34,20 +34,28 @@ class WiFiService:
     Backend: wpa_cli (wpa_supplicant)
     Thread-safe: Each network interface uses independent asyncio.Lock
 
-    Priority System (0-5):
-    - 5: Rescue SSIDs (highest priority, prevents device lockout)
+    Priority System:
+    - 5: Rescue SSIDs (highest priority for automatic fallback)
     - 4: Site networks (FIXED_4 mode)
     - 4,3,2,1,0: Site networks (DECREMENT mode, auto-assigned)
+
+    Connection Behavior:
+    - When connecting to any network, select_network disables all others
+    - Rescue SSID remains in config but disabled during normal operation
+    - Auto-fallback monitor (30s interval) detects disconnections
+    - After 3 consecutive failures (90s), rescue SSID is re-enabled
+    - wpa_supplicant automatically switches to highest priority available network
 
     Rescue SSID Mechanism:
     - Default: {"imaoffice1"}
     - Env: TALOS_WIFI_RESCUE_SSIDS="ssid1,ssid2"
-    - Purpose: Ensures at least one fallback network is always enabled
+    - Priority: Always 5 (highest)
+    - Purpose: Automatic fallback when site network fails
     - Critical for remote device recovery
 
     Site Priority Modes:
-    - FIXED_4: All site networks get priority 4
-    - DECREMENT: Auto-assign 4,3,2,1,0 based on usage
+    - FIXED_4: All site networks get priority 4 (< rescue priority)
+    - DECREMENT: Auto-assign 4,3,2,1,0 based on usage (all < rescue priority)
     - Env: TALOS_WIFI_SITE_PRIORITY_MODE=fixed_4|decrement
     """
 
@@ -72,12 +80,22 @@ class WiFiService:
         # Per-interface operation locks (prevent concurrent wpa_cli conflicts)
         self._operation_locks: dict[str, asyncio.Lock] = {}
 
+        self._auto_fallback_enabled = True
+        self._fallback_check_interval_sec = 30
+        self._fallback_retry_threshold = 3
+        self._connection_failures: dict[str, int] = {}
+
         logger.info(
-            "[WiFiService] Initialized with config: default_ifname=%s, " "rescue_ssids=%s, priority_mode=%s",
+            "[WiFiService] Initialized with config: default_ifname=%s, "
+            "rescue_ssids=%s, priority_mode=%s, auto_fallback=%s",
             self._config.default_ifname,
             self._config.rescue_ssids,
             self._config.site_priority_mode.value,
+            self._auto_fallback_enabled,
         )
+
+        self._fallback_task: asyncio.Task | None = None
+        self._shutdown_event = asyncio.Event()
 
     @property
     def default_ifname(self) -> str:
@@ -87,6 +105,45 @@ class WiFiService:
     # -------------------------
     # Public APIs (per-call ifname)
     # -------------------------
+
+    async def start_auto_fallback_monitor(self) -> None:
+        """
+        Enable and start the auto-fallback monitor task.
+
+        This task periodically checks the WiFi connection status.
+        """
+        if not self._auto_fallback_enabled:
+            logger.info("[WiFiService] Auto-fallback is disabled")
+            return
+
+        if self._fallback_task is not None:
+            logger.warning("[WiFiService] Auto-fallback monitor already running")
+            return
+
+        logger.info("[WiFiService] Starting auto-fallback monitor")
+        self._fallback_task = asyncio.create_task(self._auto_fallback_loop())
+
+    async def stop_auto_fallback_monitor(self) -> None:
+        """Stop the auto-fallback monitor task."""
+        if self._fallback_task is None:
+            logger.debug("[WiFiService] Auto-fallback monitor not running")
+            return
+
+        logger.info("[WiFiService] Stopping auto-fallback monitor")
+        self._shutdown_event.set()
+
+        try:
+            await asyncio.wait_for(self._fallback_task, timeout=5.0)
+            logger.info("[WiFiService] Auto-fallback monitor stopped gracefully")
+        except asyncio.TimeoutError:
+            logger.warning("[WiFiService] Auto-fallback monitor timeout, cancelling task")
+            self._fallback_task.cancel()
+            try:
+                await self._fallback_task
+            except asyncio.CancelledError:
+                logger.info("[WiFiService] Auto-fallback monitor cancelled")
+        finally:
+            self._fallback_task = None
 
     async def get_status(self, ifname: str | None = None) -> WiFiStatusResponse:
         """
@@ -229,12 +286,8 @@ class WiFiService:
                 applied_priority = await self._apply_priority(ifname, net_id, req.ssid, req.priority, networks)
 
                 # Enable and select network
-                await self._run_wpa_cli(ifname, "enable_network", str(net_id))
+                # await self._run_wpa_cli(ifname, "enable_network", str(net_id))
                 await self._run_wpa_cli(ifname, "select_network", str(net_id))
-
-                # Ensure rescue SSIDs remain enabled and highest priority
-                if rescue_present:
-                    await self._ensure_rescue_priority_and_enabled(ifname)
 
                 # Persist configuration (best-effort with diagnostics)
                 saved, save_error = await self._save_config_with_diagnostics(ifname, req.save_config)
@@ -666,3 +719,155 @@ class WiFiService:
         except Exception as e:
             logger.error(f"[WiFiService] save_config failed (ifname={ifname}): {e}")
             return False, f"Failed to persist configuration: {e}. Changes will be lost after reboot."
+
+    async def _trigger_rescue_fallback(self, ifname: str) -> None:
+        """
+        Trigger fallback to rescue SSID
+
+        Strategy:
+        1. Enable rescue SSID (priority=5)
+        2. wpa_supplicant will automatically select the network with the highest priority and is available
+        3. Since rescue SSID priority > site networks, it will automatically switch
+        """
+        async with self._get_operation_lock(ifname):
+            try:
+                logger.info(f"[WiFiService] Initiating rescue fallback on {ifname}")
+
+                # Get network list
+                networks = await self._list_networks(ifname)
+
+                # Find the rescue SSID
+                rescue_net_id = None
+                rescue_ssid = None
+                for n in networks:
+                    if n.ssid in self._config.rescue_ssids:
+                        rescue_net_id = n.network_id
+                        rescue_ssid = n.ssid
+                        break
+
+                if rescue_net_id is None:
+                    logger.error(
+                        f"[WiFiService] CRITICAL: No rescue SSID found in config on {ifname}! "
+                        f"Manual intervention required."
+                    )
+                    return
+
+                # Ensure rescue SSID priority is correct (should already be 5)
+                await self._run_wpa_cli(
+                    ifname, "set_network", str(rescue_net_id), "priority", str(self.RESCUE_PRIORITY)
+                )
+
+                # wpa_supplicant will automatically select the network with the highest priority and is available
+                await self._run_wpa_cli(ifname, "enable_network", str(rescue_net_id))
+
+                # Trigger re-evaluation (optional, some versions of wpa_supplicant require it)
+                await self._run_wpa_cli(ifname, "reassociate")
+
+                # Save configuration
+                try:
+                    await self._run_wpa_cli(ifname, "save_config")
+                except Exception as e:
+                    logger.warning(f"[WiFiService] Failed to save config during fallback: {e}")
+
+                logger.info(
+                    f"[WiFiService] Rescue fallback initiated on {ifname}, "
+                    f"enabled {rescue_ssid} (net_id={rescue_net_id}, priority={self.RESCUE_PRIORITY})"
+                )
+
+            except Exception as e:
+                logger.error(f"[WiFiService] Rescue fallback failed on {ifname}: {e}", exc_info=True)
+
+    async def _check_and_fallback(self, ifname: str) -> None:
+        """Check connection status and trigger fallback if needed."""
+        try:
+            status_response = await self.get_status(ifname)
+            status = status_response.status_info
+
+            if status.is_connected:
+                current_ssid = status.ssid
+
+                # Reset failure count on successful connection
+                if ifname in self._connection_failures and self._connection_failures[ifname] > 0:
+                    logger.info(
+                        f"[WiFiService] Connection restored on {ifname} (SSID: {current_ssid}), "
+                        f"resetting failure count"
+                    )
+                    self._connection_failures[ifname] = 0
+
+                if current_ssid in self._config.rescue_ssids:
+                    logger.debug(f"[WiFiService] Currently on rescue SSID: {current_ssid}")
+
+                return
+
+            self._connection_failures[ifname] = self._connection_failures.get(ifname, 0) + 1
+            failure_count = self._connection_failures[ifname]
+
+            logger.warning(
+                f"[WiFiService] Connection failure detected on {ifname} "
+                f"(count: {failure_count}/{self._fallback_retry_threshold})"
+            )
+
+            if failure_count >= self._fallback_retry_threshold:
+                should_fallback = await self._should_trigger_fallback(ifname)
+
+                if should_fallback:
+                    logger.error(
+                        f"[WiFiService] Connection failure threshold reached on {ifname}. "
+                        f"Triggering fallback to rescue SSID."
+                    )
+                    await self._trigger_rescue_fallback(ifname)
+                else:
+                    logger.error(
+                        f"[WiFiService] Rescue SSID already enabled but still disconnected on {ifname}. "
+                        f"Both networks may be unavailable."
+                    )
+
+                self._connection_failures[ifname] = 0
+
+        except Exception as e:
+            logger.error(f"[WiFiService] Error in _check_and_fallback for {ifname}: {e}", exc_info=True)
+
+    async def _should_trigger_fallback(self, ifname: str) -> bool:
+        """
+        Check if fallback to rescue SSID should be triggered.
+
+        Returns:
+            True: Should trigger fallback (rescue SSID is currently disabled)
+            False: Should not trigger (rescue SSID is enabled but still disconnected, indicating both networks are unavailable)
+        """
+        networks = await self._list_networks(ifname)
+
+        for n in networks:
+            if n.ssid in self._config.rescue_ssids:
+                is_disabled = n.flags and "DISABLED" in n.flags
+                return is_disabled
+        return True
+
+    async def _auto_fallback_loop(self) -> None:
+        """Auto fallback monitor loop."""
+        while not self._shutdown_event.is_set():
+            try:
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=self._fallback_check_interval_sec)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+
+                await self._check_and_fallback(self._config.default_ifname)
+
+            except Exception as e:
+                logger.error(f"[WiFiService] Auto-fallback loop error: {e}", exc_info=True)
+
+        logger.info("[WiFiService] Auto-fallback monitor stopped")
+
+    @classmethod
+    def create_with_auto_discovery(cls) -> "WiFiService":
+        """Factory method with auto-discovery."""
+        config = WiFiConfig.from_env()
+        allowed_ifnames = WiFiUtil.discover_wireless_interfaces()
+        logger.info(
+            "[WiFiService] Created: default_ifname=%s, allowed_ifnames=%s",
+            config.default_ifname,
+            allowed_ifnames,
+        )
+        return cls(config=config, allowed_ifnames=allowed_ifnames)
