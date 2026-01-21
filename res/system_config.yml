@@ -13,7 +13,7 @@ REMOTE_ACCESS:
     PORT: 22              # only used when PORT_SOURCE=config, default 22
 
 DEVICE_ID_POLICY:
-  SERIES: 1
+  SERIES: 0
   WIDTH: 3
   RADIX: device36
   UPPERCASE: true
