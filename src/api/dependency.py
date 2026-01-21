@@ -35,8 +35,17 @@ def get_config_repository() -> ConfigRepository:
 
 @lru_cache()
 def get_wifi_service() -> WiFiService:
-    """Return a singleton WiFiService instance."""
-    return WiFiService()
+    wifi_service = WiFiService(default_ifname="wlan0", use_sudo=True, timeout_sec=3.0)
+
+    interface_list = wifi_service._discover_wifi_interfaces()
+    allowed: set[str] = {i.ifname for i in interface_list if i.is_wireless}
+
+    return WiFiService(
+        default_ifname="wlan0",
+        use_sudo=True,
+        timeout_sec=3.0,
+        allowed_ifnames=allowed,
+    )
 
 
 # ===== AsyncDeviceManager & Device-related Services =====

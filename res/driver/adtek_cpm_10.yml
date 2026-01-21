@@ -9,6 +9,14 @@ description: >
   - Supports configurable PT/CT ratios and auto-scaling through index tables.
   - Includes write hooks for dynamic scale refresh and mode-based KWh scaling.
 
+health_check:
+  strategy: single_register
+  registers: [Kw]
+  register_type: holding
+  retry_on_failure: 1
+  timeout_sec: 0.5
+  reason: "Kw is the most reliable status indicator"
+
 register_map:
   # ========== Energy (48-bit composed raw words) ==========
   Kwh_W1_HI:

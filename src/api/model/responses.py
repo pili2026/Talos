@@ -162,42 +162,6 @@ class DeviceConstraintResponse(BaseResponse):
     has_custom_constraints: bool = False
 
 
-class WiFiNetwork(BaseModel):
-    """
-    WiFi network information.
-
-    Attributes:
-
-        ssid: Network SSID.
-        signal_strength: Signal strength (0-100).
-        security: Security type (e.g., WPA2, Open).
-        in_use: Whether this is the currently connected network.
-        bssid: MAC address of the access point.
-    """
-
-    ssid: str
-    signal_strength: int = Field(..., ge=0, le=100)
-    security: str
-    in_use: bool = False
-    bssid: str | None = None
-
-
-class WiFiListResponse(BaseResponse):
-    """
-    Response model for WiFi network list.
-
-    Attributes:
-        networks: List of available WiFi networks.
-        total_count: Total number of networks found.
-        current_ssid: Currently connected network SSID.
-
-    """
-
-    networks: list[WiFiNetwork]
-    total_count: int
-    current_ssid: str | None = None
-
-
 class WiFiConnectionResponse(BaseResponse):
     """
     Response model for WiFi connection operation.
