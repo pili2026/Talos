@@ -1,13 +1,11 @@
 import asyncio
-from dataclasses import dataclass
+from asyncio.subprocess import Process
 import logging
 import os
-
 from pathlib import Path
-import string
-from typing import Iterable
 
-from fastapi import HTTPException, status
+
+from fastapi import HTTPException
 
 from api.model.enum.wifi import SecurityType, SitePriorityMode
 from api.model.enums import ResponseStatus
@@ -20,232 +18,295 @@ from api.model.wifi import (
     WiFiNetwork,
     WiFiStatusResponse,
     WiFiStatusInfo,
+    WpaNetworkRow,
+    WpaStatus,
 )
+from api.model.wifi_config import WiFiConfig
+from api.util.wifi_util import WiFiUtil
 
 logger = logging.getLogger("WiFiService")
 
 
-@dataclass(frozen=True)
-class WpaNetworkRow:
-    network_id: int
-    ssid: str
-    bssid: str | None
-    flags: str | None
-
-
 class WiFiService:
     """
+    WiFi Management Service
+
     Backend: wpa_cli (wpa_supplicant)
+    Thread-safe: Each network interface uses independent asyncio.Lock
+
+    Priority System (0-5):
+    - 5: Rescue SSIDs (highest priority, prevents device lockout)
+    - 4: Site networks (FIXED_4 mode)
+    - 4,3,2,1,0: Site networks (DECREMENT mode, auto-assigned)
+
+    Rescue SSID Mechanism:
+    - Default: {"imaoffice1"}
+    - Env: TALOS_WIFI_RESCUE_SSIDS="ssid1,ssid2"
+    - Purpose: Ensures at least one fallback network is always enabled
+    - Critical for remote device recovery
+
+    Site Priority Modes:
+    - FIXED_4: All site networks get priority 4
+    - DECREMENT: Auto-assign 4,3,2,1,0 based on usage
+    - Env: TALOS_WIFI_SITE_PRIORITY_MODE=fixed_4|decrement
     """
 
-    RESCUE_SSIDS = {"imaoffice1"}
     RESCUE_PRIORITY = 5
     SITE_PRIORITY_FIXED = 4
 
     def __init__(
         self,
-        default_ifname: str = "wlan0",
-        use_sudo: bool = True,
-        timeout_sec: float = 3.0,
+        config: WiFiConfig | None = None,
         allowed_ifnames: set[str] | None = None,
     ):
-        self._default_ifname = default_ifname
-        self._use_sudo = use_sudo
-        self._timeout_sec = float(timeout_sec)
+        """
+        Initialize WiFi Service
 
-        # Optional allow-list from router (recommended)
+        Args:
+            config: WiFi configuration object; loads from env if None
+            allowed_ifnames: Set of allowed interface names; auto-detects if None
+        """
+        self._config = config or WiFiConfig.from_env()
         self._allowed_ifnames = allowed_ifnames
 
-        rescue_ssids_env: str = os.getenv("TALOS_WIFI_RESCUE_SSIDS", "").strip()
-        env_ssids: set[str] = {s.strip() for s in rescue_ssids_env.split(",") if s.strip()}
-        self._rescue_ssids: set[str] = set(self.RESCUE_SSIDS) | env_ssids
+        # Per-interface operation locks (prevent concurrent wpa_cli conflicts)
+        self._operation_locks: dict[str, asyncio.Lock] = {}
 
-        mode: str = os.getenv("TALOS_WIFI_SITE_PRIORITY_MODE", SitePriorityMode.DECREMENT.value).strip().lower()
-        self._site_priority_mode = (
-            SitePriorityMode(mode) if mode in {m.value for m in SitePriorityMode} else SitePriorityMode.DECREMENT
+        logger.info(
+            "[WiFiService] Initialized with config: default_ifname=%s, " "rescue_ssids=%s, priority_mode=%s",
+            self._config.default_ifname,
+            self._config.rescue_ssids,
+            self._config.site_priority_mode.value,
         )
 
     @property
     def default_ifname(self) -> str:
-        return self._default_ifname
+        """Default network interface name"""
+        return self._config.default_ifname
 
     # -------------------------
     # Public APIs (per-call ifname)
     # -------------------------
 
     async def get_status(self, ifname: str | None = None) -> WiFiStatusResponse:
-        ifname = self._resolve_ifname(ifname)
+        """
+        Get current WiFi connection status.
+
+        Args:
+            ifname: Network interface name; defaults to the configured interface
+
+        Returns:
+            WiFiStatusResponse containing connection details
+        """
+        ifname: str = self._resolve_ifname(ifname)
         try:
-            text = await self._run_wpa_cli(ifname, "status")
-            data = self._parse_key_value(text)
+            text: str = await self._run_wpa_cli(ifname, "status")
+            wpa_status = WpaStatus.from_wpa_output(text)
 
-            ssid = data.get("ssid")
-            bssid = data.get("bssid")
-            freq = self._to_int(data.get("freq"))
-            wpa_state = data.get("wpa_state")
-            ip_address = data.get("ip_address")
-            network_id = self._to_int(data.get("id"))
-            key_mgmt = data.get("key_mgmt")
-
-            is_connected = (wpa_state == "COMPLETED") and bool(ssid) and bool(ip_address)
-
-            info = WiFiStatusInfo(
+            wifi_status_info = WiFiStatusInfo(
                 interface=ifname,
-                ssid=ssid,
-                bssid=bssid,
-                freq=freq,
-                wpa_state=wpa_state,
-                ip_address=ip_address,
-                network_id=network_id,
-                key_mgmt=key_mgmt,
-                is_connected=is_connected,
+                ssid=wpa_status.ssid,
+                bssid=wpa_status.bssid,
+                freq=wpa_status.freq,
+                wpa_state=wpa_status.wpa_state,
+                ip_address=wpa_status.ip_address,
+                network_id=wpa_status.network_id,
+                key_mgmt=wpa_status.key_mgmt,
+                is_connected=wpa_status.is_connected,
             )
-            return WiFiStatusResponse(status=ResponseStatus.SUCCESS, status_info=info)
+            return WiFiStatusResponse(status=ResponseStatus.SUCCESS, status_info=wifi_status_info)
+
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"[WiFiService] get_status error: {e}", exc_info=True)
+            logger.error(f"[WiFiService] get_status error on {ifname}: {e}", exc_info=True)
             return WiFiStatusResponse(
                 status=ResponseStatus.ERROR,
-                message="Failed to get Wi-Fi status",
+                message="Unable to retrieve WiFi status",
                 status_info=WiFiStatusInfo(interface=ifname, is_connected=False),
             )
 
     async def scan(self, ifname: str | None = None, group_by_ssid: bool = True) -> WiFiListResponse:
-        ifname = self._resolve_ifname(ifname)
+        """
+        Scan for available WiFi networks.
+
+        Args:
+            ifname: Network interface name; defaults to the configured interface
+            group_by_ssid: If True, return only the strongest AP per SSID
+
+        Returns:
+            WiFiListResponse containing scanned networks
+        """
+        ifname: str = self._resolve_ifname(ifname)
         try:
+            # Trigger scan
             await self._run_wpa_cli(ifname, "scan")
-            await asyncio.sleep(1.0)
+            # Wait for scan completion (configurable)
+            await asyncio.sleep(self._config.scan_wait_sec)
 
-            status_text = await self._run_wpa_cli(ifname, "status")
-            wifi_status = self._parse_key_value(status_text)
-            current_ssid = wifi_status.get("ssid")
-            current_bssid = wifi_status.get("bssid")
+            # Get current connection status
+            status_text: str = await self._run_wpa_cli(ifname, "status")
+            wpa_status = WpaStatus.from_wpa_output(status_text)
 
-            results_text = await self._run_wpa_cli(ifname, "scan_results")
-            networks = self._parse_scan_results(
+            results_text: str = await self._run_wpa_cli(ifname, "scan_results")
+            networks: list[WiFiNetwork] = WiFiUtil.parse_scan_results(
                 results_text,
-                current_ssid=current_ssid,
-                current_bssid=current_bssid,
+                current_ssid=wpa_status.ssid,
+                current_bssid=wpa_status.bssid,
                 group_by_ssid=group_by_ssid,
             )
-
             return WiFiListResponse(
                 status=ResponseStatus.SUCCESS,
                 interface=ifname,
                 networks=networks,
                 total_count=len(networks),
-                current_ssid=current_ssid,
+                current_ssid=wpa_status.ssid,
             )
 
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"[WiFiService] scan error: {e}", exc_info=True)
+            logger.error(f"[WiFiService] scan error on {ifname}: {e}", exc_info=True)
             return WiFiListResponse(
                 status=ResponseStatus.ERROR,
-                message="Failed to scan Wi-Fi networks",
+                message="Unable to scan WiFi networks",
+                interface=ifname,
                 networks=[],
                 total_count=0,
                 current_ssid=None,
             )
 
     async def connect(self, req: WiFiConnectRequest, ifname: str | None = None) -> WiFiConnectResponse:
+        """
+        Connect to a specified WiFi network.
+
+        This operation:
+        1. Validates request parameters
+        2. Creates or updates wpa_supplicant network configuration
+        3. Applies priority rules
+        4. Selects and enables the target network
+        5. Ensures rescue SSIDs remain enabled (if present)
+
+        Args:
+            req: WiFi connection request
+            ifname: Network interface name; defaults to the configured interface
+
+        Returns:
+            WiFiConnectResponse containing connection result
+        """
         ifname = self._resolve_ifname(ifname)
 
-        try:
-            networks = await self._list_networks(ifname)
+        # Ensure single operation per interface
+        async with self._get_operation_lock(ifname):
+            try:
+                # Validate request (raises HTTPException on failure)
+                WiFiUtil.validate_connect_request(req)
 
-            rescue_present: bool = self._has_any_ssid(networks, self._rescue_ssids)
+                # Retrieve existing networks
+                networks = await self._list_networks(ifname)
 
-            # Validate psk vs security
-            if req.security == SecurityType.OPEN and req.psk:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OPEN network must not include psk")
+                # Check whether rescue SSIDs exist (critical for remote safety)
+                rescue_present: bool = WiFiUtil.has_any_ssid(networks, self._config.rescue_ssids)
 
-            if req.security != SecurityType.OPEN and not req.psk:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"{req.security.value} network requires psk"
-                )
+                # Get or create network ID
+                net_id = await self._get_or_create_network_id(ifname, req.ssid, networks)
 
-            net_id = await self._get_or_create_network_id(ifname, req.ssid, networks)
-            networks = await self._list_networks(ifname)
+                # Refresh network list (may have changed)
+                networks = await self._list_networks(ifname)
 
-            # Apply security first
-            await self._set_network_ssid_psk_security(ifname, net_id, req)
+                # Configure SSID, PSK, and security
+                await self._set_network_ssid_psk_security(ifname, net_id, req)
 
-            applied_bssid = None
-            bssid_locked = False
-            if req.bssid:
-                await self._run_wpa_cli(ifname, "set_network", str(net_id), "bssid", req.bssid)
-                applied_bssid = req.bssid
-                bssid_locked = True
+                # Apply BSSID lock if specified
+                applied_bssid = None
+                bssid_locked = False
+                if req.bssid:
+                    await self._run_wpa_cli(ifname, "set_network", str(net_id), "bssid", req.bssid)
+                    applied_bssid = req.bssid
+                    bssid_locked = True
 
-            applied_priority = await self._apply_priority(ifname, net_id, req.ssid, req.priority, networks)
+                # Apply priority
+                applied_priority = await self._apply_priority(ifname, net_id, req.ssid, req.priority, networks)
 
-            await self._run_wpa_cli(ifname, "enable_network", str(net_id))
-            await self._run_wpa_cli(ifname, "select_network", str(net_id))
+                # Enable and select network
+                await self._run_wpa_cli(ifname, "enable_network", str(net_id))
+                await self._run_wpa_cli(ifname, "select_network", str(net_id))
 
-            # Guard rail (only if present)
-            if rescue_present:
-                await self._ensure_rescue_priority_and_enabled(ifname)
+                # Ensure rescue SSIDs remain enabled and highest priority
+                if rescue_present:
+                    await self._ensure_rescue_priority_and_enabled(ifname)
 
-            saved, save_error = await self._save_config_best_effort(ifname, req.save_config)
+                # Persist configuration (best-effort with diagnostics)
+                saved, save_error = await self._save_config_with_diagnostics(ifname, req.save_config)
 
-            warnings: list[str] = []
-            note = "Switch initiated. Client connection may drop; poll GET /wifi/status to confirm."
-
-            if not rescue_present:
-                warnings.append("RESCUE_SSID_MISSING")
+                # Prepare response
+                warnings: list[str] = []
                 note = (
-                    "Switch initiated. WARNING: rescue SSID not found in wpa_supplicant config. "
-                    "If site Wi-Fi fails, recovery may require manual provisioning. "
-                    "Poll GET /wifi/status to confirm."
+                    "Network switch initiated. Client connectivity may be interrupted; "
+                    "poll GET /wifi/status to confirm connection state."
                 )
 
-            return WiFiConnectResponse(
-                status=ResponseStatus.SUCCESS,
-                interface=ifname,
-                ssid=req.ssid,
-                accepted=True,
-                applied_network_id=net_id,
-                applied_priority=applied_priority,
-                applied_bssid=applied_bssid,
-                bssid_locked=bssid_locked,
-                rescue_present=rescue_present,
-                warnings=warnings,
-                saved=saved,
-                save_error=save_error,
-                note=note,
-                recommended_poll_interval_ms=1000,
-                recommended_timeout_ms=30000,
-            )
-        except HTTPException:
-            raise
+                if not rescue_present:
+                    warnings.append("RESCUE_SSID_MISSING")
+                    note = (
+                        "Network switch initiated. WARNING: No rescue SSID found in wpa_supplicant configuration. "
+                        "Recovery may require manual intervention if site WiFi fails. "
+                        "Poll GET /wifi/status to confirm connection state."
+                    )
 
-        except Exception as e:
-            logger.error(f"[WiFiService] connect error: {e}", exc_info=True)
-            return WiFiConnectResponse(
-                status=ResponseStatus.ERROR,
-                interface=ifname,
-                message="Failed to initiate Wi-Fi connect",
-                ssid=req.ssid,
-                accepted=False,
-            )
+                return WiFiConnectResponse(
+                    status=ResponseStatus.SUCCESS,
+                    interface=ifname,
+                    ssid=req.ssid,
+                    accepted=True,
+                    applied_network_id=net_id,
+                    applied_priority=applied_priority,
+                    applied_bssid=applied_bssid,
+                    bssid_locked=bssid_locked,
+                    rescue_present=rescue_present,
+                    warnings=warnings,
+                    saved=saved,
+                    save_error=save_error,
+                    note=note,
+                    recommended_poll_interval_ms=1000,
+                    recommended_timeout_ms=30000,
+                )
+
+            except HTTPException:
+                # Validation errors propagate directly
+                raise
+
+            except Exception as e:
+                logger.error(f"[WiFiService] connect error on {ifname}: {e}", exc_info=True)
+                return WiFiConnectResponse(
+                    status=ResponseStatus.ERROR,
+                    interface=ifname,
+                    message=f"Failed to initiate WiFi connection: {e}",
+                    ssid=req.ssid,
+                    accepted=False,
+                )
 
     async def list_interfaces(self) -> WiFiInterfacesResponse:
+        """
+        List wireless network interfaces on the system.
+
+        Returns:
+            WiFiInterfacesResponse containing interface list and recommended default
+        """
         try:
             interface_list: list[WiFiInterfaceInfo] = self._discover_wifi_interfaces()
 
+            # Apply allowlist filter if configured
             if self._allowed_ifnames is not None:
                 interface_list = [i for i in interface_list if i.ifname in self._allowed_ifnames]
 
-            wireless: list[WiFiInterfaceInfo] = [i for i in interface_list if i.is_wireless]
+            # Keep only wireless interfaces
+            wireless = [i for i in interface_list if i.is_wireless]
 
+            # Determine recommended interface
             recommended: str | None = None
-
-            # prefer explicit default_ifname if it exists and is wireless
-            if any(i.ifname == self._default_ifname and i.is_wireless for i in wireless):
-                recommended = self._default_ifname
+            if any(i.ifname == self._config.default_ifname and i.is_wireless for i in wireless):
+                recommended = self._config.default_ifname
             elif wireless:
                 recommended = wireless[0].ifname
 
@@ -260,17 +321,30 @@ class WiFiService:
             logger.error(f"[WiFiService] list_interfaces error: {e}", exc_info=True)
             return WiFiInterfacesResponse(
                 status=ResponseStatus.ERROR,
-                message="Failed to list Wi-Fi interfaces",
+                message="Unable to list WiFi interfaces",
                 interfaces=[],
                 total_count=0,
                 recommended_ifname=None,
             )
 
-    # -------------------------
-    # Internal helpers
-    # -------------------------
+    def _get_operation_lock(self, ifname: str) -> asyncio.Lock:
+        """
+        Get the operation lock for a given interface.
+
+        Ensures that WiFi operations on the same interface are not executed concurrently,
+        preventing wpa_cli state conflicts.
+        """
+        if ifname not in self._operation_locks:
+            self._operation_locks[ifname] = asyncio.Lock()
+        return self._operation_locks[ifname]
 
     def _discover_wifi_interfaces(self) -> list[WiFiInterfaceInfo]:
+        """
+        Discover network interfaces from /sys/class/net
+
+        Returns:
+            List of network interface info, sorted by default interface first, then by name
+        """
         base = Path("/sys/class/net")
         if not base.exists():
             return []
@@ -280,13 +354,20 @@ class WiFiService:
         for p in base.iterdir():
             ifname = p.name
 
+            # Skip loopback
             if ifname == "lo":
                 continue
 
+            # Check if wireless (has wireless directory)
             is_wireless = (p / "wireless").exists()
-            is_up = self._read_text(p / "operstate") == "up"
-            mac = self._read_text(p / "address") or None
 
+            # Check interface status
+            is_up = WiFiUtil.read_text(p / "operstate") == "up"
+
+            # Read MAC address
+            mac = WiFiUtil.read_text(p / "address") or None
+
+            # Read driver name (best-effort)
             driver = None
             driver_link = p / "device" / "driver"
             if driver_link.exists():
@@ -295,8 +376,8 @@ class WiFiService:
                 except Exception:
                     driver = None
 
+            # Read PHY name (best-effort)
             phy = None
-            # best-effort: Some system is /sys/class/net/wlan0/phy80211
             phy_link = p / "phy80211"
             if phy_link.exists():
                 try:
@@ -312,99 +393,33 @@ class WiFiService:
                     mac=mac,
                     driver=driver,
                     phy=phy,
-                    is_default=(ifname == self._default_ifname),
+                    is_default=(ifname == self._config.default_ifname),
                 )
             )
 
+        # Sort: default interface first, then by name
         items.sort(key=lambda x: (not x.is_default, x.ifname))
         return items
 
-    @staticmethod
-    def _read_text(path: Path) -> str:
-        try:
-            return path.read_text(encoding="utf-8", errors="ignore").strip()
-        except Exception:
-            return ""
-
     def _resolve_ifname(self, ifname: str | None) -> str:
-        resolved = (ifname or "").strip() or self._default_ifname
-        # optional allow-list validation (recommended)
+        """
+        Resolve and validate network interface name.
+
+        Args:
+            ifname: User-specified interface name; defaults to configured interface
+
+        Returns:
+            Resolved interface name
+
+        Raises:
+            HTTPException: If interface is not in allowlist
+        """
+        resolved = (ifname or "").strip() or self._config.default_ifname
+
+        # Optional allow-list validation (recommended)
         if self._allowed_ifnames is not None and resolved not in self._allowed_ifnames:
             raise HTTPException(status_code=400, detail=f"Invalid ifname: {resolved}")
         return resolved
-
-    async def _run_wpa_cli(self, ifname: str, *args: str) -> str:
-        cmd: list[str] = []
-        if self._use_sudo:
-            cmd.append("sudo")
-        cmd += ["wpa_cli", "-i", ifname, *args]
-
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=self._timeout_sec)
-        except asyncio.TimeoutError as e:
-            proc.kill()
-            raise RuntimeError(f"wpa_cli timeout: {' '.join(cmd)}") from e
-
-        out = (out_b or b"").decode("utf-8", errors="ignore").strip()
-        err = (err_b or b"").decode("utf-8", errors="ignore").strip()
-
-        if proc.returncode != 0:
-            raise RuntimeError(f"wpa_cli failed (code={proc.returncode}) out={out!r} err={err!r}")
-        if out == "FAIL":
-            raise RuntimeError(f"wpa_cli returned FAIL: {' '.join(cmd)} err={err!r}")
-        return out
-
-    async def _list_networks(self, ifname: str) -> list[WpaNetworkRow]:
-        out = await self._run_wpa_cli(ifname, "list_networks")
-        lines = (out or "").splitlines()
-        if len(lines) <= 1:
-            return []
-
-        rows: list[WpaNetworkRow] = []
-        for line in lines[1:]:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                continue
-            nid = self._to_int(parts[0])
-            if nid is None:
-                continue
-            ssid = parts[1].strip()
-            bssid = parts[2].strip() if len(parts) >= 3 and parts[2].strip() else None
-            flags = parts[3].strip() if len(parts) >= 4 and parts[3].strip() else None
-            rows.append(WpaNetworkRow(network_id=nid, ssid=ssid, bssid=bssid, flags=flags))
-        return rows
-
-    async def _get_or_create_network_id(self, ifname: str, ssid: str, networks: list[WpaNetworkRow]) -> int:
-        for n in networks:
-            if n.ssid == ssid:
-                return n.network_id
-        out = await self._run_wpa_cli(ifname, "add_network")
-        nid = self._to_int(out.strip())
-        if nid is None:
-            raise RuntimeError(f"add_network returned invalid id: {out!r}")
-        return nid
-
-    async def _set_network_ssid_psk_security(self, ifname: str, net_id: int, req: WiFiConnectRequest) -> None:
-        await self._run_wpa_cli(ifname, "set_network", str(net_id), "ssid", f'"{req.ssid}"')
-
-        if req.security == SecurityType.OPEN:
-            await self._run_wpa_cli(ifname, "set_network", str(net_id), "key_mgmt", "NONE")
-            try:
-                await self._run_wpa_cli(ifname, "set_network", str(net_id), "psk", '""')
-            except Exception:
-                pass
-            return
-
-        await self._run_wpa_cli(ifname, "set_network", str(net_id), "key_mgmt", "WPA-PSK")
-        await self._run_wpa_cli(ifname, "set_network", str(net_id), "psk", f'"{req.psk}"')
 
     async def _apply_priority(
         self,
@@ -414,26 +429,60 @@ class WiFiService:
         requested_priority: int | None,
         networks: list[WpaNetworkRow],
     ) -> int:
-        if ssid in self._rescue_ssids:
+        """
+        Apply network priority
+
+        Priority decision logic:
+        1. If rescue SSID, use RESCUE_PRIORITY (5)
+        2. If user explicitly specified, use requested_priority
+        3. Otherwise based on site_priority_mode:
+           - FIXED_4: Use fixed value 4
+           - DECREMENT: Auto-select unused priority (4,3,2,1,0)
+
+        Args:
+            ifname: Network interface name
+            net_id: Network ID
+            ssid: SSID
+            requested_priority: User-requested priority (can be None)
+            networks: Existing network list
+
+        Returns:
+            Actually applied priority value
+        """
+        if ssid in self._config.rescue_ssids:
+            # Rescue SSID always uses highest priority
             priority = self.RESCUE_PRIORITY
         elif requested_priority is not None:
+            # User explicitly specified
             priority = requested_priority
         else:
-            if self._site_priority_mode == SitePriorityMode.FIXED_4:
+            # Based on configured mode
+            if self._config.site_priority_mode == SitePriorityMode.FIXED_4:
                 priority = self.SITE_PRIORITY_FIXED
             else:
+                # DECREMENT mode: find used priorities, select unused max value
                 used = await self._get_used_site_priorities(ifname, networks)
-                priority = self._pick_site_priority_decrement(used)
+                priority = WiFiUtil.pick_site_priority_decrement(used)
 
         await self._run_wpa_cli(ifname, "set_network", str(net_id), "priority", str(priority))
         return priority
 
     async def _get_used_site_priorities(self, ifname: str, networks: list[WpaNetworkRow]) -> set[int]:
+        """
+        Get set of used site priorities (< RESCUE_PRIORITY)
+
+        Args:
+            ifname: Network interface name
+            networks: Network list
+
+        Returns:
+            Set of used priorities
+        """
         used: set[int] = set()
         for n in networks:
             try:
                 p = await self._run_wpa_cli(ifname, "get_network", str(n.network_id), "priority")
-                pv = self._to_int(p.strip())
+                pv = WiFiUtil.to_int(p.strip())
                 if pv is not None and pv < self.RESCUE_PRIORITY:
                     used.add(pv)
             except Exception:
@@ -441,168 +490,179 @@ class WiFiService:
         return used
 
     async def _ensure_rescue_priority_and_enabled(self, ifname: str) -> None:
+        """
+        Ensure rescue SSIDs maintain highest priority and remain enabled
+
+        This method is executed after network switching to ensure rescue networks
+        are not disabled or deprioritized.
+
+        Args:
+            ifname: Network interface name
+        """
         network_list = await self._list_networks(ifname)
         for n in network_list:
-            if n.ssid in self._rescue_ssids:
+            if n.ssid in self._config.rescue_ssids:
                 await self._run_wpa_cli(ifname, "set_network", str(n.network_id), "priority", str(self.RESCUE_PRIORITY))
                 await self._run_wpa_cli(ifname, "enable_network", str(n.network_id))
 
-    async def _save_config_best_effort(self, ifname: str, enabled: bool) -> tuple[bool, str | None]:
+    async def _run_wpa_cli(self, ifname: str, *args: str, mask_password: bool = False) -> str:
+        """
+        Execute wpa_cli command
+
+        Args:
+            ifname: Network interface name
+            *args: wpa_cli arguments
+            mask_password: Whether to mask password in logs (for security)
+
+        Returns:
+            Command output
+
+        Raises:
+            RuntimeError: Command execution failed or timed out
+        """
+        cmd: list[str] = []
+        if self._config.use_sudo:
+            cmd.append("sudo")
+        cmd += ["wpa_cli", "-i", ifname, *args]
+
+        # Prepare safe command for logging (mask password)
+        safe_cmd: list[str] = WiFiUtil.mask_sensitive_args(cmd) if mask_password else cmd
+
+        process: Process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            out_b, err_b = await asyncio.wait_for(process.communicate(), timeout=self._config.timeout_sec)
+        except asyncio.TimeoutError as e:
+            process.kill()
+            raise RuntimeError(f"wpa_cli timeout: {' '.join(safe_cmd)}") from e
+
+        out = (out_b or b"").decode("utf-8", errors="ignore").strip()
+        err = (err_b or b"").decode("utf-8", errors="ignore").strip()
+
+        if process.returncode != 0:
+            raise RuntimeError(f"wpa_cli failed (code={process.returncode}) " f"cmd={' '.join(safe_cmd)} err={err!r}")
+        if out == "FAIL":
+            raise RuntimeError(f"wpa_cli returned FAIL: {' '.join(safe_cmd)} err={err!r}")
+        return out
+
+    async def _list_networks(self, ifname: str) -> list[WpaNetworkRow]:
+        """
+        List configured networks in wpa_supplicant
+
+        Args:
+            ifname: Network interface name
+
+        Returns:
+            List of network configurations
+        """
+        out = await self._run_wpa_cli(ifname, "list_networks")
+        lines = (out or "").splitlines()
+        if len(lines) <= 1:
+            return []
+
+        row_list: list[WpaNetworkRow] = []
+        for line in lines[1:]:  # Skip header line
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            nid = WiFiUtil.to_int(parts[0])
+            if nid is None:
+                continue
+            ssid = parts[1].strip()
+            bssid = parts[2].strip() if len(parts) >= 3 and parts[2].strip() else None
+            flags = parts[3].strip() if len(parts) >= 4 and parts[3].strip() else None
+            row_list.append(WpaNetworkRow(network_id=nid, ssid=ssid, bssid=bssid, flags=flags))
+        return row_list
+
+    async def _get_or_create_network_id(self, ifname: str, ssid: str, networks: list[WpaNetworkRow]) -> int:
+        """
+        Get or create network ID for specified SSID
+
+        If the SSID already exists in configuration, return its ID; otherwise create new network and return new ID.
+
+        Args:
+            ifname: Network interface name
+            ssid: Target SSID
+            networks: Existing network list
+
+        Returns:
+            Network ID
+
+        Raises:
+            RuntimeError: Failed to create network
+        """
+        # Check if already exists
+        for network in networks:
+            if network.ssid == ssid:
+                return network.network_id
+
+        # Create new network
+        command_output: str = await self._run_wpa_cli(ifname, "add_network")
+        network_id: int | None = WiFiUtil.to_int(command_output.strip())
+        if network_id is None:
+            raise RuntimeError(f"add_network returned invalid id: {command_output!r}")
+        return network_id
+
+    async def _set_network_ssid_psk_security(self, ifname: str, net_id: int, req: WiFiConnectRequest) -> None:
+        """
+        Configure network SSID, password, and security
+
+        Args:
+            ifname: Network interface name
+            net_id: Network ID
+            req: Connection request (contains SSID, password, security)
+        """
+        # Set SSID
+        await self._run_wpa_cli(ifname, "set_network", str(net_id), "ssid", f'"{req.ssid}"')
+
+        if req.security == SecurityType.OPEN:
+            # Open network: no authentication
+            await self._run_wpa_cli(ifname, "set_network", str(net_id), "key_mgmt", "NONE")
+            # Clear any existing password (best-effort)
+            try:
+                await self._run_wpa_cli(ifname, "set_network", str(net_id), "psk", '""')
+            except Exception:
+                pass
+            return
+
+        # Encrypted network: set password (use masking to avoid log leaks)
+        await self._run_wpa_cli(ifname, "set_network", str(net_id), "key_mgmt", "WPA-PSK")
+        await self._run_wpa_cli(ifname, "set_network", str(net_id), "psk", f'"{req.psk}"', mask_password=True)
+
+    async def _save_config_with_diagnostics(self, ifname: str, enabled: bool) -> tuple[bool, str | None]:
+        """
+        Save wpa_supplicant configuration (with diagnostics)
+
+        If configuration file is read-only, error message will explicitly state that
+        settings will be lost after reboot.
+
+        Args:
+            ifname: Network interface name
+            enabled: Whether to save
+
+        Returns:
+            (success, error_message)
+        """
         if not enabled:
             return False, None
+
+        # Check if configuration file is writable (best-effort)
+        conf_path = Path("/etc/wpa_supplicant/wpa_supplicant.conf")
+        if conf_path.exists() and not os.access(conf_path, os.W_OK):
+            return False, "Configuration file is read-only. Changes will be lost after reboot."
+
         try:
             out = await self._run_wpa_cli(ifname, "save_config")
             if out.strip().upper() == "OK":
                 return True, None
             return False, f"save_config returned: {out!r}"
         except Exception as e:
-            logger.warning(f"[WiFiService] save_config failed (best-effort): {e}")
-            return False, str(e)
-
-    def _parse_scan_results(
-            self,
-            text: str,
-            *,
-            current_ssid: str | None,
-            current_bssid: str | None,
-            group_by_ssid: bool = True,
-        ) -> list[WiFiNetwork]:
-            lines: list[str] = (text or "").splitlines()
-            if len(lines) <= 1:
-                return []
-
-            rows: list[str] = lines[1:]
-            all_item_list: list[WiFiNetwork] = []
-
-            for raw_line in rows:
-                raw_line = raw_line.strip()
-                if not raw_line:
-                    continue
-
-                parts = raw_line.split("\t")
-                if len(parts) < 4:
-                    parts = raw_line.split()
-
-                if len(parts) < 4:
-                    continue
-
-                bssid = parts[0].strip()
-                freq = self._to_int(parts[1].strip()) if len(parts) >= 2 else None
-                signal_dbm = self._to_int(parts[2].strip()) if len(parts) >= 3 else None
-                if signal_dbm is None:
-                    signal_dbm = -100
-
-                flags = parts[3].strip() if len(parts) >= 4 else ""
-                raw_ssid = "\t".join(parts[4:]).strip() if len(parts) >= 5 else ""
-
-                display_ssid, is_valid, invalid_reason = self._sanitize_ssid(raw_ssid)
-
-                security = SecurityType.from_wpa_flags(flags)
-                signal_strength = self._dbm_to_percent(int(signal_dbm))
-
-                in_use = False
-                if current_bssid and bssid and bssid.lower() == current_bssid.lower():
-                    in_use = True
-                elif current_ssid and raw_ssid and raw_ssid == current_ssid:
-                    in_use = True
-
-                all_item_list.append(
-                    WiFiNetwork(
-                        ssid=display_ssid,
-                        raw_ssid=raw_ssid or None,
-                        signal_strength=signal_strength,
-                        security=security,
-                        in_use=in_use,
-                        bssid=bssid or None,
-                        freq=freq,
-                        is_valid=is_valid,
-                        invalid_reason=invalid_reason,
-                    )
-                )
-
-            # stable sort: in_use first, then stronger signal
-            all_item_list.sort(key=lambda x: (not x.in_use, -x.signal_strength))
-
-            if not group_by_ssid:
-                return all_item_list
-
-            # group_by_ssid = True: keep best AP per display SSID
-            best_by_ssid: dict[str, WiFiNetwork] = {}
-            for item in all_item_list:
-                key = item.ssid  # display ssid key
-                existing = best_by_ssid.get(key)
-                if existing is None:
-                    best_by_ssid[key] = item
-                    continue
-
-                if (not existing.in_use and item.in_use) or (
-                    item.in_use == existing.in_use and item.signal_strength > existing.signal_strength
-                ):
-                    best_by_ssid[key] = item
-
-            grouped = list(best_by_ssid.values())
-            grouped.sort(key=lambda x: (not x.in_use, -x.signal_strength))
-            return grouped
-
-
-    @staticmethod
-    def _pick_site_priority_decrement(used: set[int]) -> int:
-        for p in [4, 3, 2, 1, 0]:
-            if p not in used:
-                return p
-        return 0
-
-    @staticmethod
-    def _parse_key_value(text: str) -> dict[str, str]:
-        data: dict[str, str] = {}
-        for line in (text or "").splitlines():
-            if "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            data[k.strip()] = v.strip()
-        return data
-
-    @staticmethod
-    def _to_int(v: str | None) -> int | None:
-        if v is None:
-            return None
-        try:
-            return int(v)
-        except Exception:
-            return None
-
-    @staticmethod
-    def _sanitize_ssid(raw: str) -> tuple[str, bool, str | None]:
-        if raw is None:
-            return "(Hidden SSID)", True, None
-
-        raw_str = raw.strip()
-        if not raw_str:
-            return "(Hidden SSID)", True, None
-
-        if "\\x00" in raw_str.lower():
-            return "(Invalid SSID)", False, "Contains null-byte pattern (\\x00)"
-
-        if len(raw_str) > 32:
-            return "(Invalid SSID)", False, "SSID length > 32"
-
-        non_printable = [ch for ch in raw_str if (not ch.isprintable()) or (ch in "\r\n\t")]
-        if non_printable:
-            return "(Invalid SSID)", False, "Contains non-printable/control characters"
-
-        if all(ch in string.punctuation for ch in raw_str):
-            return "(Invalid SSID)", False, "SSID contains only punctuation"
-        return raw_str, True, None
-
-    @staticmethod
-    def _dbm_to_percent(dbm: int) -> int:
-        if dbm >= -30:
-            return 100
-        if dbm <= -90:
-            return 0
-        return int((dbm + 90) * (100 / 60))
-
-    @staticmethod
-    def _has_any_ssid(networks: list[WpaNetworkRow], ssids: Iterable[str]) -> bool:
-        ssid_set = set(ssids)
-        return any(n.ssid in ssid_set for n in networks)
+            logger.error(f"[WiFiService] save_config failed (ifname={ifname}): {e}")
+            return False, f"Failed to persist configuration: {e}. Changes will be lost after reboot."

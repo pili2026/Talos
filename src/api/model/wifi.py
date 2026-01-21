@@ -1,7 +1,124 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.model.enum.wifi import SecurityType
 from api.model.responses import BaseResponse
+
+
+class WpaNetworkRow(BaseModel):
+    """
+    wpa_supplicant network configuration row.
+
+    Internal model representing a network entry from 'wpa_cli list_networks'.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    network_id: int = Field(..., description="Network ID in wpa_supplicant")
+    ssid: str = Field(..., description="Network SSID")
+    bssid: str | None = Field(None, description="AP BSSID (if locked)")
+    flags: str | None = Field(None, description="Network flags (e.g., [CURRENT])")
+
+
+class WpaStatus(BaseModel):
+    """
+    Internal model for wpa_cli status output.
+
+    This is a lightweight internal representation of wpa_supplicant status,
+    distinct from WiFiStatusInfo which is the public API response model.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ssid: str | None = Field(None, description="Connected SSID")
+    bssid: str | None = Field(None, description="AP BSSID")
+    freq: int | None = Field(None, description="Frequency in MHz")
+    wpa_state: str | None = Field(None, description="WPA state (e.g., COMPLETED)")
+    ip_address: str | None = Field(None, description="Assigned IP address")
+    network_id: int | None = Field(None, description="Network ID")
+    key_mgmt: str | None = Field(None, description="Key management (e.g., WPA2-PSK)")
+
+    @staticmethod
+    def parse_key_value(text: str) -> dict[str, str]:
+        """
+        Parse key=value format text
+
+        Args:
+            text: Raw text
+
+        Returns:
+            Key-value dictionary
+        """
+        data: dict[str, str] = {}
+        for line in (text or "").splitlines():
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+        return data
+
+    # TODO: Need to Move to Utility Module
+    @staticmethod
+    def _to_int(v: str | None) -> int | None:
+        """
+        Safely convert string to integer
+
+        Args:
+            v: String value
+
+        Returns:
+            Integer value; None if conversion fails
+        """
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    @classmethod
+    def from_wpa_output(cls, text: str) -> "WpaStatus":
+        """
+        Parse wpa_cli status output into a WpaStatus object.
+
+        Args:
+            text: Raw output from 'wpa_cli status'
+
+        Returns:
+            WpaStatus instance
+
+        Example:
+            >>> text = "ssid=MyNetwork\\nbssid=00:11:22:33:44:55\\n..."
+            >>> status = WpaStatus.from_wpa_output(text)
+            >>> status.ssid
+            'MyNetwork'
+        """
+
+        data: dict[str, str] = WpaStatus.parse_key_value(text)
+
+        return cls(
+            ssid=data.get("ssid"),
+            bssid=data.get("bssid"),
+            freq=WpaStatus._to_int(data.get("freq")),
+            wpa_state=data.get("wpa_state"),
+            ip_address=data.get("ip_address"),
+            network_id=WpaStatus._to_int(data.get("id")),
+            key_mgmt=data.get("key_mgmt"),
+        )
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Check if WiFi is connected.
+
+        Connected means:
+        - wpa_state is COMPLETED
+        - SSID is present
+        - IP address is assigned
+
+        Returns:
+            True if connected, False otherwise
+        """
+        return self.wpa_state == "COMPLETED" and bool(self.ssid) and bool(self.ip_address)
 
 
 class WiFiConnectRequest(BaseModel):
