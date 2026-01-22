@@ -4,9 +4,10 @@ Talos FastAPI Application State
 Centralized state management with type safety and runtime validation.
 """
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.system_config_schema import SystemConfig
 from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
 from device_manager import AsyncDeviceManager
@@ -26,6 +27,8 @@ class TalosAppState(BaseModel):
       Components are initialized by lifecycle.py.
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True, extra="forbid")
+
     # Core components
     async_device_manager: AsyncDeviceManager | None = Field(
         default=None, description="Shared Modbus device manager instance"
@@ -38,7 +41,13 @@ class TalosAppState(BaseModel):
     )
     health_manager: DeviceHealthManager | None = None
 
+    system_config: SystemConfig | None = None
+
+    # System services
     wifi_service: object | None = Field(default=None, description="WiFi management service with auto-fallback monitor")
+    provision_service: object | None = Field(
+        default=None, description="System provisioning service (hostname, reverse SSH port)"
+    )
 
     # Snapshot storage
     snapshot_db_path: str | None = Field(default=None, description="Path to SQLite snapshot database")
@@ -50,13 +59,6 @@ class TalosAppState(BaseModel):
     # Heartbeat
     heartbeat_path: str | None = None
     heartbeat_max_age_sec: float = 60.0
-
-    class Config:
-        """Pydantic configuration."""
-
-        arbitrary_types_allowed = True  # Allow AsyncDeviceManager, PubSub, WiFiService types
-        validate_assignment = True  # Validate on assignment
-        extra = "forbid"  # Forbid extra fields
 
     @model_validator(mode="after")
     def validate_unified_mode_requirements(self) -> "TalosAppState":
@@ -130,16 +132,30 @@ class TalosAppState(BaseModel):
             raise RuntimeError("WiFiService not initialized")
         return self.wifi_service
 
+    def get_provision_service(self) -> "ProvisionService":  # type: ignore
+        """Get ProvisionService instance."""
+        if self.provision_service is None:
+            raise RuntimeError("ProvisionService not initialized")
+        return self.provision_service
+
+    def get_system_config(self) -> SystemConfig:
+        """Get SystemConfig instance."""
+        if self.system_config is None:
+            raise RuntimeError("SystemConfig not initialized")
+        return self.system_config
+
     def __repr__(self) -> str:
         """String representation for logging."""
         mode = "unified" if self.is_unified_mode() else "standalone"
         device_count = self.get_device_count()
         pubsub_status = "OK" if self.pubsub else "NO"
         wifi_status = "OK" if self.wifi_service else "NO"
+        provision_status = "OK" if self.provision_service else "NO"
 
         return (
             f"TalosAppState(mode={mode}, "
             f"devices={device_count}, "
             f"pubsub={pubsub_status}, "
-            f"wifi={wifi_status})"
+            f"wifi={wifi_status}, "
+            f"provision={provision_status})"
         )

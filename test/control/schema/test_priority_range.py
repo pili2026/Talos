@@ -1,5 +1,6 @@
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
+
 from core.model.enum.priority_range_enum import ControlPriority
 from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema, TimeRange
 

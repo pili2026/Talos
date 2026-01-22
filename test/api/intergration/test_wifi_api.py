@@ -1,22 +1,21 @@
-import httpx
-import pytest
-
-from fastapi import FastAPI
 from unittest.mock import AsyncMock
 
+import httpx
+import pytest
 import pytest_asyncio
+from fastapi import FastAPI
 
-from api.router.wifi import router
 from api.dependency import get_wifi_service
 from api.model.enums import ResponseStatus
 from api.model.wifi import (
     WiFiConnectResponse,
-    WiFiInterfacesResponse,
     WiFiInterfaceInfo,
+    WiFiInterfacesResponse,
     WiFiListResponse,
-    WiFiStatusResponse,
     WiFiStatusInfo,
+    WiFiStatusResponse,
 )
+from api.router.wifi import router
 
 
 @pytest.fixture

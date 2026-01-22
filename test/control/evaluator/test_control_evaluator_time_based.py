@@ -4,7 +4,6 @@ from unittest.mock import patch
 import pytest
 
 from core.evaluator.control_evaluator import ControlEvaluator
-
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.control_condition_schema import ConditionSchema, TimeRange
 from core.schema.control_config_schema import ControlConfig

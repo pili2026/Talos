@@ -14,8 +14,7 @@ repos:
     hooks:
       - id: pytest-unit
         name: pytest-unit
-        entry: pytest test/constraint/ -x -q
+        entry: bash -c 'PYTHONPATH=src pytest test/constraint/ -x -q'
         language: system
         pass_filenames: false
-        types: [python]
         stages: [commit]

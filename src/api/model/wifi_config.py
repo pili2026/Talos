@@ -1,5 +1,7 @@
 import os
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from api.model.enum.wifi import SitePriorityMode
 
 

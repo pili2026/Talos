@@ -28,7 +28,6 @@ from api.model.requests import (
 from api.model.responses import ResponseStatus
 from api.repository.config_repository import ConfigRepository
 from api.service.parameter_service import ParameterService
-
 from device_manager import AsyncDeviceManager
 
 router = APIRouter()

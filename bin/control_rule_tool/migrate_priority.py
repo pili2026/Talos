@@ -2,9 +2,10 @@
 Priority Migration Script - Fixed for both config structures
 """
 
-import yaml
 import sys
 from pathlib import Path
+
+import yaml
 
 
 def migrate_priority(old_priority: int, rule_code: str, has_emergency: bool, has_time_ranges: bool) -> int:

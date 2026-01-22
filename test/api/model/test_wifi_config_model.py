@@ -1,5 +1,6 @@
 import pytest
 from fastapi import HTTPException
+
 from api.util.wifi_util import WiFiUtil
 
 

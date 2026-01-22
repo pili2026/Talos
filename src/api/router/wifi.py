@@ -10,7 +10,6 @@ from api.model.wifi import (
 )
 from api.service.wifi_service import WiFiService
 
-
 router = APIRouter()
 
 

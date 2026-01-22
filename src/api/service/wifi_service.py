@@ -1,9 +1,8 @@
 import asyncio
-from asyncio.subprocess import Process
 import logging
 import os
+from asyncio.subprocess import Process
 from pathlib import Path
-
 
 from fastapi import HTTPException
 
@@ -16,8 +15,8 @@ from api.model.wifi import (
     WiFiInterfacesResponse,
     WiFiListResponse,
     WiFiNetwork,
-    WiFiStatusResponse,
     WiFiStatusInfo,
+    WiFiStatusResponse,
     WpaNetworkRow,
     WpaStatus,
 )

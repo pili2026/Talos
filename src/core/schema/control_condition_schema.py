@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import time
 import logging
+from datetime import time
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 

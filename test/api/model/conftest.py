@@ -1,8 +1,6 @@
 import pytest
 
 from api.model.enum.wifi import SecurityType
-
-from api.model.enum.wifi import SecurityType
 from api.model.wifi import WiFiConnectRequest, WpaNetworkRow
 
 

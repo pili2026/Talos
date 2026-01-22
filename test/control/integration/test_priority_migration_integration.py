@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from unittest.mock import patch
+
 import pytest
 
 from core.evaluator.control_evaluator import ControlEvaluator

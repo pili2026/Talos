@@ -10,7 +10,7 @@ PATHS:
 REMOTE_ACCESS:
   REVERSE_SSH:
     PORT_SOURCE: "config"   # config | mqtt
-    PORT: 22              # only used when PORT_SOURCE=config, default 22
+    PORT: 8600              # only used when PORT_SOURCE=config, default 8600
 
 DEVICE_ID_POLICY:
   SERIES: 0

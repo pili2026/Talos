@@ -4,6 +4,7 @@ Analyze current priority assignments
 
 import sys
 from pathlib import Path
+
 import yaml
 
 from core.schema.control_config_schema import ControlConfig

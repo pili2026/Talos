@@ -12,6 +12,7 @@ from api.repository.config_repository import ConfigRepository
 from api.service.constraint_service import ConstraintService
 from api.service.device_service import DeviceService
 from api.service.parameter_service import ParameterService
+from api.service.provision_service import ProvisionService
 from api.service.snapshot_service import SnapshotService
 from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
@@ -33,9 +34,17 @@ def get_config_repository() -> ConfigRepository:
     return ConfigRepository()
 
 
+# ===== System Services =====
+
+
 def get_wifi_service(request: Request) -> WiFiService:
     """Get WiFi service from app state."""
     return request.app.state.talos.get_wifi_service()
+
+
+def get_provision_service(request: Request) -> ProvisionService:
+    """Get ProvisionService from app state."""
+    return request.app.state.talos.get_provision_service()
 
 
 # ===== AsyncDeviceManager & Device-related Services =====

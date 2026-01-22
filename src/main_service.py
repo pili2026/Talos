@@ -14,6 +14,8 @@ from typing import LiteralString
 import uvicorn
 from dotenv import load_dotenv
 
+from api.service.provision_service import ProvisionService
+from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
 from core.task.snapshot_cleanup_task import SnapshotCleanupTask
@@ -244,6 +246,12 @@ async def main():
 
         valid_device_ids = {f"{d.model}_{d.slave_id}" for d in async_device_manager.device_list}
 
+        wifi_service = WiFiService()
+        logger.info("WiFiService initialized")
+
+        provision_service = ProvisionService(system_config=system_config)
+        logger.info("ProvisionService initialized")
+
         # ========== Build Subscribers ==========
         logger.info("")
         logger.info("Building Subscribers")
@@ -349,6 +357,9 @@ async def main():
         app.state.talos.constraint_schema = constraint_schema
         app.state.talos.pubsub = pubsub
         app.state.talos.health_manager = health_manager
+        app.state.talos.system_config = system_config
+        app.state.talos.wifi_service = wifi_service
+        app.state.talos.provision_service = provision_service
         app.state.talos.unified_mode = True
         app.state.talos.snapshot_db_path = snapshot_storage.db_path
         app.state.talos.snapshot_config_path = args.snapshot_storage_config
@@ -360,6 +371,9 @@ async def main():
         logger.info("  - ConstraintConfigSchema")
         logger.info("  - InMemoryPubSub")
         logger.info("  - DeviceHealthManager")
+        logger.info("  - SystemConfig")
+        logger.info("  - WiFiService")
+        logger.info("  - ProvisionService")
         logger.info("  - Snapshot config")
         logger.info(f"   {app.state.talos}")
 

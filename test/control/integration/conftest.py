@@ -1,7 +1,7 @@
 import pytest
 
-from core.schema.control_config_schema import ControlConfig
 from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.control_config_schema import ControlConfig
 
 # ---------------------------------------------------------------------
 # Test-only migrated control config (DO NOT read site YAML)

@@ -7,7 +7,10 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from api.repository.config_repository import ConfigRepository
+from api.service.provision_service import ProvisionService
+from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
+from core.schema.system_config_schema import SystemConfig
 from core.util.config_manager import ConfigManager
 from device_manager import AsyncDeviceManager
 
@@ -39,18 +42,24 @@ async def startup_event(app: FastAPI) -> None:
                 raise RuntimeError("constraint_schema not injected")
             if app.state.talos.pubsub is None:
                 raise RuntimeError("pubsub not injected")
+            if app.state.talos.wifi_service is None:
+                raise RuntimeError("wifi_service not injected")
+            if app.state.talos.provision_service is None:
+                raise RuntimeError("provision_service not injected")
 
             logger.info("All shared instances verified")
 
-            # Load snapshot config
-            base_res_path = Path(__file__).parent.parent.parent / "res"
-            snapshot_config_path = Path(os.getenv("TALOS_SNAPSHOT_CONFIG", base_res_path / "snapshot_storage.yml"))
-            snapshot_cfg = ConfigManager.load_yaml_file(str(snapshot_config_path))
+            # Load snapshot config (if not already set by main_service)
+            if app.state.talos.snapshot_db_path is None:
+                base_res_path = Path(__file__).parent.parent.parent / "res"
+                snapshot_config_path = Path(os.getenv("TALOS_SNAPSHOT_CONFIG", base_res_path / "snapshot_storage.yml"))
+                snapshot_cfg = ConfigManager.load_yaml_file(str(snapshot_config_path))
 
-            app.state.talos.snapshot_db_path = snapshot_cfg.get("db_path", "./data/snapshots.db")
-            app.state.talos.snapshot_config_path = str(snapshot_config_path)
+                app.state.talos.snapshot_db_path = snapshot_cfg.get("db_path", "./data/snapshots.db")
+                app.state.talos.snapshot_config_path = str(snapshot_config_path)
 
-            logger.info(f"Snapshot config loaded (db={app.state.talos.snapshot_db_path})")
+                logger.info(f"Snapshot config loaded (db={app.state.talos.snapshot_db_path})")
+
             logger.info("=" * 60)
             logger.info("API startup completed (UNIFIED MODE)")
             logger.info("=" * 60)
@@ -66,9 +75,16 @@ async def startup_event(app: FastAPI) -> None:
 
         instance_config_path = Path(os.getenv("TALOS_INSTANCE_CONFIG", base_res_path / "device_instance_config.yml"))
         modbus_device_path = Path(os.getenv("TALOS_MODBUS_CONFIG", base_res_path / "modbus_device.yml"))
+        system_config_path = Path(os.getenv("TALOS_SYSTEM_CONFIG", base_res_path / "system_config.yml"))
 
         logger.info(f"Instance config: {instance_config_path}")
         logger.info(f"Modbus config: {modbus_device_path}")
+        logger.info(f"System config: {system_config_path}")
+
+        # Load SystemConfig
+        system_config_raw = ConfigManager.load_yaml_file(str(system_config_path))
+        system_config = SystemConfig(**system_config_raw)
+        logger.info("SystemConfig loaded")
 
         # Initialize components
         constraint_config = ConfigManager.load_yaml_file(str(instance_config_path))
@@ -77,12 +93,22 @@ async def startup_event(app: FastAPI) -> None:
         async_device_manager = AsyncDeviceManager(str(modbus_device_path), constraint_schema)
         await async_device_manager.init()
 
+        logger.info(f"AsyncDeviceManager initialized ({len(async_device_manager.device_list)} devices)")
+
+        # Initialize system services
+        wifi_service = WiFiService()
+        logger.info("WiFiService initialized")
+
+        provision_service = ProvisionService(system_config=system_config)
+        logger.info("ProvisionService initialized")
+
         # Update app state
         app.state.talos.async_device_manager = async_device_manager
         app.state.talos.constraint_schema = constraint_schema
+        app.state.talos.system_config = system_config
+        app.state.talos.wifi_service = wifi_service
+        app.state.talos.provision_service = provision_service
         app.state.talos.unified_mode = False
-
-        logger.info(f"AsyncDeviceManager initialized ({len(async_device_manager.device_list)} devices)")
 
         # Load snapshot config
         snapshot_config_path = Path(os.getenv("TALOS_SNAPSHOT_CONFIG", base_res_path / "snapshot_storage.yml"))

@@ -1,11 +1,12 @@
 import logging
-from pathlib import Path
 import string
+from pathlib import Path
 from typing import Iterable
+
 from fastapi import HTTPException, status
+
 from api.model.enum.wifi import SecurityType
 from api.model.wifi import WiFiConnectRequest, WiFiNetwork, WpaNetworkRow
-
 
 logger = logging.getLogger("WiFiUtil")
 

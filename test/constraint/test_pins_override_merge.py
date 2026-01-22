@@ -4,7 +4,6 @@ Tests for ConfigManagerExtension - Three-Layer Configuration Merging
 
 import logging
 
-
 from core.schema.driver_schema import PhysicalPinDefinition
 from core.schema.pin_mapping_schema import PinMapping
 from core.util.config_manager_extension import ConfigManagerExtension
