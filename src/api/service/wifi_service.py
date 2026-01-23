@@ -809,53 +809,58 @@ class WiFiService:
 
     async def _check_and_fallback(self, ifname: str) -> None:
         """Check connection status and trigger fallback if needed."""
+        resolved: str | None = self._try_resolve_ifname(ifname)
+        if resolved is None:
+            # Wired-only / interface not allowed: not an error for background watchdog
+            logger.debug(f"[WiFiService] Skip fallback check: invalid/unavailable ifname={ifname!r}")
+            return
+
         try:
-            status_response = await self.get_status(ifname)
+            status_response = await self.get_status(resolved)
             status = status_response.status_info
 
             if status.is_connected:
                 current_ssid = status.ssid
 
-                # Reset failure count on successful connection
-                if ifname in self._connection_failures and self._connection_failures[ifname] > 0:
+                if resolved in self._connection_failures and self._connection_failures[resolved] > 0:
                     logger.info(
-                        f"[WiFiService] Connection restored on {ifname} (SSID: {current_ssid}), "
+                        f"[WiFiService] Connection restored on {resolved} (SSID: {current_ssid}), "
                         f"resetting failure count"
                     )
-                    self._connection_failures[ifname] = 0
+                    self._connection_failures[resolved] = 0
 
                 if current_ssid in self._config.rescue_ssids:
                     logger.debug(f"[WiFiService] Currently on rescue SSID: {current_ssid}")
 
                 return
 
-            self._connection_failures[ifname] = self._connection_failures.get(ifname, 0) + 1
-            failure_count = self._connection_failures[ifname]
+            self._connection_failures[resolved] = self._connection_failures.get(resolved, 0) + 1
+            failure_count = self._connection_failures[resolved]
 
             logger.warning(
-                f"[WiFiService] Connection failure detected on {ifname} "
+                f"[WiFiService] Connection failure detected on {resolved} "
                 f"(count: {failure_count}/{self._fallback_retry_threshold})"
             )
 
             if failure_count >= self._fallback_retry_threshold:
-                should_fallback = await self._should_trigger_fallback(ifname)
+                should_fallback = await self._should_trigger_fallback(resolved)
 
                 if should_fallback:
                     logger.error(
-                        f"[WiFiService] Connection failure threshold reached on {ifname}. "
+                        f"[WiFiService] Connection failure threshold reached on {resolved}. "
                         f"Triggering fallback to rescue SSID."
                     )
-                    await self._trigger_rescue_fallback(ifname)
+                    await self._trigger_rescue_fallback(resolved)
                 else:
                     logger.error(
-                        f"[WiFiService] Rescue SSID already enabled but still disconnected on {ifname}. "
+                        f"[WiFiService] Rescue SSID already enabled but still disconnected on {resolved}. "
                         f"Both networks may be unavailable."
                     )
 
-                self._connection_failures[ifname] = 0
+                self._connection_failures[resolved] = 0
 
         except Exception as e:
-            logger.error(f"[WiFiService] Error in _check_and_fallback for {ifname}: {e}", exc_info=True)
+            logger.error(f"[WiFiService] Error in _check_and_fallback for {resolved}: {e}", exc_info=True)
 
     async def _should_trigger_fallback(self, ifname: str) -> bool:
         """
@@ -889,6 +894,20 @@ class WiFiService:
                 logger.error(f"[WiFiService] Auto-fallback loop error: {e}", exc_info=True)
 
         logger.info("[WiFiService] Auto-fallback monitor stopped")
+
+    def _try_resolve_ifname(self, ifname: str | None) -> str | None:
+        """
+        Internal resolver for background tasks.
+
+        Returns:
+            Resolved ifname if valid/allowed; otherwise None (skip silently).
+        """
+        resolved = (ifname or "").strip() or self._config.default_ifname
+
+        if self._allowed_ifnames is not None and resolved not in self._allowed_ifnames:
+            return None
+
+        return resolved
 
     @classmethod
     def create_with_auto_discovery(cls) -> "WiFiService":
