@@ -15,6 +15,13 @@ class AlertMessageModel(BaseModel):
     alert_code: str
     timestamp: datetime
 
+    name: str = Field(description="Alert identification name")
+    device_name: str = Field(description="Display name for the device")
+    condition: str = Field(description="Condition operator: gt, lt, eq, gte, lte, neq, schedule")
+    threshold: float = Field(description="Threshold value")
+    current_value: float = Field(description="Current sensor reading")
+    dashboard_url: str | None = Field(None, description="Link to dashboard")
+
 
 # ============================================================
 # Base Alert Configuration
@@ -26,9 +33,10 @@ class BaseAlertConfig(BaseModel):
 
     name: str
     code: str
+    device_name: str
     sources: list[str]
     severity: AlertSeverity = AlertSeverity.INFO
-    message: str | None = None
+    message: str
 
     @field_validator("sources")
     @classmethod

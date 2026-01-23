@@ -24,11 +24,13 @@ def mock_alert_config() -> AlertConfig:
                         {
                             "code": "AIN01_HIGH",
                             "name": "AIn01 overheat",
+                            "device_name": "SD400 Temperature Sensor",
                             "sources": ["AIn01"],
                             "condition": "gt",
                             "threshold": 49.0,
                             "severity": "WARNING",
                             "type": "threshold",
+                            "message": "Temperature reading from AIn01 is too high",
                         }
                     ],
                     "instances": {
@@ -38,11 +40,13 @@ def mock_alert_config() -> AlertConfig:
                                 {
                                     "code": "AIN02_LOW",
                                     "name": "AIn02 low temp",
+                                    "device_name": "SD400 Temperature Sensor",
                                     "sources": ["AIn02"],
                                     "condition": "lt",
                                     "threshold": 5.0,
                                     "severity": "WARNING",
                                     "type": "threshold",
+                                    "message": "Temperature reading from AIn02 is too low",
                                 }
                             ]
                         },
@@ -54,20 +58,24 @@ def mock_alert_config() -> AlertConfig:
                         {
                             "code": "VFD_ERROR",
                             "name": "VFD Error Code Active",
+                            "device_name": "Main VFD",
                             "sources": ["ERROR"],
                             "condition": "gt",
                             "threshold": 0,
                             "severity": "ERROR",
                             "type": "threshold",
+                            "message": "VFD error code is active",
                         },
                         {
                             "code": "VFD_ALERT",
                             "name": "VFD Alert Code Active",
+                            "device_name": "Main VFD",
                             "sources": ["ALERT"],
                             "condition": "gt",
                             "threshold": 0,
                             "severity": "WARNING",
                             "type": "threshold",
+                            "message": "VFD alert code is active",
                         },
                     ],
                     "instances": {"1": {"use_default_alerts": True, "display_name": "Main VFD"}},
@@ -88,11 +96,13 @@ def mock_alert_config_with_unknown_device() -> AlertConfig:
                         {
                             "code": "AIN01_HIGH",
                             "name": "AIn01 overheat",
+                            "device_name": "SD400 Temperature Sensor",
                             "sources": ["AIn01"],
                             "condition": "gt",
                             "threshold": 49.0,
                             "severity": "WARNING",
                             "type": "threshold",
+                            "message": "Temperature reading is too high",
                         }
                     ],
                     "instances": {"999": {"use_default_alerts": True}},  # Unknown device ID
@@ -116,41 +126,49 @@ def mock_alert_config_with_aggregate() -> AlertConfig:
                                 {
                                     "code": "AVG_TEMP_HIGH",
                                     "name": "Average Temperature High",
+                                    "device_name": "ADAM-4117 Multi-Point Sensor",
                                     "sources": ["AIn02", "AIn03"],
                                     "condition": "gt",
                                     "threshold": 40.0,
                                     "severity": "CRITICAL",
                                     "type": "average",
+                                    "message": "Average temperature across sensors exceeds threshold",
                                 },
                                 # Sum alert
                                 {
                                     "code": "TOTAL_TEMP_HIGH",
                                     "name": "Total Temperature High",
+                                    "device_name": "ADAM-4117 Multi-Point Sensor",
                                     "sources": ["AIn02", "AIn03"],
                                     "condition": "gt",
                                     "threshold": 80.0,
                                     "severity": "WARNING",
                                     "type": "sum",
+                                    "message": "Total temperature reading exceeds threshold",
                                 },
                                 # Min alert
                                 {
                                     "code": "MIN_TEMP_LOW",
                                     "name": "Minimum Temperature Low",
+                                    "device_name": "ADAM-4117 Multi-Point Sensor",
                                     "sources": ["AIn02", "AIn03"],
                                     "condition": "lt",
                                     "threshold": 20.0,
                                     "severity": "WARNING",
                                     "type": "min",
+                                    "message": "Minimum temperature reading is too low",
                                 },
                                 # Max alert
                                 {
                                     "code": "MAX_TEMP_HIGH",
                                     "name": "Maximum Temperature High",
+                                    "device_name": "ADAM-4117 Multi-Point Sensor",
                                     "sources": ["AIn02", "AIn03"],
                                     "condition": "gt",
                                     "threshold": 45.0,
                                     "severity": "CRITICAL",
                                     "type": "max",
+                                    "message": "Maximum temperature reading exceeds threshold",
                                 },
                             ]
                         }
@@ -179,10 +197,12 @@ def mock_alert_config_with_schedule() -> AlertConfig:
                                 {
                                     "code": "BLOWER_AFTER_HOURS",
                                     "name": "Blower Running After Hours",
+                                    "device_name": "Main Blower VFD",
                                     "sources": ["RW_ON_OFF"],
                                     "type": "schedule_expected_state",
                                     "expected_state": 0,
                                     "severity": "WARNING",
+                                    "message": "Blower is running outside of scheduled hours",
                                 }
                             ]
                         }
@@ -206,10 +226,12 @@ def mock_alert_config_with_schedule_expected_on() -> AlertConfig:
                                 {
                                     "code": "COOLING_MUST_RUN",
                                     "name": "Cooling System Must Run 24/7",
+                                    "device_name": "Critical Cooling System",
                                     "sources": ["RW_ON_OFF"],
                                     "type": "schedule_expected_state",
                                     "expected_state": 1,  # Expect ON
                                     "severity": "CRITICAL",
+                                    "message": "Cooling system must remain on at all times",
                                 }
                             ]
                         }

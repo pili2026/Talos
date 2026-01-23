@@ -1,0 +1,33 @@
+alert:
+  message_format: "[{level}]{device_name} {operator} {threshold}, Current: {value}"
+  
+  field_labels:
+    message: "Message"
+    device: "Device"
+    time: "Time"
+    alert_code: "Alert Code"
+    name: "Name"
+    dashboard_link: "Dashboard"
+  
+  operators:
+    gt: "above"
+    lt: "below"
+    eq: "equals"
+    gte: "at least"
+    lte: "at most"
+    neq: "not equals"
+    schedule: "schedule expected state"
+  
+  level_names:
+    CRITICAL: "CRITICAL"
+    ERROR: "ERROR"
+    WARNING: "WARNING"
+    INFO: "INFO"
+    RESOLVED: "RESOLVED"
+  
+  level_emojis:
+    CRITICAL: "🔴"
+    ERROR: "🟠"
+    WARNING: "🟡"
+    INFO: "🔵"
+    RESOLVED: "✅"

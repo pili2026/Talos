@@ -3,7 +3,7 @@ from collections import Counter
 
 from core.evaluator.alert_state_manager import AlertStateManager
 from core.evaluator.time_evalutor import TimeControlEvaluator
-from core.model.enum.alert_enum import AlertSeverity
+from core.model.alert_model import AlertEvaluationResult
 from core.model.enum.alert_state_enum import AlertState
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
 from core.schema.alert_config_schema import AlertConfig
@@ -75,18 +75,16 @@ class AlertEvaluator:
         logger.info(f"Total Alerts: {total_alerts}")
         logger.info(f"Skipped Devices: {skipped_devices}")
 
-    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[tuple[str, str, AlertSeverity, str]]:
+    def evaluate(self, device_id: str, snapshot: dict[str, float]) -> list[AlertEvaluationResult]:
         """
         Evaluate alerts for a device snapshot.
 
         Returns:
-            List of (alert_code, message, severity, notification_type)
+            List of AlertEvaluationResult objects
         """
-        result_list: list[tuple[str, str, AlertSeverity, str]] = []
+        result_list: list[AlertEvaluationResult] = []
 
         try:
-            # Safely split device_id into model and slave_id
-            # e.g. "TECO_VFD_2" → ("TECO_VFD", "2")
             model, slave_id = device_id.rsplit("_", 1)
         except ValueError:
             logger.warning(f"[SKIP] Invalid device_id format: {device_id}")
@@ -115,7 +113,7 @@ class AlertEvaluator:
                 continue
 
             if evaluation_result is None:
-                continue  # Unable to evaluate, skip
+                continue
 
             triggered, alert_value = evaluation_result
 
@@ -129,13 +127,34 @@ class AlertEvaluator:
             )
 
             if should_notify:
-                # Build notification message
-                msg = self._build_notification_message(
+                # Build fallback message
+                msg: str = self._build_notification_message(
                     alert=alert,
                     alert_value=alert_value,
                     notification_type=notification_type,
                 )
-                result_list.append((alert.code, msg, alert.severity, notification_type))
+
+                # Extract condition and threshold based on alert type
+                if isinstance(alert, ScheduleExpectedStateAlertConfig):
+                    condition = "schedule"
+                    threshold = alert.expected_state
+                else:
+                    condition = alert.condition.value
+                    threshold = alert.threshold
+
+                # Create result with all necessary information
+                result = AlertEvaluationResult(
+                    alert_code=alert.code,
+                    name=alert.name,
+                    device_name=alert.device_name,
+                    condition=condition,
+                    threshold=threshold,
+                    current_value=alert_value,
+                    severity=alert.severity,
+                    notification_type=notification_type,
+                    message=alert.message,
+                )
+                result_list.append(result)
 
         return result_list
 

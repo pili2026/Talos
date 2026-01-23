@@ -1,0 +1,33 @@
+alert:
+  message_format: "[{level}]{device_name}{operator}{threshold}，現在{value}"
+  
+  field_labels:
+    message: "訊息"
+    device: "設備"
+    time: "時間"
+    alert_code: "Alert Code"
+    name: "名稱"
+    dashboard_link: "網頁"
+  
+  operators:
+    gt: "高於"
+    lt: "低於"
+    eq: "等於"
+    gte: "不低於"
+    lte: "不高於"
+    neq: "不等於"
+    schedule: "排程預期狀態"
+  
+  level_names:
+    CRITICAL: "嚴重"
+    ERROR: "錯誤"
+    WARNING: "警告"
+    INFO: "資訊"
+    RESOLVED: "已解決"
+  
+  level_emojis:
+    CRITICAL: "🔴"
+    ERROR: "🟠"
+    WARNING: "🟡"
+    INFO: "🔵"
+    RESOLVED: "✅"
