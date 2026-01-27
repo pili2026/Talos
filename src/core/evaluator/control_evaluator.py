@@ -1,10 +1,12 @@
 import logging
+import math
 from datetime import datetime, time
 from functools import partial
-from typing import Any, Callable
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 from core.evaluator.composite_evaluator import CompositeEvaluator
+from core.model.device_constant import DEFAULT_MISSING_VALUE
 from core.model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
 from core.schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
 from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema
@@ -33,7 +35,26 @@ class ControlEvaluator:
 
     def get_snapshot_value(self, snapshot: dict[str, float], key: str) -> float | None:
         """Fetch a numeric value by key from the given snapshot."""
-        return snapshot.get(key)
+        v = snapshot.get(key)
+        if v is None:
+            return None
+
+        try:
+            value_float = float(v)
+        except Exception:
+            logger.warning(f"[EVAL] snapshot[{key}] not numeric: {v!r}")
+            return None
+
+        if value_float == DEFAULT_MISSING_VALUE:
+            logger.debug(
+                f"[EVAL] snapshot[{key}] is DEFAULT_MISSING_VALUE({DEFAULT_MISSING_VALUE}), treated as missing"
+            )
+            return None
+
+        if math.isnan(value_float):
+            return None
+
+        return value_float
 
     def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionSchema]:
         """
@@ -241,38 +262,51 @@ class ControlEvaluator:
         return action
 
     def _get_condition_value(self, policy: PolicyConfig, snapshot: dict[str, float]) -> float | None:
-        """Get condition value based on policy type"""
+        """Get condition value based on policy type.
+        Uses get_snapshot_value() to filter DEFAULT_MISSING_VALUE / NaN.
+        """
+
         if policy.condition_type == ConditionType.THRESHOLD:
             # Single sensor value
             if not policy.sources or len(policy.sources) != 1:
                 logger.warning("[EVAL] THRESHOLD policy requires exactly 1 source")
                 return None
-            return snapshot.get(policy.sources[0])
+
+            source_value = policy.sources[0]
+            return self.get_snapshot_value(snapshot, source_value)
 
         if policy.condition_type == ConditionType.DIFFERENCE:
             # Difference between two sensors
             if not policy.sources or len(policy.sources) != 2:
+                logger.warning("[EVAL] DIFFERENCE policy requires exactly 2 sources")
                 return None
-            v1, v2 = snapshot.get(policy.sources[0]), snapshot.get(policy.sources[1])
+
+            s1, s2 = policy.sources
+            v1 = self.get_snapshot_value(snapshot, s1)
+            v2 = self.get_snapshot_value(snapshot, s2)
+
             if v1 is None or v2 is None:
                 return None
+
             return v1 - v2
 
         if policy.condition_type == ConditionType.AVERAGE:
+            # Average of multiple sensors
             if not policy.sources or len(policy.sources) < 2:
                 logger.warning("[EVAL] AVERAGE policy requires at least 2 sources")
                 return None
 
-            value_list = []
-            for source in policy.sources:
-                val: float | None = snapshot.get(source)
-                if val is not None:
-                    value_list.append(val)
+            values: list[float] = []
 
-            if not value_list:
+            for source_value in policy.sources:
+                v = self.get_snapshot_value(snapshot, source_value)
+                if v is not None:
+                    values.append(v)
+
+            if not values:
                 return None
 
-            return sum(value_list) / len(value_list)
+            return sum(values) / len(values)
 
         logger.warning(f"[EVAL] Unknown condition_type: {policy.condition_type}")
         return None
@@ -397,72 +431,123 @@ class ControlEvaluator:
         Print a human-readable summary for all matched rules.
         - No emojis or special characters.
         - Lists Rule / Priority / Status / Source summary / Action summary.
+        - Snapshot values go through get_snapshot_value() for consistency.
         """
         try:
-            number_of_total_rule: int = len(self.control_config.get_control_list(model, slave_id))
+            total_rule_count: int = len(self.control_config.get_control_list(model, slave_id))
         except Exception:
-            number_of_total_rule = None
+            total_rule_count = None
 
-        total_rules_str = f"{number_of_total_rule}" if number_of_total_rule is not None else "?"
-        logger.info(f"[EVAL][{model}_{slave_id}] Matched {len(matched_rules)} / {total_rules_str} rules")
+        total_rule_count_str = str(total_rule_count) if total_rule_count is not None else "?"
+        logger.info(f"[EVAL][{model}_{slave_id}] Matched {len(matched_rules)} / {total_rule_count_str} rules")
 
-        for idx, rule in enumerate(matched_rules):
-            is_last = idx == len(matched_rules) - 1
-            rule_head = f"Rule: {rule.code:<28} | priority={rule.priority if rule.priority is not None else '-':<3} | status=TRIGGERED"
-            logger.info(self._pretty_line(is_last, rule_head))
+        for rule_index, rule in enumerate(matched_rules):
+            is_last_rule = rule_index == len(matched_rules) - 1
+            rule_header = (
+                f"Rule: {rule.code:<28} | "
+                f"priority={rule.priority if rule.priority is not None else '-':<3} | status=TRIGGERED"
+            )
+            logger.info(self._pretty_line(is_last_rule, rule_header))
 
-            # Build condition summary
+            # Build composite summary
             try:
-                comp_summary = (
+                composite_summary = (
                     self.composite_evaluator.build_composite_reason_summary(rule.composite)
                     if rule.composite
                     else "composite"
                 )
             except Exception:
-                comp_summary = "composite"
+                composite_summary = "composite"
 
-            # Attempt to include measurement values if available
-            policy: PolicyConfig | None = rule.policy
-            if policy and policy.condition_type:
-                if policy.condition_type == ConditionType.THRESHOLD and policy.sources and len(policy.sources) == 1:
-                    src = policy.sources[0]
-                    mv = snapshot.get(src)
-                    condition_line = f"Source: {src} = {mv if mv is not None else 'NA'} | {comp_summary}"
-                elif policy.condition_type == ConditionType.DIFFERENCE and policy.sources and len(policy.sources) == 2:
-                    s1, s2 = policy.sources
-                    v1, v2 = snapshot.get(s1), snapshot.get(s2)
-                    if (v1 is not None) and (v2 is not None):
-                        dt = v1 - v2
-                        condition_line = f"Sources: {s1}={v1}, {s2}={v2} -> Δ={dt} | {comp_summary}"
+            rule_policy: PolicyConfig | None = rule.policy
+
+            if rule_policy and rule_policy.condition_type:
+                # THRESHOLD
+                if (
+                    rule_policy.condition_type == ConditionType.THRESHOLD
+                    and rule_policy.sources
+                    and len(rule_policy.sources) == 1
+                ):
+                    source_key = rule_policy.sources[0]
+                    source_value = self.get_snapshot_value(snapshot, source_key)
+                    source_value_str = str(source_value) if source_value is not None else "NA"
+
+                    condition_line = f"Source: {source_key} = {source_value_str} | {composite_summary}"
+
+                # DIFFERENCE
+                elif (
+                    rule_policy.condition_type == ConditionType.DIFFERENCE
+                    and rule_policy.sources
+                    and len(rule_policy.sources) == 2
+                ):
+                    left_source_key, right_source_key = rule_policy.sources
+
+                    left_value = self.get_snapshot_value(snapshot, left_source_key)
+                    right_value = self.get_snapshot_value(snapshot, right_source_key)
+
+                    left_value_str = str(left_value) if left_value is not None else "NA"
+                    right_value_str = str(right_value) if right_value is not None else "NA"
+
+                    if left_value is not None and right_value is not None:
+                        difference_value = left_value - right_value
+                        condition_line = (
+                            f"Sources: {left_source_key}={left_value_str}, "
+                            f"{right_source_key}={right_value_str} -> Δ={difference_value} | {composite_summary}"
+                        )
                     else:
-                        condition_line = f"Sources: {s1}={v1}, {s2}={v2} | {comp_summary}"
-                elif policy.condition_type == ConditionType.AVERAGE and policy.sources and len(policy.sources) >= 2:
-                    value_list = [snapshot.get(src) for src in policy.sources]
-                    valid_value_list = [v for v in value_list if v is not None]
-                    if valid_value_list:
-                        avg: float = sum(valid_value_list) / len(valid_value_list)
-                        sources_str = ", ".join([f"{src}={snapshot.get(src)}" for src in policy.sources])
-                        condition_line = f"Sources: {sources_str} -> AVG={avg:.2f} | {comp_summary}"
+                        condition_line = (
+                            f"Sources: {left_source_key}={left_value_str}, "
+                            f"{right_source_key}={right_value_str} | {composite_summary}"
+                        )
+
+                # AVERAGE
+                elif (
+                    rule_policy.condition_type == ConditionType.AVERAGE
+                    and rule_policy.sources
+                    and len(rule_policy.sources) >= 2
+                ):
+                    valid_values: list[float] = []
+                    source_parts: list[str] = []
+
+                    for source_key in rule_policy.sources:
+                        source_value = self.get_snapshot_value(snapshot, source_key)
+                        source_value_str = str(source_value) if source_value is not None else "NA"
+
+                        source_parts.append(f"{source_key}={source_value_str}")
+
+                        if source_value is not None:
+                            valid_values.append(source_value)
+
+                    sources_summary = ", ".join(source_parts)
+
+                    if valid_values:
+                        average_value: float = sum(valid_values) / len(valid_values)
+                        condition_line = f"Sources: {sources_summary} -> AVG={average_value:.2f} | {composite_summary}"
                     else:
-                        condition_line = f"Sources: {', '.join(policy.sources)} (all NA) | {comp_summary}"
+                        condition_line = f"Sources: {sources_summary} (all NA) | {composite_summary}"
+
                 else:
-                    condition_line = f"Condition: {comp_summary}"
+                    condition_line = f"Condition: {composite_summary}"
             else:
-                condition_line = f"Condition: {comp_summary}"
+                condition_line = f"Condition: {composite_summary}"
 
-            logger.info(" │   " + condition_line)
+            logger.info(f" │   {condition_line}")
 
             # List all actions for the rule
             if not rule.actions:
                 logger.info(" │   Action: (none)")
             else:
                 for action in rule.actions:
-                    a_model = action.model or "-"
-                    a_sid = action.slave_id or "-"
-                    a_type = action.type.value if action.type else "-"
-                    a_target = action.target or "-"
-                    a_value = action.value if action.value is not None else "-"
-                    logger.info(f" │   Action: {a_model}_{a_sid}:{a_type} target={a_target} value={a_value}")
+                    action_model = action.model or "-"
+                    action_slave_id = action.slave_id or "-"
+                    action_type = action.type.value if action.type else "-"
+                    action_target = action.target or "-"
+                    action_value = action.value if action.value is not None else "-"
 
-            if not is_last:
+                    logger.info(
+                        f" │   Action: {action_model}_{action_slave_id}:{action_type} "
+                        f"target={action_target} value={action_value}"
+                    )
+
+            if not is_last_rule:
                 logger.info(" │")
