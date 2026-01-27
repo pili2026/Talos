@@ -1,8 +1,8 @@
 import logging
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from core.model.enum.condition_enum import ConditionType, ControlPolicyType
+from core.model.enum.condition_enum import ControlPolicyType
 
 logger = logging.getLogger(__name__)
 
@@ -31,75 +31,53 @@ class PolicyConfig(BaseModel):
         validate_assignment=True,  # Validate on field assignment
     )
 
-    # Core policy configuration
-    type: ControlPolicyType
+    type: ControlPolicyType = Field(..., description="Policy type")
+    input_sources_id: str | None = Field(default=None, description="Condition ID to reference")
 
-    # Input source configuration
-    condition_type: ConditionType = ConditionType.THRESHOLD
-    sources: list[str] | None = None  # Used for "difference" condition type (>=2 required)
-    abs: bool = False  # Whether to take absolute value in difference mode
-
-    # Absolute linear policy specific fields
-    base_freq: float | None = None
-    base_temp: float | None = None
-    gain_hz_per_unit: float | None = None
-
+    # Absolute linear policy parameters
+    base_freq: float | None = Field(default=None, description="Base frequency output at base_temp input")
+    base_temp: float | None = Field(default=None, description="Base temperature (or other input value)")
+    gain_hz_per_unit: float | None = Field(
+        default=None, description="Frequency change per unit input change (Hz/°C, Hz/kPa, etc.)"
+    )
     # Soft validation state flag
     invalid: bool = Field(default=False)
 
-    @field_validator("sources")
-    @classmethod
-    def validate_and_normalize_sources(cls, v):
-        """Normalize sources list by trimming strings and removing empty values"""
-        if v is None:
-            return None
-        try:
-            normalized = [str(s).strip() for s in v if str(s).strip()]
-            return normalized or None
-        except (TypeError, AttributeError) as e:
-            logger.warning(f"[POLICY] Failed to normalize sources {v}: {e}")
-            return None
-
     @model_validator(mode="after")
-    def validate_semantic_requirements(self):
-        """
-        Validate semantic requirements for different policy types.
-        Uses soft validation: logs warnings instead of raising exceptions.
-        """
-        problems: list[str] = []
+    def validate_policy_requirements(self):
+        """Validate policy-specific requirements"""
+        problems = []
 
-        # Input source validation (discrete_setpoint doesn't need sources)
-        if self.type != ControlPolicyType.DISCRETE_SETPOINT:
-            if self.condition_type == ConditionType.THRESHOLD:
-                if not self.sources or len(self.sources) != 1:
-                    problems.append("policy.sources must contain exactly 1 item when condition_type='threshold'")
-            elif self.condition_type == ConditionType.DIFFERENCE:
-                if not self.sources or len(self.sources) != 2:
-                    problems.append("policy.sources must contain exactly 2 items when condition_type='difference'")
-            elif self.condition_type == ConditionType.AVERAGE:
-                if not self.sources or len(self.sources) < 2:
-                    problems.append("policy.sources must contain at least 2 items when condition_type='average'")
+        # Linear policies require input reference
+        if self.type in {ControlPolicyType.ABSOLUTE_LINEAR, ControlPolicyType.INCREMENTAL_LINEAR}:
+            if not self.input_sources_id:
+                problems.append(
+                    f"{self.type.value} policy requires 'input_sources_id' field " f"(condition ID reference)"
+                )
 
-        # Policy-specific requirement validation
-        if self.type == ControlPolicyType.ABSOLUTE_LINEAR:
-            missing_fields = []
-            if self.base_freq is None:
-                missing_fields.append("base_freq")
-            if self.base_temp is None:
-                missing_fields.append("base_temp")
-            if self.gain_hz_per_unit is None:
-                missing_fields.append("gain_hz_per_unit")
+        # Absolute linear specific validations
+        match self.type:
+            case ControlPolicyType.ABSOLUTE_LINEAR:
+                missing = []
+                if self.base_freq is None:
+                    missing.append("base_freq")
+                if self.base_temp is None:
+                    missing.append("base_temp")
+                if self.gain_hz_per_unit is None:
+                    missing.append("gain_hz_per_unit")
 
-            if missing_fields:
-                problems.append(f"absolute_linear policy requires: {', '.join(missing_fields)}")
+                if missing:
+                    problems.append(f"absolute_linear policy requires: {', '.join(missing)}")
+            case ControlPolicyType.INCREMENTAL_LINEAR:
+                if self.gain_hz_per_unit is None:
+                    problems.append("incremental_linear policy requires gain_hz_per_unit")
+            case ControlPolicyType.DISCRETE_SETPOINT:
+                if self.input_sources_id is not None:
+                    logger.warning("[POLICY] discrete_setpoint policy does not use 'input_sources_id' field")
 
-        elif self.type == ControlPolicyType.INCREMENTAL_LINEAR:
-            if self.gain_hz_per_unit is None:
-                problems.append("incremental_linear policy requires gain_hz_per_unit")
-
-        # Handle validation problems with soft validation approach
         if problems:
-            logger.warning(f"[POLICY] Invalid policy configuration: {problems}")
+            for msg in problems:
+                logger.warning(f"[POLICY] {msg}")
             object.__setattr__(self, "invalid", True)
 
         return self

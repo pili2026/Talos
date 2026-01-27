@@ -26,7 +26,11 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "any": [
                                 {
                                     "type": "average",
-                                    "sources": ["AIn01", "AIn02", "AIn03"],
+                                    "sources": [
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn01"]},
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn02"]},
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn03"]},
+                                    ],
                                     "operator": "gt",
                                     "threshold": 39.0,
                                     "hysteresis": 0.5,
@@ -54,7 +58,11 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "any": [
                                 {
                                     "type": "average",
-                                    "sources": ["AIn01", "AIn02", "AIn03"],
+                                    "sources": [
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn01"]},
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn02"]},
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn03"]},
+                                    ],
                                     "operator": "gt",
                                     "threshold": 19.0,
                                     "hysteresis": 0.5,
@@ -81,7 +89,11 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "any": [
                                 {
                                     "type": "average",
-                                    "sources": ["AIn01", "AIn02", "AIn03"],
+                                    "sources": [
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn01"]},
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn02"]},
+                                        {"device": "ADAM-4117", "slave_id": "12", "pins": ["AIn03"]},
+                                    ],
                                     "operator": "lt",
                                     "threshold": 19.0,
                                     "hysteresis": 0.5,
@@ -118,7 +130,7 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "any": [
                                 {
                                     "type": "threshold",
-                                    "sources": ["ALERT"],
+                                    "sources": [{"device": "TECO_VFD", "slave_id": "1", "pins": ["ALERT"]}],
                                     "operator": "gt",
                                     "threshold": 0.0,
                                     "hysteresis": 0.0,
@@ -145,21 +157,21 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "all": [
                                 {
                                     "type": "threshold",
-                                    "sources": ["ALERT"],
+                                    "sources": [{"device": "TECO_VFD", "slave_id": "1", "pins": ["ALERT"]}],
                                     "operator": "eq",
                                     "threshold": 0.0,
                                     "debounce_sec": 0.0,
                                 },
                                 {
                                     "type": "threshold",
-                                    "sources": ["ERROR"],
+                                    "sources": [{"device": "TECO_VFD", "slave_id": "1", "pins": ["ERROR"]}],
                                     "operator": "eq",
                                     "threshold": 0.0,
                                     "debounce_sec": 0.0,
                                 },
                                 {
                                     "type": "threshold",
-                                    "sources": ["RW_ON_OFF"],
+                                    "sources": [{"device": "TECO_VFD", "slave_id": "1", "pins": ["RW_ON_OFF"]}],
                                     "operator": "eq",
                                     "threshold": 0.0,
                                     "debounce_sec": 0.0,
@@ -184,7 +196,7 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "any": [
                                 {
                                     "type": "threshold",
-                                    "sources": ["AIn01"],
+                                    "sources": [{"device": "TECO_VFD", "slave_id": "1", "pins": ["AIn01"]}],
                                     "operator": "lt",
                                     "threshold": 10.0,
                                     "hysteresis": 0.5,
@@ -210,7 +222,7 @@ MIGRATED_CONTROL_CONFIG_DICT: dict = {
                             "any": [
                                 {
                                     "type": "threshold",
-                                    "sources": ["AIn01"],
+                                    "sources": [{"device": "TECO_VFD", "slave_id": "1", "pins": ["AIn01"]}],
                                     "operator": "gt",
                                     "threshold": 12.0,
                                     "hysteresis": 0.5,

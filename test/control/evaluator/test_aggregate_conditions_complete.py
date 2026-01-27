@@ -8,6 +8,7 @@ Naming convention: test_when_{condition}_then_{expected_behavior}
 from unittest.mock import Mock
 
 import pytest
+from pydantic import ValidationError
 
 from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.control_composite import CompositeNode
@@ -694,119 +695,129 @@ class TestCompositeNodeAggregateValidation:
     """Test validation logic for aggregate condition types"""
 
     def test_when_average_has_less_than_two_sources_then_validation_fails(self):
-        """Test that AVERAGE with fewer than 2 sources is marked invalid"""
-        # Arrange & Act
-        node = CompositeNode(
-            type=ConditionType.AVERAGE,
-            sources=["AIn01"],  # Only 1 source (invalid)
-            operator=ConditionOperator.GREATER_THAN,
-            threshold=20.0,
-        )
+        """AVERAGE requires at least 2 sources"""
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.AVERAGE,
+                sources=[{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],  # only 1 source
+                operator=ConditionOperator.GREATER_THAN,
+                threshold=20.0,
+            )
 
-        # Assert
-        assert node.invalid is True
+        assert "at least 2 sources" in str(exc_info.value).lower()
 
     def test_when_sum_has_duplicate_sources_then_validation_fails(self):
-        """Test that SUM with duplicate sources is marked invalid"""
-        # Arrange & Act
-        node = CompositeNode(
-            type=ConditionType.SUM,
-            sources=["AIn01", "AIn01"],  # Duplicate (invalid)
-            operator=ConditionOperator.GREATER_THAN,
-            threshold=50.0,
-        )
+        """SUM should reject duplicate sources"""
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.SUM,
+                sources=[
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},  # duplicate
+                ],
+                operator=ConditionOperator.GREATER_THAN,
+                threshold=50.0,
+            )
 
-        # Assert
-        assert node.invalid is True
+        msg = str(exc_info.value).lower()
+        assert "duplicate" in msg or "distinct" in msg
 
     def test_when_min_has_no_operator_then_validation_fails(self):
-        """Test that MIN without operator is marked invalid"""
-        # Arrange & Act
-        node = CompositeNode(
-            type=ConditionType.MIN,
-            sources=["AIn01", "AIn02"],
-            # No operator (invalid)
-            threshold=10.0,
-        )
+        """MIN requires operator"""
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.MIN,
+                sources=[
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                ],
+                threshold=10.0,
+            )
 
-        # Assert
-        assert node.invalid is True
+        assert "requires 'operator'" in str(exc_info.value).lower()
 
     def test_when_max_between_has_no_min_max_then_validation_fails(self):
-        """Test that MAX with BETWEEN but no min/max is marked invalid"""
-        # Arrange & Act
-        node = CompositeNode(
-            type=ConditionType.MAX,
-            sources=["AIn01", "AIn02"],
-            operator=ConditionOperator.BETWEEN,
-            # No min/max specified (invalid)
-        )
+        """MAX with BETWEEN requires min/max"""
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.MAX,
+                sources=[
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                ],
+                operator=ConditionOperator.BETWEEN,
+            )
 
-        # Assert
-        assert node.invalid is True
+        msg = str(exc_info.value).lower()
+        assert "between" in msg
+        assert "min" in msg and "max" in msg
 
     def test_when_average_has_valid_config_then_validation_passes(self):
-        """Test that valid AVERAGE configuration passes validation"""
-        # Arrange & Act
         node = CompositeNode(
             type=ConditionType.AVERAGE,
-            sources=["AIn01", "AIn02", "AIn03"],
+            sources=[
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn03"]},
+            ],
             operator=ConditionOperator.GREATER_THAN,
             threshold=25.0,
         )
 
-        # Assert
+        # strict 模式下，能建出來就代表 pass
         assert node.invalid is False
 
     def test_when_sum_has_empty_sources_then_validation_fails(self):
-        """Test that SUM with empty sources list is marked invalid"""
-        # Arrange & Act
-        node = CompositeNode(
-            type=ConditionType.SUM,
-            sources=[],  # Empty (invalid)
-            operator=ConditionOperator.GREATER_THAN,
-            threshold=50.0,
-        )
+        """SUM requires non-empty sources"""
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.SUM,
+                sources=[],
+                operator=ConditionOperator.GREATER_THAN,
+                threshold=50.0,
+            )
 
-        # Assert
-        assert node.invalid is True
+        assert "requires 'sources' list" in str(exc_info.value).lower()
 
     def test_when_min_gt_has_no_threshold_then_validation_fails(self):
-        """Test that MIN with GT operator but no threshold is marked invalid"""
-        # Arrange & Act
-        node = CompositeNode(
-            type=ConditionType.MIN,
-            sources=["AIn01", "AIn02", "AIn03"],
-            operator=ConditionOperator.GREATER_THAN,
-            # No threshold (invalid)
-        )
+        """MIN with GT requires threshold"""
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.MIN,
+                sources=[
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                    {"device": "SD400", "slave_id": "1", "pins": ["AIn03"]},
+                ],
+                operator=ConditionOperator.GREATER_THAN,
+            )
 
-        # Assert
-        assert node.invalid is True
+        assert "requires 'threshold'" in str(exc_info.value).lower()
 
     def test_when_max_between_has_valid_min_max_then_validation_passes(self):
-        """Test that MAX with BETWEEN and valid min/max passes validation"""
-        # Arrange & Act
         node = CompositeNode(
             type=ConditionType.MAX,
-            sources=["AIn01", "AIn02"],
+            sources=[
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+            ],
             operator=ConditionOperator.BETWEEN,
             min=10.0,
             max=50.0,
         )
 
-        # Assert
         assert node.invalid is False
 
     def test_when_average_has_three_unique_sources_then_validation_passes(self):
-        """Test that AVERAGE with 3 unique sources passes validation"""
-        # Arrange & Act
         node = CompositeNode(
             type=ConditionType.AVERAGE,
-            sources=["AIn01", "AIn02", "AIn03"],
+            sources=[
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                {"device": "SD400", "slave_id": "1", "pins": ["AIn03"]},
+            ],
             operator=ConditionOperator.LESS_THAN,
             threshold=30.0,
         )
 
-        # Assert
         assert node.invalid is False

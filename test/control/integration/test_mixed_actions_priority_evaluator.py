@@ -1,6 +1,6 @@
 """
 Evaluator Integration Tests — Mixed Actions Priority
-- Verifies evaluator returns ALL matched actions, sorted by priority (smaller number = higher priority)
+- Verifies evaluator returns ALL matched actions, sorted by priority
 - Does NOT assert "only one action" — that is Executor's responsibility
 """
 
@@ -15,7 +15,7 @@ from core.schema.control_config_schema import ControlConfig
 
 @pytest.fixture
 def constraint_cfg() -> ConstraintConfigSchema:
-    """Basic constraints (present for completeness; evaluator doesn't enforce them)."""
+    """Basic constraints"""
     return ConstraintConfigSchema(
         **{
             "TECO_VFD": {
@@ -31,7 +31,7 @@ def constraint_cfg() -> ConstraintConfigSchema:
 
 @pytest.fixture
 def mixed_config() -> ControlConfig:
-    """Complete config with mixed action types and clear priorities."""
+    """Complete config with mixed action types and clear priorities"""
     yaml_text = """
 version: "1.0.0"
 SD400:
@@ -46,9 +46,12 @@ SD400:
           priority: 10
           composite:
             any:
-              - type: threshold
+              - sources_id: cond_p10
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: lt
                 threshold: 25.0
           policy:
@@ -65,9 +68,12 @@ SD400:
           priority: 11
           composite:
             any:
-              - type: threshold
+              - sources_id: cond_p11_do
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: lt
                 threshold: 25.0
           policy:
@@ -85,14 +91,20 @@ SD400:
           priority: 11
           composite:
             any:
-              - type: difference
-                sources: [AIn01, AIn02]
+              - sources_id: cond_p11_inc
+                type: difference
+                sources:
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn02]
                 operator: gt
                 threshold: 4.0
           policy:
             type: incremental_linear
-            condition_type: difference
-            sources: [AIn01, AIn02]
+            input_sources_id: cond_p11_inc
             gain_hz_per_unit: 1.5
           actions:
             - model: TECO_VFD
@@ -106,9 +118,12 @@ SD400:
           priority: 13
           composite:
             any:
-              - type: threshold
+              - sources_id: cond_p13_do
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 40.0
           policy:
@@ -126,16 +141,17 @@ SD400:
           priority: 13
           composite:
             any:
-              - type: threshold
+              - sources_id: cond_p13_abs
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 25.0
           policy:
             type: absolute_linear
-            condition_type: threshold
-            sources:
-              - AIn01
+            input_sources_id: cond_p13_abs
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
@@ -151,14 +167,20 @@ SD400:
           priority: 14
           composite:
             any:
-              - type: threshold
+              - sources_id: cond_p14_a
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 40.0
-              - type: threshold
+              - sources_id: cond_p14_b
+                type: threshold
                 sources:
-                  - AIn03
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn03]
                 operator: between
                 min: 3.0
                 max: 5.0
@@ -177,9 +199,12 @@ SD400:
           priority: 15
           composite:
             any:
-              - type: threshold
+              - sources_id: cond_p15
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 40.0
           policy:
@@ -201,7 +226,7 @@ def evaluator(mixed_config: ControlConfig, constraint_cfg: ConstraintConfigSchem
 
 
 def test_when_low_temperature_then_evaluator_returns_all_in_priority_order(evaluator: ControlEvaluator):
-    """AIn01=20 (<25) triggers p10 and p11; ensure all returned and sorted: p10 first."""
+    """AIn01=20 (<25) triggers p10 and p11; ensure all returned and sorted"""
     # Arrange
     snapshot = {"AIn01": 20.0, "AIn02": 18.0, "AIn03": 4.0}
 
@@ -216,7 +241,7 @@ def test_when_low_temperature_then_evaluator_returns_all_in_priority_order(evalu
 
 
 def test_when_high_temperature_then_evaluator_accumulates_multiple_actions(evaluator: ControlEvaluator):
-    """AIn01=45 (>40) triggers p13 (abs), p13 (DO on), p14 (fixed), p15 (turn on)."""
+    """AIn01=45 (>40) triggers p13, p14, p15"""
     # Arrange
     snapshot = {"AIn01": 45.0, "AIn02": 43.0, "AIn03": 4.0}
 
@@ -225,7 +250,6 @@ def test_when_high_temperature_then_evaluator_accumulates_multiple_actions(evalu
 
     # Assert
     assert len(action_list) >= 3
-    # Must be sorted: p13 before p14 before p15
     priorities = [a.priority for a in action_list]
     assert priorities == sorted(priorities)
     assert min(priorities) == 13

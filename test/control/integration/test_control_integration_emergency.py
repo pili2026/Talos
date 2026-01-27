@@ -59,20 +59,21 @@ class TestEmergencyControlIntegration:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                          - device: SD400
+                            slave_id: '3'
+                            pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:
                     type: discrete_setpoint
-                  actions: 
+                  actions:
                     - model: TECO_VFD
                       slave_id: '1'
                       type: set_frequency
                       target: RW_HZ
                       value: 60
                       emergency_override: true
-
         """
 
         config_dict = yaml.safe_load(config_yaml)
@@ -126,8 +127,10 @@ SD400:
           composite:
             any:
               - type: threshold
-                sources: 
-                  - AIn01
+                sources:
+                - device: SD400
+                  slave_id: '3'
+                  pins: [AIn01]
                 operator: gt
                 threshold: 32.0
           policy:
@@ -191,7 +194,9 @@ SD400:
                     any:
                       - type: threshold
                         sources: 
-                          - AIn01
+                        - device: SD400
+                          slave_id: '3'
+                          pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -242,8 +247,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                          - device: SD400
+                            slave_id: '3'
+                            pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -288,8 +295,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                          - device: SD400
+                            slave_id: '3'
+                            pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -338,8 +347,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                          - device: SD400
+                            slave_id: '3'
+                            pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -358,8 +369,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                          - device: SD400
+                            slave_id: '3'
+                            pins: [AIn01] 
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -409,8 +422,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                        - device: SD400
+                          slave_id: '3'
+                          pins: [AIn01]
                         operator: gt
                         threshold: 30.0
                   policy:
@@ -428,8 +443,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                        - device: SD400
+                          slave_id: '3'
+                          pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -483,8 +500,11 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                        - device: SD400
+                          slave_id: '3'
+                          pins: [AIn01]
+
                         operator: gt
                         threshold: 32.0
                   policy:
@@ -503,8 +523,11 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn02
+                        sources:
+                        - device: SD400
+                          slave_id: '3'
+                          pins: [AIn02]
+
                         operator: gt
                         threshold: 34.0
                   policy:
@@ -568,8 +591,10 @@ SD400:
                   composite:
                     any:
                       - type: threshold
-                        sources: 
-                          - AIn01
+                        sources:
+                        - device: SD400
+                          slave_id: '3'
+                          pins: [AIn01]
                         operator: gt
                         threshold: 32.0
                   policy:

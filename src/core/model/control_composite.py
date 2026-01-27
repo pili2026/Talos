@@ -6,19 +6,65 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
+from core.schema.control_condition_source_schema import Source
 
 logger = logging.getLogger(__name__)
 
 
 class CompositeNode(BaseModel):
+    """
+    Composite condition tree node (v2.0).
+
+    Supports hierarchical condition evaluation with multi-device data sources.
+
+    Breaking Changes from v1.x:
+        - sources field now only accepts list[Source] objects
+        - Legacy list[str] format is NO LONGER supported
+        - Use Source objects with explicit device/slave_id/pins specification
+
+    Examples:
+        # Simple threshold
+        CompositeNode(
+            type=ConditionType.THRESHOLD,
+            sources=[Source(device="ADAM-4117", slave_id="12", pins=["AIn01"])],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=40.0
+        )
+
+        # Hierarchical aggregation
+        CompositeNode(
+            type=ConditionType.DIFFERENCE,
+            sources=[
+                Source(
+                    device="ADAM-4117",
+                    slave_id="12",
+                    pins=["AIn01", "AIn02"],
+                    aggregation=AggregationType.AVERAGE
+                ),
+                Source(
+                    device="ADAM-4117",
+                    slave_id="14",
+                    pins=["AIn01", "AIn02"],
+                    aggregation=AggregationType.AVERAGE
+                )
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=30.0
+        )
+    """
+
     model_config = ConfigDict(
-        str_strip_whitespace=True,
-        use_enum_values=False,
-        validate_assignment=True,
-        populate_by_name=True,
+        str_strip_whitespace=True, use_enum_values=False, validate_assignment=True, populate_by_name=True
+    )
+    sources_id: str | None = Field(
+        default=None,
+        description=(
+            "Condition identifier. Required when policy needs to reference "
+            "this condition (e.g., for absolute_linear or incremental_linear)."
+        ),
     )
 
-    # Class constants (use ClassVar to exclude from core.model fields)
+    # Class constants
     MAX_NESTING_DEPTH: ClassVar[int] = 10
     MAX_CHILDREN_PER_NODE: ClassVar[int] = 20
 
@@ -38,8 +84,8 @@ class CompositeNode(BaseModel):
     min: float | None = None
     max: float | None = None
 
-    # difference condition fields
-    sources: list[str] | None = None
+    sources: list[Source] | None = None
+
     abs: bool | None = Field(default=False)
 
     # time_elapsed condition fields
@@ -49,20 +95,10 @@ class CompositeNode(BaseModel):
     invalid: bool = False
 
     def calculate_max_depth(self, visited: set[int] | None = None) -> int:
-        """
-        Calculate maximum nesting depth of the composite tree.
-        Also detects circular references.
-
-        Args:
-            visited: Set of object IDs to track visited nodes for cycle detection
-
-        Returns:
-            Maximum depth of nested structure, or -1 if circular reference detected
-        """
+        """Calculate maximum nesting depth of the composite tree."""
         if visited is None:
             visited = set()
 
-        # Circular reference detection - return -1 instead of raising exception
         node_id = id(self)
         if node_id in visited:
             logger.error("[COMPOSITE] Circular reference detected in composite structure")
@@ -72,7 +108,6 @@ class CompositeNode(BaseModel):
         max_child_depth = 0
 
         try:
-            # Check all child nodes
             child_nodes = []
             if self.all:
                 child_nodes.extend(self.all)
@@ -81,10 +116,9 @@ class CompositeNode(BaseModel):
             if self.not_:
                 child_nodes.append(self.not_)
 
-            # Calculate depth of each child
             for child in child_nodes:
                 child_depth = child.calculate_max_depth(visited.copy())
-                if child_depth == -1:  # Circular reference in child
+                if child_depth == -1:
                     return -1
                 max_child_depth = max(max_child_depth, child_depth)
 
@@ -95,22 +129,17 @@ class CompositeNode(BaseModel):
 
     @model_validator(mode="after")
     def validate_structure(self) -> CompositeNode:
+        """Validate composite structure"""
         problems: list[str] = []
 
         group_count = sum(x is not None for x in (self.all, self.any, self.not_))
         is_leaf = self.type is not None
 
-        # ---- Basic structure: group vs leaf ----
         match (group_count, is_leaf):
-            # Group node: exactly 1 of (all / any / not_) is set, and no type
             case (1, False):
                 problems.extend(self._validate_group_node())
-
-            # Leaf node: no group, but has type
             case (0, True):
                 problems.extend(self._validate_leaf_node())
-
-            # Anything else is invalid
             case _:
                 problems.append(
                     "node must be either group(all/any/not) OR "
@@ -123,38 +152,16 @@ class CompositeNode(BaseModel):
             if depth == -1:
                 problems.append("circular reference detected in composite structure")
             elif depth > self.MAX_NESTING_DEPTH:
-                problems.append(f"composite structure exceeds maximum nesting depth " f"({self.MAX_NESTING_DEPTH})")
+                problems.append(f"composite structure exceeds maximum nesting depth ({self.MAX_NESTING_DEPTH})")
 
-        # ---- Mark invalid & log ----
         if problems:
             for msg in problems:
                 logger.warning(f"[COMPOSITE] Validation error: {msg}")
-            object.__setattr__(self, "invalid", True)
+            raise ValueError("; ".join(problems))
 
         return self
 
-    @field_validator("sources", mode="before")
-    @classmethod
-    def normalize_sources(cls, v):
-        """Normalize and validate sources list"""
-        if v is None:
-            return None
-        try:
-            if isinstance(v, str):
-                stripped: str = v.strip()
-                return [stripped] if stripped else None
-
-            if not isinstance(v, (list, tuple, set)):
-                logger.warning(f"[COMPOSITE] sources should be a list or string, got {type(v).__name__}: {v}")
-                return None
-
-            normalized: list[str] = [s for s in (str(x).strip() for x in v) if s]
-            return normalized or None
-        except (TypeError, AttributeError) as e:
-            logger.warning(f"[COMPOSITE] Failed to normalize sources {v}: {e}")
-            return None
-
-    @field_validator("hysteresis", "debounce_sec", "threshold", "min", "max", "interval_hours")  # ← MODIFIED
+    @field_validator("hysteresis", "debounce_sec", "threshold", "min", "max", "interval_hours")
     @classmethod
     def validate_numeric_fields(cls, v, info):
         """Ensure numeric fields are non-negative where applicable"""
@@ -181,31 +188,20 @@ class CompositeNode(BaseModel):
         operator: ConditionOperator | None = self.operator
 
         match operator:
-            # ------------------------------
-            # BETWEEN
-            # ------------------------------
             case ConditionOperator.BETWEEN:
                 if self.min is None or self.max is None:
                     problems.append("BETWEEN operator requires both 'min' and 'max' values")
                 elif self.min >= self.max:
                     problems.append("For BETWEEN operator, 'min' must be less than 'max'")
-
                 if self.threshold is not None:
                     problems.append("BETWEEN operator should not specify 'threshold' (use 'min' and 'max')")
 
-            # ------------------------------
-            # EQUAL
-            # ------------------------------
             case ConditionOperator.EQUAL:
                 if self.threshold is None:
                     problems.append("EQUAL operator requires 'threshold' value")
-
                 if self.min is not None or self.max is not None:
                     problems.append("EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
 
-            # ------------------------------
-            # GREATER / LESS variants
-            # ------------------------------
             case (
                 ConditionOperator.GREATER_THAN
                 | ConditionOperator.LESS_THAN
@@ -214,32 +210,21 @@ class CompositeNode(BaseModel):
             ):
                 if self.threshold is None:
                     problems.append(f"{operator.value.upper()} operator requires 'threshold' value")
-
                 if self.min is not None or self.max is not None:
                     problems.append(
                         f"{operator.value.upper()} operator should not specify 'min' or 'max' (use 'threshold')"
                     )
 
-            # ------------------------------
-            # NOT_EQUAL
-            # ------------------------------
             case ConditionOperator.NOT_EQUAL:
                 if self.threshold is None:
                     problems.append("NOT_EQUAL operator requires 'threshold' value")
-
                 if self.min is not None or self.max is not None:
                     problems.append("NOT_EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
 
-            # ------------------------------
-            # Default: no additional validation
-            # ------------------------------
             case _:
                 logger.warning(f"Operator '{operator.value}' is not supported")
-                pass
 
         return problems
-
-    # ====== Group node helpers ======
 
     def _validate_group_node(self) -> list[str]:
         """Validate group node (all / any / not_)"""
@@ -254,11 +239,7 @@ class CompositeNode(BaseModel):
 
         return problems
 
-    def _validate_group_children(
-        self,
-        group_name: str,
-        children: list["CompositeNode"] | None,
-    ) -> list[str]:
+    def _validate_group_children(self, group_name: str, children: list[CompositeNode] | None) -> list[str]:
         """Shared validation logic for 'all' and 'any' groups."""
         problems: list[str] = []
 
@@ -291,16 +272,12 @@ class CompositeNode(BaseModel):
         match self.type:
             case ConditionType.THRESHOLD:
                 problems.extend(self._validate_threshold_leaf())
-
             case ConditionType.DIFFERENCE:
                 problems.extend(self._validate_difference_leaf())
-
             case ConditionType.AVERAGE | ConditionType.SUM | ConditionType.MIN | ConditionType.MAX:
                 problems.extend(self._validate_aggregate_leaf())
-
             case ConditionType.TIME_ELAPSED:
                 problems.extend(self._validate_time_elapsed_leaf())
-
             case _:
                 problems.append(f"unsupported condition type: {self.type}")
 
@@ -319,32 +296,49 @@ class CompositeNode(BaseModel):
             problems.append("threshold condition requires exactly 1 source in 'sources' list")
             return problems
 
+        source = self.sources[0]
+        if not isinstance(source, Source):
+            problems.append(f"threshold source must be Source object, got {type(source).__name__}")
+            return problems
+
         problems.extend(self._validate_operator_threshold_combination())
         return problems
-
-    # ====== DIFFERENCE leaf ======
 
     def _validate_difference_leaf(self) -> list[str]:
         problems: list[str] = []
 
-        # operator
         if self.operator is None:
             problems.append("difference condition requires 'operator'")
 
-        # sources
         if not self.sources:
             problems.append("difference condition requires 'sources' list")
-        elif len(self.sources) != 2:
-            problems.append("difference condition requires exactly 2 sources")
-        elif self.sources[0] == self.sources[1]:
-            problems.append("difference condition sources must be different")
+            return problems
 
-        # operator compatibility (using match-case)
+        if len(self.sources) != 2:
+            problems.append("difference condition requires exactly 2 sources")
+            return problems
+
+        # type check
+        for idx, source in enumerate(self.sources):
+            if not isinstance(source, Source):
+                problems.append(f"difference source[{idx}] must be Source object, got {type(source).__name__}")
+                return problems
+
+        s1, s2 = self.sources
+
+        def _sig(s: Source) -> tuple[str, str, tuple[str, ...]]:
+            # pins already cleaned in Source validator; keep order for determinism
+            return (s.device, s.slave_id, tuple(s.pins))
+
+        if _sig(s1) == _sig(s2):
+            problems.append("difference condition sources must be distinct (duplicate sources detected)")
+            return problems
+
+        # existing operator checks...
         match self.operator:
             case ConditionOperator.BETWEEN:
                 if self.min is None or self.max is None:
                     problems.append("difference-BETWEEN requires 'min' and 'max' values")
-
             case (
                 ConditionOperator.GREATER_THAN
                 | ConditionOperator.LESS_THAN
@@ -355,38 +349,50 @@ class CompositeNode(BaseModel):
             ):
                 if self.threshold is None:
                     problems.append(f"difference-{self.operator.value.upper()} requires 'threshold' value")
-
             case _:
-                # other operators are either unsupported or don't need extra validation
                 pass
 
         return problems
 
-    # ====== AVERAGE / SUM / MIN / MAX leaf ======
-
     def _validate_aggregate_leaf(self) -> list[str]:
         """Validation for AVERAGE / SUM / MIN / MAX types."""
         problems: list[str] = []
-        agg_type = self.type.value if self.type is not None else "aggregate"  # just for shorter messages
+        agg_type = self.type.value if self.type is not None else "aggregate"
 
-        # operator
         if self.operator is None:
             problems.append(f"{agg_type} condition requires 'operator'")
 
-        # sources: at least 2, all unique
         if not self.sources:
             problems.append(f"{agg_type} condition requires 'sources' list")
-        elif len(self.sources) < 2:
-            problems.append(f"{agg_type} condition requires at least 2 sources")
-        elif len(set(self.sources)) != len(self.sources):
-            problems.append(f"{agg_type} condition sources must be unique (found duplicates)")
+            return problems
 
-        # operator compatibility (using match-case)
+        if len(self.sources) < 2:
+            problems.append(f"{agg_type} condition requires at least 2 sources")
+            return problems
+
+        # Type check
+        for idx, source in enumerate(self.sources):
+            if not isinstance(source, Source):
+                problems.append(f"{agg_type} source[{idx}] must be Source object, got {type(source).__name__}")
+
+        if problems:
+            return problems
+
+        def signature(s: Source) -> tuple:
+            pins_sig = tuple(s.pins)
+            agg_sig = s.get_effective_aggregation().value if s.get_effective_aggregation() else None
+            return (s.device, s.slave_id, pins_sig, agg_sig)
+
+        sigs = [signature(s) for s in self.sources]
+        if len(sigs) != len(set(sigs)):
+            dup_sigs = {sig for sig in sigs if sigs.count(sig) > 1}
+            problems.append(f"{agg_type} condition sources must be distinct; duplicates: {dup_sigs}")
+
+        # Operator/threshold constraints
         match self.operator:
             case ConditionOperator.BETWEEN:
                 if self.min is None or self.max is None:
                     problems.append(f"{agg_type}-BETWEEN requires 'min' and 'max' values")
-
             case (
                 ConditionOperator.GREATER_THAN
                 | ConditionOperator.LESS_THAN
@@ -397,9 +403,7 @@ class CompositeNode(BaseModel):
             ):
                 if self.threshold is None:
                     problems.append(f"{agg_type}-{self.operator.value.upper()} requires 'threshold' value")
-
             case _:
-                # other operators either unsupported or don't have extra constraints here
                 pass
 
         return problems

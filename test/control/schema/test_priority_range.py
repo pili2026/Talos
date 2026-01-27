@@ -5,6 +5,15 @@ from core.model.enum.priority_range_enum import ControlPriority
 from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema, TimeRange
 
 
+@pytest.fixture
+def min_action():
+    return ControlActionSchema(
+        type="turn_off",
+        model="TECO_VFD",
+        slave_id="1",
+    )
+
+
 class TestControlPriorityTiers:
     """Tests for ControlPriority tier definitions"""
 
@@ -95,41 +104,41 @@ class TestPriorityValidation:
         assert len(errors) == 1
         assert "requires priority < 10" in errors[0]
 
-    def test_when_time_override_rule_has_valid_priority_and_time_range_then_no_validation_error(self):
+    def test_when_time_override_rule_has_valid_priority_and_time_range_then_no_validation_error(self, min_action):
         """Test a valid time override configuration"""
         rule = ConditionSchema(
             name="Morning Fixed",
             code="MORNING_FIXED",
             priority=10,
             active_time_ranges=[TimeRange(start="09:00", end="12:00")],
-            actions=[],
+            actions=[min_action],
         )
 
         errors, warnings = ControlPriority.validate_safety_rules(rule)
         assert len(errors) == 0
 
-    def test_when_time_override_rule_uses_emergency_priority_then_validation_error_is_returned(self):
+    def test_when_time_override_rule_uses_emergency_priority_then_validation_error_is_returned(self, min_action):
         """Test time override blocking emergency behavior (invalid)"""
         rule = ConditionSchema(
             name="Bad Time Override",
             code="BAD_TIME_OVERRIDE",
             priority=0,  # Emergency tier - blocks emergency!
             active_time_ranges=[TimeRange(start="09:00", end="12:00")],
-            actions=[],
+            actions=[min_action],
         )
 
         errors, warnings = ControlPriority.validate_safety_rules(rule)
         assert len(errors) == 1
         assert "requires priority >= 10" in errors[0]
 
-    def test_when_time_override_rule_outside_recommended_tier_then_warning_is_returned(self):
+    def test_when_time_override_rule_outside_recommended_tier_then_warning_is_returned(self, min_action):
         """Test time override outside the recommended tier (warning only)"""
         rule = ConditionSchema(
             name="Time Override High Priority",
             code="TIME_HIGH",
             priority=50,  # Valid but not recommended
             active_time_ranges=[TimeRange(start="09:00", end="12:00")],
-            actions=[],
+            actions=[min_action],
         )
 
         errors, warnings = ControlPriority.validate_safety_rules(rule)
@@ -137,22 +146,32 @@ class TestPriorityValidation:
         assert len(warnings) == 1  # But produces a warning
         assert "Recommend Time Override tier" in warnings[0]
 
-    def test_when_equipment_recovery_priorities_used_then_all_slots_are_available(self):
+    def test_when_equipment_recovery_priorities_used_then_all_slots_are_available(self, min_action):
         """Test that the equipment recovery tier has sufficient capacity"""
         # Simulate 60 rules (priority range 20-79)
         rules = []
         for i in range(20, 80):
-            rule = ConditionSchema(name=f"Recovery {i}", code=f"RECOVERY_{i}", priority=i, actions=[])
+            rule = ConditionSchema(
+                name=f"Recovery {i}",
+                code=f"RECOVERY_{i}",
+                priority=i,
+                actions=[min_action],
+            )
             errors, warnings = ControlPriority.validate_safety_rules(rule)
             assert len(errors) == 0  # All valid
             rules.append(rule)
 
         assert len(rules) == 60  # 60 slots available
 
-    def test_when_normal_control_priority_used_then_no_upper_limit_is_enforced(self):
+    def test_when_normal_control_priority_used_then_no_upper_limit_is_enforced(self, min_action):
         """Test that the normal control tier has no upper limit"""
         for priority in [90, 100, 200, 999]:
-            rule = ConditionSchema(name=f"Normal {priority}", code=f"NORMAL_{priority}", priority=priority, actions=[])
+            rule = ConditionSchema(
+                name=f"Normal {priority}",
+                code=f"NORMAL_{priority}",
+                priority=priority,
+                actions=[min_action],
+            )
             errors, warnings = ControlPriority.validate_safety_rules(rule)
             assert len(errors) == 0
             assert ControlPriority.is_normal_control_tier(priority)

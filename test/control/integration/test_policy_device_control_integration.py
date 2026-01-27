@@ -51,7 +51,9 @@ SD400:
             any:
               - type: threshold
                 sources:
-                  - AIn01
+                - device: SD400
+                  slave_id: "3"
+                  pins: [AIn01]
                 operator: gt
                 threshold: 40.0
           policy:
@@ -70,7 +72,9 @@ SD400:
             any:
               - type: threshold
                 sources:
-                  - AIn01
+                - device: SD400
+                  slave_id: "3"
+                  pins: [AIn01]
                 operator: lt
                 threshold: 25.0
           policy:

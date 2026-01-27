@@ -6,7 +6,7 @@ from datetime import time
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.model.control_composite import CompositeNode
-from core.model.enum.condition_enum import ControlActionType
+from core.model.enum.condition_enum import ControlActionType, ControlPolicyType
 from core.schema.policy_schema import PolicyConfig
 
 logger = logging.getLogger(__name__)
@@ -199,7 +199,7 @@ class ConditionSchema(BaseModel):
     name: str
     code: str
     actions: list[ControlActionSchema] = Field(
-        default_factory=list, description="List of actions to execute when condition is met"
+        min_length=1, default_factory=list, description="List of actions to execute when condition is met"
     )
     priority: int = 0
     blocking: bool = Field(default=False, description="If True, prevents evaluation of lower priority rules")
@@ -226,3 +226,51 @@ class ConditionSchema(BaseModel):
         if not self.actions:
             logger.warning(f"[SCHEMA] Rule '{self.code}': no actions defined (will be filtered at runtime)")
         return self
+
+    @model_validator(mode="after")
+    def validate_actions_required(self) -> ConditionSchema:
+        if "actions" not in self.model_fields_set:
+            raise ValueError("actions field is required")
+        if not self.actions:
+            raise ValueError("actions cannot be empty")
+        return self
+
+    @model_validator(mode="after")
+    def validate_policy_input_sources_id(self):
+        """Validate that linear policies reference valid conditions"""
+        if not self.policy or not self.composite:
+            return self
+
+        # Linear policies require input_sources_id
+        if self.policy.type in {ControlPolicyType.ABSOLUTE_LINEAR, ControlPolicyType.INCREMENTAL_LINEAR}:
+            if not self.policy.input_sources_id:
+                raise ValueError(
+                    f"Control '{self.code}': {self.policy.type.value} policy " f"requires 'input_sources_id' field"
+                )
+
+            # Verify input_sources_id references a valid condition
+            if not self._find_condition_by_id(self.composite, self.policy.input_sources_id):
+                raise ValueError(
+                    f"Control '{self.code}': Policy input_sources_id='{self.policy.input_sources_id}' "
+                    f"not found in composite. Please add sources_id='{self.policy.input_sources_id}' "
+                    f"to the condition you want to reference."
+                )
+
+        return self
+
+    def _find_condition_by_id(self, node: CompositeNode, sources_id: str) -> CompositeNode | None:
+        """Recursively find condition by sources_id"""
+        if node.sources_id == sources_id:
+            return node
+
+        for child_list in [node.all, node.any]:
+            if child_list:
+                for child in child_list:
+                    result = self._find_condition_by_id(child, sources_id)
+                    if result:
+                        return result
+
+        if node.not_:
+            return self._find_condition_by_id(node.not_, sources_id)
+
+        return None

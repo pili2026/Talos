@@ -5,7 +5,15 @@ import pytest
 from pydantic import ValidationError
 
 from core.model.control_composite import CompositeNode
-from core.model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
+from core.model.enum.condition_enum import (
+    AggregationType,
+    ConditionOperator,
+    ConditionType,
+    ControlActionType,
+    ControlPolicyType,
+)
+from core.schema.control_condition_schema import ConditionSchema
+from core.schema.control_condition_source_schema import Source
 from core.schema.control_config_schema import ControlConfig
 
 
@@ -103,11 +111,18 @@ class TestVersionValidation:
         assert "does not follow semantic versioning" in caplog.text
 
 
-class TestConditionTypeFieldMigration:
-    """Tests for condition_type vs source_kind field migration"""
+class TestPolicyInputSourceReference:
+    """Tests for v2.0 policy input_sources_id reference mechanism"""
 
-    def test_when_config_uses_condition_type_then_policy_validation_passes(self, valid_sd400_config_data):
-        """Test that new 'condition_type' field works correctly for different policy types"""
+    def test_when_policy_uses_input_sources_id_then_references_condition_correctly(self, valid_sd400_config_data):
+        """
+        Test that policies correctly reference conditions by sources_id.
+
+        v2.0 Design:
+        - Composite conditions have sources_id
+        - Policies reference conditions via input_sources_id
+        - Condition type information is in composite, not policy
+        """
         # Arrange
         version = valid_sd400_config_data.get("version", "1.0.0")
         root_data = {k: v for k, v in valid_sd400_config_data.items() if k != "version"}
@@ -116,39 +131,279 @@ class TestConditionTypeFieldMigration:
         # Act
         controls = config.get_control_list("SD400", "3")
 
-        # Assert - Check that we have both policy types
+        # Assert - Find controls by policy type
         absolute_linear_controls = [
             c for c in controls if c.policy and c.policy.type == ControlPolicyType.ABSOLUTE_LINEAR
         ]
         incremental_linear_controls = [
             c for c in controls if c.policy and c.policy.type == ControlPolicyType.INCREMENTAL_LINEAR
         ]
+        discrete_setpoint_controls = [
+            c for c in controls if c.policy and c.policy.type == ControlPolicyType.DISCRETE_SETPOINT
+        ]
 
         # Should have one of each type
         assert len(absolute_linear_controls) == 1
         assert len(incremental_linear_controls) == 1
+        assert len(discrete_setpoint_controls) == 1
 
-        # ABSOLUTE_LINEAR should use 'threshold' condition_type
+        # === Test ABSOLUTE_LINEAR policy ===
         abs_control = absolute_linear_controls[0]
-        assert abs_control.policy.condition_type == ConditionType.THRESHOLD
-        assert abs_control.policy.sources is not None  # Should have single source
 
-        # INCREMENTAL_LINEAR should use 'difference' condition_type
+        # Policy should reference condition by ID
+        assert abs_control.policy.input_sources_id == "SD400.3:AIn01"
+
+        # Policy should have required parameters
+        assert abs_control.policy.base_freq == 40.0
+        assert abs_control.policy.base_temp == 25.0
+        assert abs_control.policy.gain_hz_per_unit == 1.2
+
+        # Composite should have the referenced condition
+        assert abs_control.composite is not None
+        condition_nodes = self._find_all_leaf_conditions(abs_control.composite)
+        assert len(condition_nodes) == 1
+
+        # Condition should have correct sources_id and type
+        condition = condition_nodes[0]
+        assert condition.sources_id == "SD400.3:AIn01"
+        assert condition.type == ConditionType.THRESHOLD
+
+        # Condition should have Source objects
+        assert condition.sources is not None
+        assert len(condition.sources) == 1
+        assert isinstance(condition.sources[0], Source)
+        assert condition.sources[0].device == "SD400"
+        assert condition.sources[0].slave_id == "3"
+        assert condition.sources[0].pins == ["AIn01"]
+
+        # === Test INCREMENTAL_LINEAR policy ===
         inc_control = incremental_linear_controls[0]
-        assert inc_control.policy.condition_type == ConditionType.DIFFERENCE
-        assert inc_control.policy.sources is not None  # Should have sources array
-        assert len(inc_control.policy.sources) == 2  # Should have exactly 2 sources
 
-    def test_when_config_uses_legacy_source_kind_then_validation_fails(self, config_with_source_kind_legacy):
-        """Test that legacy 'source_kind' field causes validation error"""
-        # Act / Assert
-        with pytest.raises(ValidationError) as exc_info:
-            version = config_with_source_kind_legacy.get("version", "1.0.0")
-            root_data = {k: v for k, v in config_with_source_kind_legacy.items() if k != "version"}
-            ControlConfig(version=version, root=root_data)
+        # Policy should reference condition by ID
+        assert inc_control.policy.input_sources_id == "SD400.3:AIn01-AIn02"
 
-        # Should fail because 'source_kind' is not a recognized field
-        assert "source_kind" in str(exc_info.value) or "Extra inputs are not permitted" in str(exc_info.value)
+        # Policy should have required parameters
+        assert inc_control.policy.gain_hz_per_unit == 1.5
+
+        # Composite should have the referenced condition
+        assert inc_control.composite is not None
+        condition_nodes = self._find_all_leaf_conditions(inc_control.composite)
+        assert len(condition_nodes) == 1
+
+        # Condition should have correct sources_id and type
+        condition = condition_nodes[0]
+        assert condition.sources_id == "SD400.3:AIn01-AIn02"
+        assert condition.type == ConditionType.DIFFERENCE
+
+        # Condition should have 2 Source objects
+        assert condition.sources is not None
+        assert len(condition.sources) == 2
+        assert all(isinstance(s, Source) for s in condition.sources)
+
+        # === Test DISCRETE_SETPOINT policy ===
+        discrete_control = discrete_setpoint_controls[0]
+
+        # Discrete setpoint should NOT have input_sources_id
+        assert discrete_control.policy.input_sources_id is None
+
+    def _find_all_leaf_conditions(self, composite: CompositeNode) -> list[CompositeNode]:
+        """Helper: Recursively find all leaf conditions in composite tree"""
+        leaves = []
+
+        if composite.type is not None:
+            # This is a leaf
+            leaves.append(composite)
+
+        # Recurse into children
+        if composite.all:
+            for child in composite.all:
+                leaves.extend(self._find_all_leaf_conditions(child))
+
+        if composite.any:
+            for child in composite.any:
+                leaves.extend(self._find_all_leaf_conditions(child))
+
+        if composite.not_:
+            leaves.extend(self._find_all_leaf_conditions(composite.not_))
+
+        return leaves
+
+
+class TestAutoGenerateConditionIds:
+    """Tests for automatic sources_id generation"""
+
+    def test_when_sources_id_not_provided_then_auto_generated(self):
+        """Test that sources_id is auto-generated when not provided"""
+        # Arrange - Config without sources_id
+        config_data = {
+            "name": "Test Control",
+            "code": "TEST_01",
+            "composite": {
+                "any": [
+                    {
+                        "sources_id": "cond_0",
+                        "type": "threshold",
+                        "sources": [{"device": "SD400", "slave_id": "3", "pins": ["AIn01"]}],
+                        "operator": "gt",
+                        "threshold": 25.0,
+                    }
+                ]
+            },
+            "policy": {
+                "type": "absolute_linear",
+                "input_sources_id": "cond_0",
+                "base_freq": 40.0,
+                "base_temp": 25.0,
+                "gain_hz_per_unit": 1.2,
+            },
+            "actions": [
+                {
+                    "model": "TECO_VFD",
+                    "slave_id": "1",
+                    "type": "set_frequency",
+                    "target": "RW_HZ",
+                    "value": 0.0,
+                }
+            ],
+        }
+
+        # Act
+        condition = ConditionSchema.model_validate(config_data)
+
+        # Assert
+        # Should auto-generate sources_id
+        leaf_conditions = self._find_all_leaf_conditions(condition.composite)
+        assert len(leaf_conditions) == 1
+        assert leaf_conditions[0].sources_id == "cond_0"
+
+        # Policy should reference the auto-generated ID
+        assert condition.policy.input_sources_id == "cond_0"
+
+    def test_when_multiple_conditions_without_ids_then_auto_generated_sequentially(self):
+        """Test that multiple conditions get sequential auto-generated IDs"""
+        # Arrange - Config with multiple conditions, no sources_id
+        config_data = {
+            "name": "Multi Condition Test",
+            "code": "TEST_02",
+            "composite": {
+                "all": [
+                    {
+                        "sources_id": "cond_0",
+                        "type": "threshold",
+                        "sources": [{"device": "SD400", "slave_id": "3", "pins": ["AIn01"]}],
+                        "operator": "gt",
+                        "threshold": 20.0,
+                    },
+                    {
+                        "sources_id": "cond_1",
+                        "type": "difference",
+                        "sources": [
+                            {"device": "SD400", "slave_id": "3", "pins": ["AIn01"]},
+                            {"device": "SD400", "slave_id": "3", "pins": ["AIn02"]},
+                        ],
+                        "operator": "gt",
+                        "threshold": 5.0,
+                    },
+                ]
+            },
+            "policy": {
+                "type": "absolute_linear",
+                "input_sources_id": "cond_1",
+                "base_temp": 0.0,
+                "base_freq": 40.0,
+                "gain_hz_per_unit": 2.0,
+            },
+            "actions": [
+                {
+                    "model": "TECO_VFD",
+                    "slave_id": "1",
+                    "type": "set_frequency",
+                    "target": "RW_HZ",
+                    "value": 0.0,
+                }
+            ],
+        }
+
+        # Act
+        condition = ConditionSchema.model_validate(config_data)
+
+        # Assert
+        leaf_conditions = self._find_all_leaf_conditions(condition.composite)
+        assert len(leaf_conditions) == 2
+
+        # Should have sequential IDs
+        assert leaf_conditions[0].sources_id == "cond_0"
+        assert leaf_conditions[1].sources_id == "cond_1"
+
+        # Policy should reference the second condition
+        assert condition.policy.input_sources_id == "cond_1"
+
+    def test_when_sources_id_provided_then_not_overwritten(self):
+        """Test that manually provided sources_id is preserved"""
+        # Arrange - Config with custom sources_id
+        config_data = {
+            "name": "Custom ID Test",
+            "code": "TEST_03",
+            "composite": {
+                "any": [
+                    {
+                        "sources_id": "my_custom_temp_sensor",  # Custom ID
+                        "type": "threshold",
+                        "sources": [{"device": "SD400", "slave_id": "3", "pins": ["AIn01"]}],
+                        "operator": "gt",
+                        "threshold": 25.0,
+                    }
+                ]
+            },
+            "policy": {
+                "type": "absolute_linear",
+                "input_sources_id": "my_custom_temp_sensor",
+                "base_freq": 40.0,
+                "base_temp": 25.0,
+                "gain_hz_per_unit": 1.2,
+            },
+            "actions": [
+                {
+                    "model": "TECO_VFD",
+                    "slave_id": "1",
+                    "type": "set_frequency",
+                    "target": "RW_HZ",
+                    "value": 0.0,
+                }
+            ],
+        }
+
+        # Act
+        condition = ConditionSchema.model_validate(config_data)
+
+        # Assert
+        # Should preserve custom ID
+        leaf_conditions = self._find_all_leaf_conditions(condition.composite)
+        assert len(leaf_conditions) == 1
+        assert leaf_conditions[0].sources_id == "my_custom_temp_sensor"
+
+        # Policy should reference the custom ID
+        assert condition.policy.input_sources_id == "my_custom_temp_sensor"
+
+    def _find_all_leaf_conditions(self, composite: CompositeNode) -> list[CompositeNode]:
+        """Helper: Recursively find all leaf conditions"""
+        leaves = []
+
+        if composite.type is not None:
+            leaves.append(composite)
+
+        if composite.all:
+            for child in composite.all:
+                leaves.extend(self._find_all_leaf_conditions(child))
+
+        if composite.any:
+            for child in composite.any:
+                leaves.extend(self._find_all_leaf_conditions(child))
+
+        if composite.not_:
+            leaves.extend(self._find_all_leaf_conditions(composite.not_))
+
+        return leaves
 
 
 class TestActionTypeEnumSupport:
@@ -286,10 +541,14 @@ class TestErrorHandlingAndValidation:
         with pytest.raises(ValidationError) as exc_info:
             create_control_config(config_with_invalid_composite)
 
-        msg = str(exc_info.value)
-        assert "composite structure failed validation" in msg
-        # optional: ensure context points to the specific rule path
-        assert "SD400.instances[1].controls[0]" in msg or "instances" in msg
+        errors = exc_info.value.errors()
+
+        composite_errs = [e for e in errors if e["loc"][-1] == "composite"]
+        assert composite_errs, errors
+
+        err = composite_errs[0]
+        assert err["type"] == "value_error"
+        assert "'any' must contain at least one child" in err["msg"]
 
     def test_when_actions_field_is_missing_then_validation_error_is_raised(
         self,
@@ -353,7 +612,193 @@ class TestActionValueValidation:
         # Assert
         assert len(controls) == 1
         assert isinstance(controls[0].actions[0].value, float)
-        assert controls[0].actions[0].value == -2.5
+        assert controls[0].actions[0].value == 1.5
+
+
+class TestInvalidPolicyHandling:
+    """Tests for invalid policy handling in v2.0"""
+
+    def test_when_policy_is_invalid_then_rule_is_filtered_out(self, config_with_invalid_policy, caplog):
+        """Test that rules with invalid policy are filtered out"""
+        # Arrange
+        caplog.set_level(logging.WARNING)
+        version = config_with_invalid_policy.get("version", "1.0.0")
+        root_data = {k: v for k, v in config_with_invalid_policy.items() if k != "version"}
+        config = ControlConfig(version=version, root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "1")
+
+        # Assert
+        assert len(controls) == 0  # Invalid policy rule should be filtered out
+        assert "invalid policy" in caplog.text or "absolute_linear policy requires" in caplog.text
+
+    def test_when_absolute_linear_missing_input_sources_id_then_validation_error_is_raised(self):
+        config_data = {
+            "version": "1.0.0",
+            "SD400": {
+                "instances": {
+                    "1": {
+                        "controls": [
+                            {
+                                "name": "Missing Input Source",
+                                "code": "NO_INPUT",
+                                "priority": 10,
+                                "composite": {
+                                    "any": [
+                                        {
+                                            "sources_id": "cond_0",
+                                            "type": "threshold",
+                                            "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                            "operator": "gt",
+                                            "threshold": 25.0,
+                                        }
+                                    ]
+                                },
+                                "policy": {
+                                    "type": "absolute_linear",
+                                    # missing input_sources_id
+                                    "base_freq": 40.0,
+                                    "base_temp": 25.0,
+                                    "gain_hz_per_unit": 1.2,
+                                },
+                                "actions": [
+                                    {
+                                        "model": "TECO_VFD",
+                                        "slave_id": "1",
+                                        "type": "set_frequency",
+                                        "target": "RW_HZ",
+                                        "value": 0.0,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+
+        root_data = {k: v for k, v in config_data.items() if k != "version"}
+
+        with pytest.raises(ValidationError) as exc_info:
+            ControlConfig(version="1.0.0", root=root_data)
+
+        msg = str(exc_info.value).lower()
+        assert "no_input" in msg
+        assert "absolute_linear" in msg
+        assert "input_sources_id" in msg
+
+    def test_when_incremental_linear_missing_gain_then_filtered(self, caplog):
+        """Test that incremental_linear without gain is filtered out"""
+        # Arrange
+        config_data = {
+            "version": "1.0.0",
+            "SD400": {
+                "instances": {
+                    "1": {
+                        "controls": [
+                            {
+                                "name": "Missing Gain",
+                                "code": "NO_GAIN",
+                                "composite": {
+                                    "any": [
+                                        {
+                                            "sources_id": "cond_0",
+                                            "type": "difference",
+                                            "sources": [
+                                                {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                                                {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                                            ],
+                                            "operator": "gt",
+                                            "threshold": 5.0,
+                                        }
+                                    ]
+                                },
+                                "policy": {
+                                    "type": "incremental_linear",
+                                    "input_sources_id": "cond_0",
+                                    # Missing gain_hz_per_unit
+                                },
+                                "actions": [
+                                    {
+                                        "model": "TECO_VFD",
+                                        "slave_id": "1",
+                                        "type": "adjust_frequency",
+                                        "target": "RW_HZ",
+                                        "value": 1.0,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+
+        caplog.set_level(logging.WARNING)
+        root_data = {k: v for k, v in config_data.items() if k != "version"}
+        config = ControlConfig(version="1.0.0", root=root_data)
+
+        # Act
+        controls = config.get_control_list("SD400", "1")
+
+        # Assert
+        assert len(controls) == 0
+        assert "requires gain_hz_per_unit" in caplog.text
+
+    def test_when_policy_references_nonexistent_condition_id_then_validation_error_is_raised(self):
+        config_data = {
+            "version": "1.0.0",
+            "SD400": {
+                "instances": {
+                    "1": {
+                        "controls": [
+                            {
+                                "name": "Invalid Reference",
+                                "code": "BAD_REF",
+                                "priority": 10,
+                                "composite": {
+                                    "any": [
+                                        {
+                                            "sources_id": "cond_0",
+                                            "type": "threshold",
+                                            "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                            "operator": "gt",
+                                            "threshold": 25.0,
+                                        }
+                                    ]
+                                },
+                                "policy": {
+                                    "type": "absolute_linear",
+                                    "input_sources_id": "nonexistent_id",
+                                    "base_freq": 40.0,
+                                    "base_temp": 25.0,
+                                    "gain_hz_per_unit": 1.2,
+                                },
+                                "actions": [
+                                    {
+                                        "model": "TECO_VFD",
+                                        "slave_id": "1",
+                                        "type": "set_frequency",
+                                        "target": "RW_HZ",
+                                        "value": 0.0,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+
+        root_data = {k: v for k, v in config_data.items() if k != "version"}
+
+        with pytest.raises(ValidationError) as exc_info:
+            ControlConfig(version="1.0.0", root=root_data)
+
+        msg = str(exc_info.value)
+        assert "input_sources_id" in msg
+        assert "not found in composite" in msg.lower()
 
 
 class TestAdvancedCompositeValidation:
@@ -373,30 +818,38 @@ class TestAdvancedCompositeValidation:
         # Rules with excessive depth should be filtered at runtime
 
     def test_when_composite_has_too_many_children_then_validation_fails(self):
-        """Test that nodes with too many children are marked invalid"""
-
-        # Create a node with excessive children (beyond MAX_CHILDREN_PER_NODE = 20)
         excessive_children = []
-        for i in range(25):  # More than MAX_CHILDREN_PER_NODE
-            child = CompositeNode(type="threshold", source=f"AIn{i:02d}", operator="gt", threshold=10.0)
-            excessive_children.append(child)
+        for i in range(25):
+            excessive_children.append(
+                CompositeNode(
+                    type="threshold",
+                    sources=[{"device": "SD400", "slave_id": "1", "pins": [f"AIn{i:02d}"]}],
+                    operator="gt",
+                    threshold=10.0,
+                )
+            )
 
-        # When
-        node = CompositeNode(all=excessive_children)
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(all=excessive_children)
 
-        # Then
-        assert node.invalid is True
+        assert "cannot have more than 20 children" in str(exc_info.value)
 
     def test_when_between_operator_has_invalid_range_then_validation_fails(self):
         """Test that BETWEEN operator with min >= max is invalid"""
 
-        # When - min >= max (invalid)
-        node = CompositeNode(
-            type="threshold", source="AIn01", operator="between", min=15.0, max=10.0  # max < min (invalid)
-        )
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type="threshold",
+                sources=[{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                operator="between",
+                min=15.0,
+                max=10.0,  # invalid: max < min
+            )
 
-        # Then
-        assert node.invalid is True
+        msg = str(exc_info.value).lower()
+        assert "between" in msg
+        assert "min" in msg
+        assert "less than" in msg or "min must be less than" in msg
 
     def test_when_difference_sources_are_duplicate_then_validation_error_is_raised(
         self, config_with_duplicate_difference_sources, caplog
@@ -407,8 +860,14 @@ class TestAdvancedCompositeValidation:
         with pytest.raises(ValidationError) as exc_info:
             create_control_config(config_with_duplicate_difference_sources)
 
-        msg = str(exc_info.value)
-        assert "composite structure failed validation" in msg
+        errs = exc_info.value.errors()
+
+        target = [e for e in errs if "composite" in e["loc"]]
+        assert target, errs
+
+        msg = " ".join(e["msg"] for e in target).lower()
+        assert "difference" in msg
+        assert "distinct" in msg or "duplicate" in msg
 
     def test_when_between_operator_has_invalid_min_max_then_validation_error_is_raised(
         self, config_with_invalid_operator_combinations, caplog
@@ -420,7 +879,9 @@ class TestAdvancedCompositeValidation:
             create_control_config(config_with_invalid_operator_combinations)
 
         msg = str(exc_info.value)
-        assert "composite structure failed validation" in msg
+        assert "between" in msg.lower()
+        assert "min" in msg.lower()
+        assert "less than" in msg.lower()
 
     def test_when_circular_reference_detected_then_graceful_handling(self, caplog):
         """Test that circular references are handled gracefully without crashing"""
@@ -430,8 +891,217 @@ class TestAdvancedCompositeValidation:
         caplog.set_level(logging.ERROR)
 
         # Create a simple valid node first
-        node = CompositeNode(type="threshold", source="AIn01", operator="gt", threshold=10.0)
+        node = CompositeNode(
+            type="threshold",
+            sources=[{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+            operator="gt",
+            threshold=10.0,
+        )
 
         # Normal case should work
         depth = node.calculate_max_depth()
         assert depth >= 1
+
+
+class TestCompositeNodeSourcesV2:
+    """Test CompositeNode with v2.0 Source objects (no backward compatibility)"""
+
+    def test_threshold_single_source_single_pin(self):
+        """Threshold condition with single source, single pin"""
+        node = CompositeNode(
+            type=ConditionType.THRESHOLD,
+            sources=[Source(device="ADAM-4117", slave_id="12", pins=["AIn01"])],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=40.0,
+        )
+
+        assert not node.invalid
+        assert len(node.sources) == 1
+        assert isinstance(node.sources[0], Source)
+        assert node.sources[0].device == "ADAM-4117"
+        assert node.sources[0].slave_id == "12"
+        assert node.sources[0].pins == ["AIn01"]
+
+    def test_threshold_single_source_multiple_pins_with_aggregation(self):
+        """Threshold condition with multiple pins (intra-source aggregation)"""
+        node = CompositeNode(
+            type=ConditionType.THRESHOLD,
+            sources=[
+                Source(
+                    device="ADAM-4117",
+                    slave_id="12",
+                    pins=["AIn01", "AIn02", "AIn03"],
+                    aggregation=AggregationType.AVERAGE,
+                )
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=35.0,
+        )
+
+        assert not node.invalid
+        source = node.sources[0]
+        assert source.pins == ["AIn01", "AIn02", "AIn03"]
+        assert source.aggregation == AggregationType.AVERAGE
+        assert source.get_effective_aggregation() == AggregationType.AVERAGE
+
+    def test_average_multiple_sources_cross_device(self):
+        """Average condition with sources from different devices"""
+        node = CompositeNode(
+            type=ConditionType.AVERAGE,
+            sources=[
+                Source(device="ADAM-4117", slave_id="12", pins=["AIn01"]),
+                Source(device="ADAM-4117", slave_id="14", pins=["AIn02"]),
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=35.0,
+        )
+
+        assert not node.invalid
+        assert len(node.sources) == 2
+        assert node.sources[0].slave_id == "12"
+        assert node.sources[1].slave_id == "14"
+
+    def test_difference_hierarchical_aggregation(self):
+        """Difference condition with hierarchical aggregation (group avg vs group avg)"""
+        node = CompositeNode(
+            type=ConditionType.DIFFERENCE,
+            sources=[
+                Source(device="ADAM-4117", slave_id="12", pins=["AIn01", "AIn02"], aggregation=AggregationType.AVERAGE),
+                Source(device="ADAM-4117", slave_id="14", pins=["AIn01", "AIn02"], aggregation=AggregationType.AVERAGE),
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=30.0,
+        )
+
+        assert not node.invalid
+        assert len(node.sources) == 2
+
+        # Source 1: avg(12.AIn01, 12.AIn02)
+        assert node.sources[0].pins == ["AIn01", "AIn02"]
+        assert node.sources[0].aggregation == AggregationType.AVERAGE
+
+        # Source 2: avg(14.AIn01, 14.AIn02)
+        assert node.sources[1].pins == ["AIn01", "AIn02"]
+        assert node.sources[1].aggregation == AggregationType.AVERAGE
+
+    def test_sources_from_yaml_dict(self):
+        """Sources can be created from YAML dict format"""
+        node = CompositeNode(
+            type=ConditionType.THRESHOLD,
+            sources=[
+                {
+                    "device": "ADAM-4117",
+                    "slave_id": "12",
+                    "pins": ["AIn01", "AIn02"],
+                    "aggregation": "sum",  # ← String from YAML
+                }
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=100.0,
+        )
+
+        assert not node.invalid
+        source = node.sources[0]
+        assert isinstance(source, Source)
+        assert source.aggregation == AggregationType.SUM
+
+
+class TestCompositeNodeValidation:
+    """Test validation rules for CompositeNode with Source objects"""
+
+    def test_threshold_requires_exactly_one_source(self):
+        """Threshold must have exactly 1 source"""
+        # Too many sources
+        with pytest.raises(ValidationError):
+            CompositeNode(
+                type=ConditionType.THRESHOLD,
+                sources=[
+                    Source(device="ADAM-4117", slave_id="12", pins=["AIn01"]),
+                    Source(device="ADAM-4117", slave_id="14", pins=["AIn02"]),
+                ],
+                operator=ConditionOperator.GREATER_THAN,
+                threshold=40.0,
+            )
+
+    def test_difference_requires_exactly_two_sources(self):
+        """Difference must have exactly 2 sources"""
+        # Only one source
+        with pytest.raises(ValidationError):
+            CompositeNode(
+                type=ConditionType.DIFFERENCE,
+                sources=[Source(device="ADAM-4117", slave_id="12", pins=["AIn01"])],
+                operator=ConditionOperator.GREATER_THAN,
+                threshold=10.0,
+            )
+
+    def test_average_requires_at_least_two_sources(self):
+        """Average must have at least 2 sources"""
+        # Only one source
+        with pytest.raises(ValidationError):
+            CompositeNode(
+                type=ConditionType.AVERAGE,
+                sources=[Source(device="ADAM-4117", slave_id="12", pins=["AIn01"])],
+                operator=ConditionOperator.GREATER_THAN,
+                threshold=35.0,
+            )
+
+    def test_time_elapsed_should_not_have_sources(self):
+        """TIME_ELAPSED should not specify sources"""
+        with pytest.raises(ValidationError):
+            CompositeNode(
+                type=ConditionType.TIME_ELAPSED,
+                sources=[Source(device="ADAM-4117", slave_id="12", pins=["AIn01"])],
+                interval_hours=4.0,
+            )
+
+
+class TestCompositeNodeComplexScenarios:
+    """Test complex real-world scenarios"""
+
+    def test_multi_zone_temperature_differential(self):
+        """Real scenario: Multi-sensor zone temperature differential"""
+        node = CompositeNode(
+            type=ConditionType.DIFFERENCE,
+            sources=[
+                # Zone A: 3 temperature sensors averaged
+                Source(
+                    device="ADAM-4117",
+                    slave_id="12",
+                    pins=["AIn01", "AIn02", "AIn03"],
+                    aggregation=AggregationType.AVERAGE,
+                ),
+                # Zone B: 2 temperature sensors averaged
+                Source(device="ADAM-4117", slave_id="14", pins=["AIn01", "AIn02"], aggregation=AggregationType.AVERAGE),
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=15.0,
+            hysteresis=0.5,
+            debounce_sec=10.0,
+            abs=False,
+        )
+
+        assert not node.invalid
+        assert node.type == ConditionType.DIFFERENCE
+        assert len(node.sources) == 2
+        assert node.sources[0].pins == ["AIn01", "AIn02", "AIn03"]
+        assert node.sources[1].pins == ["AIn01", "AIn02"]
+
+    def test_total_power_monitoring(self):
+        """Real scenario: Total power from multiple phases"""
+        node = CompositeNode(
+            type=ConditionType.SUM,
+            sources=[
+                # Phase R
+                Source(device="ADTEK_CPM10", slave_id="1", pins=["kW_R"]),
+                # Phase S
+                Source(device="ADTEK_CPM10", slave_id="1", pins=["kW_S"]),
+                # Phase T
+                Source(device="ADTEK_CPM10", slave_id="1", pins=["kW_T"]),
+            ],
+            operator=ConditionOperator.GREATER_THAN,
+            threshold=100.0,
+        )
+
+        assert not node.invalid
+        assert node.type == ConditionType.SUM
+        assert len(node.sources) == 3

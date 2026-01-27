@@ -5,9 +5,13 @@ import pytest
 
 from core.evaluator.control_evaluator import ControlEvaluator
 from core.schema.constraint_schema import ConstraintConfigSchema
-from core.schema.control_condition_schema import ConditionSchema, TimeRange
+from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema, TimeRange
 from core.schema.control_config_schema import ControlConfig
 from core.util.time_util import TIMEZONE_INFO
+
+
+def _now(y, m, d, hh, mm, ss=0):
+    return datetime(y, m, d, hh, mm, ss, tzinfo=TIMEZONE_INFO)
 
 
 class TestTimeRangeCheck:
@@ -20,10 +24,22 @@ class TestTimeRangeCheck:
         constraint = ConstraintConfigSchema(version="1.0.0", devices={})
         return ControlEvaluator(config, constraint)
 
+    def _min_action(self):
+        return ControlActionSchema(
+            type="turn_off",
+            model="TECO_VFD",
+            slave_id="1",
+        )
+
     def test_no_time_restriction_always_active(self, evaluator):
         """Test that rules without time restrictions are always active"""
 
-        rule = ConditionSchema(name="Test", code="TEST", priority=0, actions=[])
+        rule = ConditionSchema(
+            name="Test",
+            code="TEST",
+            priority=0,
+            actions=[self._min_action()],
+        )
 
         # Should be active at any time
         now = datetime(2025, 1, 13, 10, 0, 0, tzinfo=TIMEZONE_INFO)
@@ -40,23 +56,20 @@ class TestTimeRangeCheck:
             code="MORNING",
             priority=10,
             active_time_ranges=[TimeRange(start="09:00", end="12:00")],
-            actions=[],
+            actions=[self._min_action()],
         )
 
         # 10:00 - within range
         datetime_now = datetime(2025, 1, 13, 10, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
         # 09:00 - boundary (within range)
         datetime_now = datetime(2025, 1, 13, 9, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
         # 12:00 - boundary (within range)
         datetime_now = datetime(2025, 1, 13, 12, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
     def test_outside_time_range(self, evaluator):
         """Test when current time is outside the range"""
@@ -66,23 +79,20 @@ class TestTimeRangeCheck:
             code="MORNING",
             priority=10,
             active_time_ranges=[TimeRange(start="09:00", end="12:00")],
-            actions=[],
+            actions=[self._min_action()],
         )
 
         # 08:59 - outside range
         datetime_now = datetime(2025, 1, 13, 8, 59, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
+        assert evaluator._is_time_active(rule, datetime_now) is False
 
         # 12:01 - outside range
         datetime_now = datetime(2025, 1, 13, 12, 1, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
+        assert evaluator._is_time_active(rule, datetime_now) is False
 
         # 14:00 - outside range
         datetime_now = datetime(2025, 1, 13, 14, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
+        assert evaluator._is_time_active(rule, datetime_now) is False
 
     def test_overnight_range(self, evaluator):
         """Test an overnight time range (crossing midnight)"""
@@ -92,23 +102,20 @@ class TestTimeRangeCheck:
             code="NIGHT",
             priority=10,
             active_time_ranges=[TimeRange(start="22:00", end="06:00")],
-            actions=[],
+            actions=[self._min_action()],
         )
 
         # 23:00 - within range (before midnight)
         datetime_now = datetime(2025, 1, 13, 23, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
         # 03:00 - within range (after midnight)
         datetime_now = datetime(2025, 1, 14, 3, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
         # 12:00 - outside range
         datetime_now = datetime(2025, 1, 13, 12, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
+        assert evaluator._is_time_active(rule, datetime_now) is False
 
     def test_multiple_time_ranges(self, evaluator):
         """Test multiple time ranges (OR logic)"""
@@ -117,30 +124,28 @@ class TestTimeRangeCheck:
             name="Split Shift",
             code="SPLIT",
             priority=10,
-            active_time_ranges=[TimeRange(start="08:00", end="12:00"), TimeRange(start="13:00", end="17:00")],
-            actions=[],
+            active_time_ranges=[
+                TimeRange(start="08:00", end="12:00"),
+                TimeRange(start="13:00", end="17:00"),
+            ],
+            actions=[self._min_action()],
         )
 
         # 10:00 - within the first range
         datetime_now = datetime(2025, 1, 13, 10, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
         # 15:00 - within the second range
         datetime_now = datetime(2025, 1, 13, 15, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, datetime_now) is True
 
         # 12:30 - between the two ranges
         datetime_now = datetime(2025, 1, 13, 12, 30, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
+        assert evaluator._is_time_active(rule, datetime_now) is False
 
         # 20:00 - outside both ranges
         datetime_now = datetime(2025, 1, 13, 20, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
+        assert evaluator._is_time_active(rule, datetime_now) is False
 
 
 class TestEvaluateWithTimeRanges:
@@ -158,14 +163,13 @@ class TestEvaluateWithTimeRanges:
                         "1": {
                             "use_default_controls": False,
                             "controls": [
-                                # Emergency: no time restriction
                                 {
                                     "name": "Emergency Stop",
                                     "code": "EMERGENCY",
                                     "priority": 0,
                                     "composite": {
                                         "type": "threshold",
-                                        "sources": ["TEMP"],
+                                        "sources": [{"device": "TEST_DEVICE", "slave_id": "1", "pins": ["TEMP"]}],
                                         "operator": "gt",
                                         "threshold": 80.0,
                                     },
@@ -180,7 +184,6 @@ class TestEvaluateWithTimeRanges:
                                         }
                                     ],
                                 },
-                                # Time Override: 09:00-12:00
                                 {
                                     "name": "Morning Fixed",
                                     "code": "MORNING_FIXED",
@@ -188,7 +191,7 @@ class TestEvaluateWithTimeRanges:
                                     "active_time_ranges": [{"start": "09:00", "end": "12:00"}],
                                     "composite": {
                                         "type": "threshold",
-                                        "sources": ["TEMP"],
+                                        "sources": [{"device": "TEST_DEVICE", "slave_id": "1", "pins": ["TEMP"]}],
                                         "operator": "gte",
                                         "threshold": 0.0,
                                     },
@@ -202,14 +205,13 @@ class TestEvaluateWithTimeRanges:
                                         }
                                     ],
                                 },
-                                # Normal Control: no time restriction
                                 {
                                     "name": "Speed Up",
                                     "code": "SPEED_UP",
                                     "priority": 90,
                                     "composite": {
                                         "type": "threshold",
-                                        "sources": ["TEMP"],
+                                        "sources": [{"device": "TEST_DEVICE", "slave_id": "1", "pins": ["TEMP"]}],
                                         "operator": "gt",
                                         "threshold": 25.0,
                                     },
@@ -349,7 +351,7 @@ class TestEvaluateWithTimeRanges:
                                     ],
                                     "composite": {
                                         "type": "threshold",
-                                        "sources": ["TEMP"],
+                                        "sources": [{"device": "TEST_DEVICE", "slave_id": "1", "pins": ["TEMP"]}],
                                         "operator": "gte",
                                         "threshold": 0.0,
                                     },
@@ -402,7 +404,14 @@ class TestEvaluateWithTimeRanges:
 
 
 class TestEdgeCases:
-    """Tests for edge cases"""
+
+    @pytest.fixture
+    def min_action(self):
+        return ControlActionSchema(
+            type="turn_off",
+            model="TECO_VFD",
+            slave_id="1",
+        )
 
     @pytest.fixture
     def evaluator(self):
@@ -411,51 +420,35 @@ class TestEdgeCases:
         return ControlEvaluator(config, constraint)
 
     def test_midnight_boundary(self, evaluator):
-        """Test midnight boundary behavior"""
-
         rule = ConditionSchema(
             name="Overnight",
             code="OVERNIGHT",
             priority=10,
             active_time_ranges=[TimeRange(start="23:00", end="01:00")],
-            actions=[],
+            actions=[
+                ControlActionSchema(
+                    type="turn_off",
+                    model="TECO_VFD",
+                    slave_id="1",
+                )
+            ],
         )
 
-        # 23:30 - should be active
-        datetime_now = datetime(2025, 1, 13, 23, 30, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
+        assert evaluator._is_time_active(rule, _now(2025, 1, 13, 23, 30)) is True
+        assert evaluator._is_time_active(rule, _now(2025, 1, 14, 0, 30)) is True
+        assert evaluator._is_time_active(rule, _now(2025, 1, 14, 2, 0)) is False
 
-        # 00:30 - should be active (crossing midnight)
-        datetime_now = datetime(2025, 1, 14, 0, 30, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is True
-
-        # 02:00 - should be inactive
-        datetime_now = datetime(2025, 1, 14, 2, 0, 0, tzinfo=TIMEZONE_INFO)
-        time_now = datetime_now.time()
-        assert evaluator._is_time_active(rule, time_now) is False
-
-    def test_all_day_range(self, evaluator):
-        """Test all-day range (00:00-23:59)"""
-
+    def test_all_day_range(self, evaluator, min_action):
         rule = ConditionSchema(
             name="All Day",
             code="ALL_DAY",
             priority=10,
             active_time_ranges=[TimeRange(start="00:00", end="23:59")],
-            actions=[],
+            actions=[min_action],
         )
 
-        # Should be active at any time
-        test_times = [
-            datetime(2025, 1, 13, 0, 0, 0, tzinfo=TIMEZONE_INFO),
-            datetime(2025, 1, 13, 12, 0, 0, tzinfo=TIMEZONE_INFO),
-            datetime(2025, 1, 13, 23, 59, 0, tzinfo=TIMEZONE_INFO),
-        ]
-
-        for now in test_times:
-            assert evaluator._is_time_active(rule, now.time()) is True
+        assert evaluator._is_time_active(rule, _now(2025, 1, 13, 0, 0)) is True
+        assert evaluator._is_time_active(rule, _now(2025, 1, 13, 23, 59)) is True
 
 
 if __name__ == "__main__":

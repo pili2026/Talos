@@ -4,6 +4,7 @@ from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.control_composite import CompositeNode
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
+from core.schema.control_condition_source_schema import Source
 
 
 class TestControlExecutorBasic:
@@ -112,12 +113,18 @@ class TestControlExecutorBasic:
 
         node = CompositeNode(
             type=ConditionType.THRESHOLD,
-            sources=["ALERT"],
+            sources=[{"device": "TEST_DEVICE", "slave_id": "1", "pins": ["ALERT"]}],
             operator=ConditionOperator.NOT_EQUAL,
             threshold=0.0,
         )
 
         snapshot = {"ALERT": 2.0}
-        result = evaluator.evaluate_composite_node(node, lambda k: snapshot.get(k))
+
+        def get_value(k):
+            if isinstance(k, Source):
+                return snapshot.get(k.pins[0]) if k.pins else None
+            return snapshot.get(k)
+
+        result = evaluator.evaluate_composite_node(node, get_value)
 
         assert result is True

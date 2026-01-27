@@ -101,9 +101,12 @@ SD400:
           priority: 10
           composite:
             any:
-              - type: threshold
+              - sources_id: discrete_temp
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 25.0
           policy:
@@ -120,16 +123,17 @@ SD400:
           priority: 11
           composite:
             any:
-              - type: threshold
+              - sources_id: abs_temp
+                type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 25.0
           policy:
             type: absolute_linear
-            condition_type: threshold
-            sources:
-              - AIn01
+            input_sources_id: abs_temp
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
@@ -144,20 +148,27 @@ SD400:
           priority: 12
           composite:
             any:
-              - type: difference
-                sources: [AIn01, AIn02]
+              - sources_id: inc_diff
+                type: difference
+                sources:
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn02]
                 operator: gt
                 threshold: 4.0
           policy:
             type: incremental_linear
-            condition_type: difference
-            sources: [AIn01, AIn02]
+            input_sources_id: inc_diff
             gain_hz_per_unit: 1.5
           actions:
             - model: TECO_VFD
               slave_id: "2"
               type: adjust_frequency
               target: RW_HZ
+
 """
         config_dict = yaml.safe_load(yaml_text)
         version = config_dict.pop("version", "1.0.0")
@@ -337,7 +348,9 @@ SD400:
             any:
               - type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 30.0
           policy:
@@ -356,7 +369,9 @@ SD400:
             any:
               - type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 32.0
           policy:
@@ -394,7 +409,9 @@ SD400:
             any:
               - type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 30.0
           policy:
@@ -414,7 +431,9 @@ SD400:
             any:
               - type: threshold
                 sources:
-                  - AIn01
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 32.0
           policy:
@@ -426,6 +445,7 @@ SD400:
               target: RW_HZ
               value: 60
               emergency_override: true
+
 """
         config_dict = yaml.safe_load(yaml_text)
         version = config_dict.pop("version", "1.0.0")

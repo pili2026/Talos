@@ -49,16 +49,23 @@ SD400:
           priority: 12
           composite:
             any:
-              - type: threshold
-                sources:  
-                  - AIn01
+              - sources_id: high_temp_ain01
+                type: threshold
+                sources:
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 40.0
                 hysteresis: 1.0
                 debounce_sec: 0.5
-              - type: threshold
+
+              - sources_id: high_temp_ain03
+                type: threshold
                 sources:
-                  - AIn03
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn03]
                 operator: between
                 min: 3.0
                 max: 5.0
@@ -78,17 +85,18 @@ SD400:
           priority: 11
           composite:
             any:
-              - type: threshold
-                sources:  
-                  - AIn01
+              - sources_id: lin_abs_temp
+                type: threshold
+                sources:
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
                 operator: gt
                 threshold: 25.0
                 abs: false
           policy:
             type: absolute_linear
-            condition_type: threshold
-            sources:  
-              - AIn01
+            input_sources_id: lin_abs_temp
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
@@ -104,26 +112,41 @@ SD400:
           priority: 10
           composite:
             any:
-              - type: difference
-                sources: [AIn01, AIn02]
+              - sources_id: lin_inc_diff_pos
+                type: difference
+                sources:
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn02]
                 operator: gt
                 threshold: 4.0
                 abs: false
-              - type: difference
-                sources: [AIn01, AIn02]
+
+              - sources_id: lin_inc_diff_neg
+                type: difference
+                sources:
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn01]
+                  - device: SD400
+                    slave_id: "3"
+                    pins: [AIn02]
                 operator: lt
                 threshold: -4.0
                 abs: false
           policy:
             type: incremental_linear
-            condition_type: difference
-            sources: [AIn01, AIn02]
+            input_sources_id: lin_inc_diff_pos
             gain_hz_per_unit: 1.5
           actions:
             - model: TECO_VFD
               slave_id: "2"
               type: adjust_frequency
               target: RW_HZ
+
 """
 
     @pytest.fixture
@@ -140,7 +163,7 @@ SD400:
 
     @pytest.fixture
     def mock_device(self):
-        """Mock AsyncGenericModbusDevice with proper AsyncMock for async methods"""
+        """Mock AsyncGenericModbusDevice"""
         mock_device = Mock()
         mock_device.model = "TECO_VFD"
         mock_device.slave_id = "2"
@@ -149,10 +172,9 @@ SD400:
             "RW_ON_OFF": {"writable": True, "address": 8192},
         }
 
-        mock_device.read_value = AsyncMock(return_value=50.0)  # Current frequency 50.0 Hz
+        mock_device.read_value = AsyncMock(return_value=50.0)
         mock_device.write_value = AsyncMock(return_value=None)
         mock_device.write_on_off = AsyncMock(return_value=None)
-        # Keep Mock for synchronous methods
         mock_device.supports_on_off = Mock(return_value=True)
         return mock_device
 
@@ -177,18 +199,13 @@ SD400:
         self, control_evaluator, control_executor, mock_device_manager, mock_device
     ):
         """T1.1: DISCRETE_SETPOINT"""
-        # Arrange: Trigger HIGH_TEMP but avoid triggering other conditions
-        # HIGH_TEMP: AIn01 > 40.0 (priority=80)
-        # LIN_ABS01: AIn01 > 25.0 (priority=85) ← must avoid triggering this
-        # Solution: Use AIn03 between condition to trigger DISCRETE
-
-        snapshot = {"AIn03": 4.0}  # Trigger between 3.0~5.0, avoid triggering other conditions
+        snapshot = {"AIn03": 4.0}
         model, slave_id = "SD400", "3"
 
-        # Act: Evaluator generates action
+        # Act
         actions = control_evaluator.evaluate(model, slave_id, snapshot)
 
-        # Assert: Verify generated action
+        # Assert
         assert len(actions) == 1
         action = actions[0]
 
@@ -203,12 +220,9 @@ SD400:
             },
         )
 
-        # Act: Executor executes action (using async execute method)
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
+        await control_executor.execute([action])
 
-        await control_executor.execute([action])  # Pass in action list
-
-        # Assert: Verify execution result
         mock_device_manager.get_device_by_model_and_slave_id.assert_called_once_with("TECO_VFD", "2")
         mock_device.write_value.assert_called_once_with("RW_HZ", 45.0)
 
@@ -216,22 +230,18 @@ SD400:
     async def test_when_absolute_linear_condition_triggered_then_calculates_linear_frequency(
         self, control_evaluator, control_executor, mock_device_manager, mock_device
     ):
-        """T1.2: ABSOLUTE_LINEAR - Linear calculation"""
-        # Arrange: Trigger LIN_ABS01 but avoid triggering INCREMENTAL
-        # LIN_ABS01: AIn01 > 25.0 (priority=85)
-        # LIN_INC01: |AIn01-AIn02| > 4.0 (priority=90) ← must avoid triggering this
-        snapshot = {"AIn01": 30.0, "AIn02": 28.0}  # Difference 2°C < 4°C，not triggering INCREMENTAL
+        """T1.2: ABSOLUTE_LINEAR"""
+        snapshot = {"AIn01": 30.0, "AIn02": 28.0}
         model, slave_id = "SD400", "3"
 
-        # Act: Evaluator generates action
+        # Act
         actions = control_evaluator.evaluate(model, slave_id, snapshot)
 
-        # Assert: Verify calculation result
+        # Assert
         assert len(actions) == 1
         action = actions[0]
 
-        # Expected value calculation: base_freq + (temp - base_temp) * gain
-        # 40.0 + (30.0 - 25.0) * 1.2 = 40.0 + 6.0 = 46.0
+        # Expected: 40.0 + (30.0 - 25.0) * 1.2 = 46.0
         expected_frequency = 46.0
 
         self._verify_action_properties(
@@ -245,27 +255,23 @@ SD400:
             },
         )
 
-        # Act: Executor executes action
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
-
         await control_executor.execute([action])
 
-        # Assert: Verify execution result
         mock_device.write_value.assert_called_once_with("RW_HZ", 46.0)
 
     @pytest.mark.asyncio
     async def test_when_incremental_linear_condition_triggered_then_adjusts_frequency_by_difference(
         self, control_evaluator, control_executor, mock_device_manager, mock_device
     ):
-        """T1.3: INCREMENTAL_LINEAR - Incremental adjustment"""
-        # Arrange: Trigger LIN_INC01 (highest priority, overrides others)
-        snapshot = {"AIn01": 35.0, "AIn02": 25.0}  # Difference 10°C > 4°C
+        """T1.3: INCREMENTAL_LINEAR"""
+        snapshot = {"AIn01": 35.0, "AIn02": 25.0}
         model, slave_id = "SD400", "3"
 
         # Act
         actions = control_evaluator.evaluate(model, slave_id, snapshot)
 
-        # Assert:
+        # Assert
         assert len(actions) == 2
         action = actions[0]
 
@@ -282,14 +288,12 @@ SD400:
             },
         )
 
-        # Act: Executor executes action (ADJUST_FREQUENCY needs to read current value first)
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
-        mock_device.read_value.return_value = 50.0  # Currently frequency 50.0 Hz
+        mock_device.read_value.return_value = 50.0
 
         await control_executor.execute([action])
 
-        # Assert: Verify calculation result
-        mock_device.read_value.assert_called_once_with("RW_HZ")  # Read current value
+        mock_device.read_value.assert_called_once_with("RW_HZ")
         expected_new_freq = 50.0 + 1.5
         mock_device.write_value.assert_called_once_with("RW_HZ", expected_new_freq)
 

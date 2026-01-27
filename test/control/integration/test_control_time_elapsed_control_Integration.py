@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from pydantic import ValidationError
 
 from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.control_composite import CompositeNode
@@ -232,42 +233,32 @@ class TestCompositeNodeValidation:
         assert node.invalid is False
 
     def test_when_missing_interval_hours_then_validation_fails(self):
-        """Test that missing interval_hours marks node as invalid"""
-        # Act
-        node = CompositeNode(type=ConditionType.TIME_ELAPSED, interval_hours=None)
-
-        # Assert
-        assert node.invalid is True
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(type=ConditionType.TIME_ELAPSED, interval_hours=None)
+        assert "time_elapsed condition requires 'interval_hours'" in str(exc_info.value)
 
     def test_when_negative_interval_hours_then_validation_fails(self):
-        """Test that negative interval_hours marks node as invalid"""
-        # Act
-        node = CompositeNode(type=ConditionType.TIME_ELAPSED, interval_hours=-1.0)
-
-        # Assert
-        assert node.invalid is True
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(type=ConditionType.TIME_ELAPSED, interval_hours=-1.0)
+        assert "time_elapsed 'interval_hours' must be positive" in str(exc_info.value)
 
     def test_when_time_elapsed_with_operator_then_validation_fails(self):
-        """Test that time_elapsed should not have operator"""
-        # Act
-        node = CompositeNode(
-            type=ConditionType.TIME_ELAPSED,
-            interval_hours=4.0,
-            operator=ConditionOperator.GREATER_THAN,  # Should not have this
-        )
-
-        # Assert
-        assert node.invalid is True
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.TIME_ELAPSED,
+                interval_hours=4.0,
+                operator=ConditionOperator.GREATER_THAN,
+            )
+        assert "time_elapsed condition should not specify 'operator'" in str(exc_info.value)
 
     def test_when_time_elapsed_with_sources_then_validation_fails(self):
-        """Test that time_elapsed should not have sources"""
-        # Act
-        node = CompositeNode(
-            type=ConditionType.TIME_ELAPSED, interval_hours=4.0, sources=["AIn01"]  # Should not have this
-        )
-
-        # Assert
-        assert node.invalid is True
+        with pytest.raises(ValidationError) as exc_info:
+            CompositeNode(
+                type=ConditionType.TIME_ELAPSED,
+                interval_hours=4.0,
+                sources=[{"device": "TEST_DEVICE", "slave_id": "1", "pins": ["AIn01"]}],
+            )
+        assert "time_elapsed condition should not specify 'sources'" in str(exc_info.value)
 
 
 class TestBuildCompositReasonSummary:
@@ -296,7 +287,7 @@ class TestBuildCompositReasonSummary:
                 CompositeNode(type=ConditionType.TIME_ELAPSED, interval_hours=4.0),
                 CompositeNode(
                     type=ConditionType.THRESHOLD,
-                    sources=["AIn01"],
+                    sources=[{"device": "SD400", "slave_id": "3", "pins": ["AIn01"]}],
                     operator=ConditionOperator.GREATER_THAN,
                     threshold=30.0,
                 ),

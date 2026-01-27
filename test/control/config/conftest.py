@@ -5,7 +5,7 @@ import pytest
 
 @pytest.fixture
 def valid_sd400_config_data() -> dict[str, Any]:
-    """Valid SD400 configuration data for testing"""
+    """Valid SD400 configuration data for testing (v2.0 format)"""
     return {
         "version": "1.0.0",
         "SD400": {
@@ -22,8 +22,9 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             "composite": {
                                 "any": [
                                     {
+                                        "sources_id": "SD400.3:AIn01",
                                         "type": "threshold",
-                                        "sources": ["AIn01"],
+                                        "sources": [{"device": "SD400", "slave_id": "3", "pins": ["AIn01"]}],
                                         "operator": "gt",
                                         "threshold": 40.0,
                                         "hysteresis": 1.0,
@@ -50,8 +51,9 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             "composite": {
                                 "any": [
                                     {
+                                        "sources_id": "SD400.3:AIn01",
                                         "type": "threshold",
-                                        "sources": ["AIn01"],
+                                        "sources": [{"device": "SD400", "slave_id": "3", "pins": ["AIn01"]}],
                                         "operator": "gt",
                                         "threshold": 25.0,
                                     }
@@ -59,8 +61,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                "condition_type": "threshold",
-                                "sources": ["AIn01"],
+                                "input_sources_id": "SD400.3:AIn01",
                                 "base_freq": 40.0,
                                 "base_temp": 25.0,
                                 "gain_hz_per_unit": 1.2,
@@ -71,7 +72,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                                     "slave_id": "2",
                                     "type": "set_frequency",
                                     "target": "RW_HZ",
-                                    "value": 0.0,  # float placeholder (computed later)
+                                    "value": 0.0,  # executor/engine should overwrite based on computed policy output
                                 }
                             ],
                         },
@@ -83,8 +84,12 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             "composite": {
                                 "any": [
                                     {
+                                        "sources_id": "SD400.3:AIn01-AIn02",
                                         "type": "difference",
-                                        "sources": ["AIn01", "AIn02"],
+                                        "sources": [
+                                            {"device": "SD400", "slave_id": "3", "pins": ["AIn01"]},
+                                            {"device": "SD400", "slave_id": "3", "pins": ["AIn02"]},
+                                        ],
                                         "operator": "gt",
                                         "threshold": 4.0,
                                     }
@@ -92,8 +97,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "incremental_linear",
-                                "condition_type": "difference",
-                                "sources": ["AIn01", "AIn02"],
+                                "input_sources_id": "SD400.3:AIn01-AIn02",
                                 "gain_hz_per_unit": 1.5,
                             },
                             "actions": [
@@ -102,7 +106,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                                     "slave_id": "2",
                                     "type": "adjust_frequency",
                                     "target": "RW_HZ",
-                                    "value": 1.5,
+                                    "value": 1.5,  # usually "base step"; policy may scale this
                                 }
                             ],
                         },
@@ -144,7 +148,10 @@ def config_with_source_kind_legacy() -> dict[str, Any]:
                                 "any": [
                                     {
                                         "type": "difference",
-                                        "sources": ["AIn01", "AIn02"],
+                                        "sources": [
+                                            {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                                            {"device": "SD400", "slave_id": "1", "pins": ["AIn02"]},
+                                        ],
                                         "operator": "gt",
                                         "threshold": 2.0,
                                     }
@@ -189,7 +196,14 @@ def config_with_invalid_action_type() -> dict[str, Any]:
                             "code": "INVALID_ACTION",
                             "priority": 10,
                             "composite": {
-                                "any": [{"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 10.0}]
+                                "any": [
+                                    {
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 10.0,
+                                    }
+                                ]
                             },
                             "policy": {"type": "discrete_setpoint"},
                             "actions": [
@@ -221,7 +235,14 @@ def config_with_duplicate_priorities() -> dict[str, Any]:
                     "code": "DEFAULT_RULE",
                     "priority": 80,
                     "composite": {
-                        "any": [{"type": "threshold", "sources": ["AIn01"], "operator": "gt", "threshold": 50.0}]
+                        "any": [
+                            {
+                                "type": "threshold",
+                                "sources": [{"device": "SD400", "slave_id": "2", "pins": ["AIn01"]}],
+                                "operator": "gt",
+                                "threshold": 50.0,
+                            }
+                        ]
                     },
                     "policy": {"type": "discrete_setpoint"},
                     "actions": [
@@ -245,7 +266,12 @@ def config_with_duplicate_priorities() -> dict[str, Any]:
                             "priority": 80,
                             "composite": {
                                 "any": [
-                                    {"type": "threshold", "sources": ["AIn01"], "operator": "gt", "threshold": 60.0}
+                                    {
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "2", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 60.0,
+                                    }
                                 ]
                             },
                             "policy": {"type": "discrete_setpoint"},
@@ -328,53 +354,17 @@ def config_with_missing_action() -> dict[str, Any]:
                             "code": "NO_ACTIONS",
                             "priority": 10,
                             "composite": {
-                                "any": [{"type": "threshold", "source": "AIn01", "operator": "gt", "threshold": 10.0}]
+                                "any": [
+                                    {
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 10.0,
+                                    }
+                                ]
                             },
                             "policy": {"type": "discrete_setpoint"},
                             # Missing actions field entirely
-                        }
-                    ],
-                }
-            },
-        },
-    }
-
-
-@pytest.fixture
-def config_with_invalid_policy() -> dict[str, Any]:
-    """Configuration with invalid policy (missing required fields)"""
-    return {
-        "version": "1.0.0",
-        "SD400": {
-            "default_controls": [],
-            "instances": {
-                "1": {
-                    "use_default_controls": False,
-                    "controls": [
-                        {
-                            "name": "Invalid Policy",
-                            "code": "INVALID_POLICY",
-                            "priority": 10,
-                            "composite": {
-                                "any": [
-                                    {"type": "threshold", "sources": ["AIn01"], "operator": "gt", "threshold": 10.0}
-                                ]
-                            },
-                            "policy": {
-                                "type": "absolute_linear",
-                                "condition_type": "threshold",
-                                "sources": ["AIn01"],
-                                # Missing required base_freq, base_temp, gain_hz_per_unit
-                            },
-                            "actions": [
-                                {
-                                    "model": "TECO_VFD",
-                                    "slave_id": "1",
-                                    "type": "set_frequency",
-                                    "target": "RW_HZ",
-                                    "value": 10.0,
-                                }
-                            ],
                         }
                     ],
                 }
@@ -400,7 +390,12 @@ def config_with_string_frequency_value() -> dict[str, Any]:
                             "priority": 10,
                             "composite": {
                                 "any": [
-                                    {"type": "threshold", "sources": ["AIn01"], "operator": "gt", "threshold": 10.0}
+                                    {
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 10.0,
+                                    }
                                 ]
                             },
                             "policy": {"type": "discrete_setpoint"},
@@ -423,7 +418,11 @@ def config_with_string_frequency_value() -> dict[str, Any]:
 
 @pytest.fixture
 def config_with_string_adjust_frequency_value() -> dict[str, Any]:
-    """Configuration with ADJUST_FREQUENCY action having string value"""
+    """
+    Configuration with string value for ADJUST_FREQUENCY action.
+
+    Tests that action.value is properly coerced from string to float.
+    """
     return {
         "version": "1.0.0",
         "SD400": {
@@ -435,17 +434,23 @@ def config_with_string_adjust_frequency_value() -> dict[str, Any]:
                         {
                             "name": "Adjust Frequency Test",
                             "code": "ADJUST_FREQ_TEST",
-                            "priority": 10,
                             "composite": {
                                 "any": [
-                                    {"type": "threshold", "sources": ["AIn01"], "operator": "gt", "threshold": 10.0}
+                                    {
+                                        "sources_id": "cond_0",  # ✅ v2.0: condition ID
+                                        "type": "threshold",
+                                        "sources": [  # ✅ v2.0: Source objects
+                                            {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}
+                                        ],
+                                        "operator": "gt",
+                                        "threshold": 10.0,
+                                    }
                                 ]
                             },
                             "policy": {
                                 "type": "incremental_linear",
-                                "condition_type": "threshold",
-                                "sources": ["AIn01"],
-                                "gain_hz_per_unit": 1.0,
+                                "input_sources_id": "cond_0",  # ✅ v2.0: input reference
+                                "gain_hz_per_unit": 1.5,
                             },
                             "actions": [
                                 {
@@ -453,7 +458,7 @@ def config_with_string_adjust_frequency_value() -> dict[str, Any]:
                                     "slave_id": "1",
                                     "type": "adjust_frequency",
                                     "target": "RW_HZ",
-                                    "value": "-2.5",  # String value (negative)
+                                    "value": "1.5",
                                 }
                             ],
                         }
@@ -489,7 +494,13 @@ def config_with_circular_reference() -> dict[str, Any]:
                                                         "any": [
                                                             {
                                                                 "type": "threshold",
-                                                                "sources": ["AIn01"],
+                                                                "sources": [
+                                                                    {
+                                                                        "device": "SD400",
+                                                                        "slave_id": "1",
+                                                                        "pins": ["AIn01"],
+                                                                    }
+                                                                ],
                                                                 "operator": "gt",
                                                                 "threshold": 10.0,
                                                             }
@@ -521,7 +532,6 @@ def config_with_circular_reference() -> dict[str, Any]:
 
 @pytest.fixture
 def config_with_invalid_operator_combinations() -> dict[str, Any]:
-    """Configuration with invalid operator-threshold combinations"""
     return {
         "version": "1.0.0",
         "SD400": {
@@ -538,11 +548,12 @@ def config_with_invalid_operator_combinations() -> dict[str, Any]:
                                 "any": [
                                     {
                                         "type": "threshold",
-                                        "sources": ["AIn01"],
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
                                         "operator": "between",
-                                        "min": 15.0,  # min > max (invalid)
-                                        "max": 10.0,
-                                        "threshold": 12.0,
+                                        "min": 15.0,
+                                        "max": 10.0,  # invalid: min >= max
+                                        # optional: deliberately also invalid
+                                        # "threshold": 12.0,
                                     }
                                 ]
                             },
@@ -583,7 +594,10 @@ def config_with_duplicate_difference_sources() -> dict[str, Any]:
                                 "any": [
                                     {
                                         "type": "difference",
-                                        "sources": ["AIn01", "AIn01"],  # Same source
+                                        "sources": [
+                                            {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                                            {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
+                                        ],
                                         "operator": "gt",
                                         "threshold": 5.0,
                                     }
@@ -607,5 +621,149 @@ def config_with_duplicate_difference_sources() -> dict[str, Any]:
                     ],
                 }
             },
+        },
+    }
+
+
+@pytest.fixture
+def config_with_invalid_policy() -> dict[str, Any]:
+    """
+    Configuration with invalid policy (missing required fields for absolute_linear).
+    """
+    return {
+        "version": "1.0.0",
+        "SD400": {
+            "default_controls": [],
+            "instances": {
+                "1": {
+                    "use_default_controls": False,
+                    "controls": [
+                        {
+                            "name": "Invalid Policy - Missing Required Fields",
+                            "code": "INVALID_POLICY",
+                            "priority": 10,
+                            "composite": {
+                                "any": [
+                                    {
+                                        "sources_id": "cond_0",
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 10.0,
+                                    }
+                                ]
+                            },
+                            "policy": {
+                                "type": "absolute_linear",
+                                "input_sources_id": "cond_0",
+                                # ❌ Missing: base_freq, base_temp, gain_hz_per_unit
+                            },
+                            "actions": [
+                                {
+                                    "model": "TECO_VFD",
+                                    "slave_id": "1",
+                                    "type": "set_frequency",
+                                    "target": "RW_HZ",
+                                    "value": 10.0,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        },
+    }
+
+
+@pytest.fixture
+def config_with_missing_input_sources_id() -> dict[str, Any]:
+    """Configuration with policy missing input_sources_id"""
+    return {
+        "version": "1.0.0",
+        "SD400": {
+            "instances": {
+                "1": {
+                    "controls": [
+                        {
+                            "name": "Missing Input Source",
+                            "code": "NO_INPUT",
+                            "composite": {
+                                "any": [
+                                    {
+                                        "sources_id": "cond_0",
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 25.0,
+                                    }
+                                ]
+                            },
+                            "policy": {
+                                "type": "absolute_linear",
+                                # Missing input_sources_id
+                                "base_freq": 40.0,
+                                "base_temp": 25.0,
+                                "gain_hz_per_unit": 1.2,
+                            },
+                            "actions": [
+                                {
+                                    "model": "TECO_VFD",
+                                    "slave_id": "1",
+                                    "type": "set_frequency",
+                                    "target": "RW_HZ",
+                                    "value": 0.0,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        },
+    }
+
+
+@pytest.fixture
+def config_with_wrong_condition_reference() -> dict[str, Any]:
+    """Configuration where policy references non-existent condition ID"""
+    return {
+        "version": "1.0.0",
+        "SD400": {
+            "instances": {
+                "1": {
+                    "controls": [
+                        {
+                            "name": "Wrong Reference",
+                            "code": "BAD_REF",
+                            "composite": {
+                                "any": [
+                                    {
+                                        "sources_id": "cond_0",  # ← Actual condition ID
+                                        "type": "threshold",
+                                        "sources": [{"device": "SD400", "slave_id": "1", "pins": ["AIn01"]}],
+                                        "operator": "gt",
+                                        "threshold": 25.0,
+                                    }
+                                ]
+                            },
+                            "policy": {
+                                "type": "absolute_linear",
+                                "input_sources_id": "wrong_id",  # ← References non-existent ID
+                                "base_freq": 40.0,
+                                "base_temp": 25.0,
+                                "gain_hz_per_unit": 1.2,
+                            },
+                            "actions": [
+                                {
+                                    "model": "TECO_VFD",
+                                    "slave_id": "1",
+                                    "type": "set_frequency",
+                                    "target": "RW_HZ",
+                                    "value": 0.0,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
         },
     }

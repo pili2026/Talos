@@ -42,14 +42,20 @@ class TestEndToEndIntegration:
                   priority: 10
                   composite:
                     any:
-                      - type: difference
-                        sources: [AIn01, AIn02]
+                      - sources_id: cond_0
+                        type: difference
+                        sources:
+                          - device: SD400
+                            slave_id: "3"
+                            pins: [AIn01]
+                          - device: SD400
+                            slave_id: "3"
+                            pins: [AIn02]
                         operator: gt
                         threshold: 4.0
                   policy:
                     type: incremental_linear
-                    condition_type: difference
-                    sources: [AIn01, AIn02]
+                    input_sources_id: cond_0
                     gain_hz_per_unit: 1.5
                   actions:
                     - model: TECO_VFD
@@ -63,13 +69,11 @@ class TestEndToEndIntegration:
         version = config_dict.pop("version", "1.0.0")
         control_config = ControlConfig(version=version, root=config_dict)
 
-        # Mock
+        # Mock device
         mock_device = MagicMock()
         mock_device.model = "TECO_VFD"
         mock_device.slave_id = "2"
-
         mock_device.register_map = {"RW_HZ": {"writable": True}}
-
         mock_device.read_value = AsyncMock(return_value=50.0)
         mock_device.write_value = AsyncMock()
 
@@ -119,7 +123,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                        - device: SD400
+                          slave_id: "3"
+                          pins: [AIn01]
                         operator: gt
                         threshold: 27.0
                   actions:
@@ -134,7 +140,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                          - device: SD400
+                            slave_id: "3"
+                            pins: [AIn01]
                         operator: gt
                         threshold: 28.0
                   actions:
@@ -183,7 +191,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                        - device: SD400
+                          slave_id: "3"
+                          pins: [AIn01]
                         operator: gt
                         threshold: 35.0
                   actions:
@@ -200,7 +210,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                        - device: SD400
+                          slave_id: "3"
+                          pins: [AIn01]
                         operator: gt
                         threshold: 25.0
                   actions:
@@ -248,7 +260,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                        - device: SD400
+                          slave_id: "3"
+                          pins: [AIn01]
                         operator: gt
                         threshold: 25.0
                   actions:
@@ -265,7 +279,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                        - device: SD400
+                          slave_id: "3"
+                          pins: [AIn01]
                         operator: gt
                         threshold: 28.0
                   actions:
@@ -331,7 +347,9 @@ class TestEndToEndIntegration:
                     any:
                       - type: threshold
                         sources:
-                          - AIn01
+                        - device: SD400
+                          slave_id: "3"
+                          pins: [AIn01]
                         operator: gt
                         threshold: 40.0
                   actions:

@@ -8,8 +8,11 @@ from zoneinfo import ZoneInfo
 from core.evaluator.composite_evaluator import CompositeEvaluator
 from core.model.device_constant import DEFAULT_MISSING_VALUE
 from core.model.enum.condition_enum import ConditionType, ControlActionType, ControlPolicyType
+from core.model.control_composite import CompositeNode
+from core.model.enum.condition_enum import AggregationType, ConditionType, ControlActionType, ControlPolicyType
 from core.schema.constraint_schema import ConstraintConfigSchema, InstanceConfig
 from core.schema.control_condition_schema import ConditionSchema, ControlActionSchema
+from core.schema.control_condition_source_schema import Source
 from core.schema.control_config_schema import ControlConfig
 from core.schema.policy_schema import PolicyConfig
 from core.util.time_util import TIMEZONE_INFO
@@ -56,6 +59,70 @@ class ControlEvaluator:
 
         return value_float
 
+    def get_snapshot_value(self, snapshot: dict[str, float], source: Source) -> float | None:
+        """
+        Fetch numeric value from snapshot using Source object.
+
+        Supports both single-pin and multi-pin sources with aggregation.
+
+        Args:
+            snapshot: Device snapshot data (pin -> value mapping)
+            source: Source object defining device/pins/aggregation
+
+        Returns:
+            Aggregated value or None if cannot resolve
+        """
+        if not isinstance(source, Source):
+            logger.warning(f"[EVAL] Invalid source type: {type(source).__name__}")
+            return None
+
+        pins = source.pins or []
+        if not pins:
+            logger.warning("[EVAL] Source has no pins")
+            return None
+
+        # Collect values from snapshot
+        values: list[float] = []
+        for pin in pins:
+            value = snapshot.get(pin)
+            if value is None:
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                logger.warning(f"[EVAL] Invalid value for pin {pin}: {value}")
+                continue
+
+        if not values:
+            return None
+
+        # Single pin - return directly
+        if len(pins) == 1:
+            return values[0]
+
+        # Multi-pin - apply aggregation
+        aggregation = source.get_effective_aggregation()
+        if aggregation is None:
+            return values[0]
+
+        match aggregation:
+            case AggregationType.AVERAGE:
+                return sum(values) / len(values)
+            case AggregationType.SUM:
+                return sum(values)
+            case AggregationType.MIN:
+                return min(values)
+            case AggregationType.MAX:
+                return max(values)
+            case AggregationType.FIRST:
+                return values[0]
+            case AggregationType.LAST:
+                return values[-1]
+            case _:
+                # Fallback to average
+                logger.warning(f"[EVAL] Unknown aggregation: {aggregation}, using average")
+                return sum(values) / len(values)
+
     def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionSchema]:
         """
         Evaluate control conditions and return all matching actions in priority order.
@@ -74,7 +141,6 @@ class ControlEvaluator:
 
         # Get current time for time-based conditions
         datetime_now = datetime.now(self.timezone)
-        current_time = datetime_now.time()
 
         for rule in condition_list:
             if rule.composite is None or rule.composite.invalid:
@@ -82,7 +148,7 @@ class ControlEvaluator:
 
             # Check time-based activation
 
-            if not self._is_time_active(rule, current_time):
+            if not self._is_time_active(rule, datetime_now):
                 logger.debug(f"[EVAL] [{model}_{slave_id}] Skip '{rule.code}': " f"outside active time ranges")
                 continue
 
@@ -102,7 +168,7 @@ class ControlEvaluator:
         )
 
         # Pretty-print matched rules summary
-        self._pretty_log_matched_rules(model, slave_id, triggered_rule_list, snapshot)
+        self._pretty_log_matched_rules(model, slave_id, triggered_rule_list)
 
         # Step 3: Process each rule and collect actions
         result_action_list: list[ControlActionSchema] = []
@@ -194,7 +260,7 @@ class ControlEvaluator:
         return result_action_list
 
     # Time-based activation check
-    def _is_time_active(self, rule: ConditionSchema, current_time: datetime.time) -> bool:
+    def _is_time_active(self, rule: ConditionSchema, now: datetime) -> bool:
         """
         Check if rule is active based on time ranges
 
@@ -211,6 +277,8 @@ class ControlEvaluator:
         # No time restriction → always active
         if not rule.active_time_ranges:
             return True
+
+        current_time = now.time()
 
         # Check if within any time range
         for time_range in rule.active_time_ranges:
@@ -253,10 +321,14 @@ class ControlEvaluator:
             return action
 
         if policy.type == ControlPolicyType.ABSOLUTE_LINEAR:
-            return self._apply_absolute_linear_policy(action=action, policy=policy, snapshot=snapshot)
+            return self._apply_absolute_linear_policy(
+                condition=condition, action=action, policy=policy, snapshot=snapshot
+            )
 
         if policy.type == ControlPolicyType.INCREMENTAL_LINEAR:
-            return self._apply_incremental_linear_policy(action=action, policy=policy, snapshot=snapshot)
+            return self._apply_incremental_linear_policy(
+                condition=condition, action=action, policy=policy, snapshot=snapshot
+            )
 
         logger.warning(f"[EVAL] Unsupported policy type: {policy.type}")
         return action
@@ -312,47 +384,92 @@ class ControlEvaluator:
         return None
 
     def _apply_absolute_linear_policy(
-        self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
+        self, condition: ConditionSchema, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
     ) -> ControlActionSchema | None:
-        condition_value = self._get_condition_value(policy, snapshot)
+        """
+        Apply absolute linear policy using condition reference.
 
-        if condition_value is None:
-            logger.warning("[EVAL] Cannot get condition value for absolute_linear policy")
-            return None
-
+        Formula: target_freq = base_freq + (condition_value - base_temp) * gain
+        """
         # Validate required fields
-        if policy.base_temp is None:
-            logger.warning("[EVAL] ABSOLUTE_LINEAR missing base_temp")
+        if policy.base_freq is None or policy.base_temp is None or policy.gain_hz_per_unit is None:
+            logger.warning("[EVAL] ABSOLUTE_LINEAR missing required fields (base_freq/base_temp/gain)")
             return None
 
-        # Calculate target frequency: base_freq + (temp - base_temp) * gain
-        target_freq: float = policy.base_freq + (condition_value - policy.base_temp) * policy.gain_hz_per_unit
+        if not policy.input_sources_id:
+            logger.warning("[EVAL] ABSOLUTE_LINEAR policy missing 'input_sources_id' field")
+            return None
+
+        # Find condition by ID
+        condition_node = self._find_condition_by_id(condition.composite, policy.input_sources_id)
+        if not condition_node:
+            logger.error(f"[EVAL] Condition ID '{policy.input_sources_id}' not found in composite tree")
+            return None
+
+        # Evaluate condition value
+        condition_value = self._evaluate_condition_value(condition_node, snapshot)
+        if condition_value is None:
+            logger.warning(f"[EVAL] Cannot evaluate condition '{policy.input_sources_id}'")
+            return None
+        # =================================================
+
+        # Calculate target frequency
+        target_freq = policy.base_freq + (condition_value - policy.base_temp) * policy.gain_hz_per_unit
 
         new_action: ControlActionSchema = action.model_copy()
         new_action.value = target_freq
-        new_action.type = ControlActionType.SET_FREQUENCY  # Absolute setting
+        new_action.type = ControlActionType.SET_FREQUENCY
 
         logger.info(
-            f"[EVAL] Absolute linear: condition_value={condition_value:.2f}, "
-            f"base_temp={policy.base_temp}°C, target_freq={target_freq:.2f}Hz"
+            f"[EVAL] Absolute linear: input_sources_id='{policy.input_sources_id}' "
+            f"value={condition_value:.2f}, base_temp={policy.base_temp}°C, "
+            f"target_freq={target_freq:.2f}Hz"
         )
         return new_action
 
     def _apply_incremental_linear_policy(
-        self, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
+        self,
+        condition: ConditionSchema,
+        action: ControlActionSchema,
+        policy: PolicyConfig,
+        snapshot: dict[str, float],
     ) -> ControlActionSchema | None:
-        # Temperature difference control
-        condition_value = self._get_condition_value(policy, snapshot)  # Calculate temperature difference
-        if condition_value is None:
-            logger.warning("[EVAL] Cannot get condition value for incremental_linear policy")
+        """
+        Apply incremental linear policy using condition reference.
+
+        Formula: adjustment = gain_hz_per_unit
+        (The condition value determines IF to adjust, not HOW MUCH)
+        """
+        # Validate required fields
+        if policy.gain_hz_per_unit is None:
+            logger.warning("[EVAL] INCREMENTAL_LINEAR missing gain_hz_per_unit")
             return None
+
+        if not policy.input_sources_id:
+            logger.warning("[EVAL] INCREMENTAL_LINEAR policy missing 'input_sources_id' field")
+            return None
+
+        # Find condition by ID
+        condition_node = self._find_condition_by_id(condition.composite, policy.input_sources_id)
+        if not condition_node:
+            logger.error(f"[EVAL] Condition ID '{policy.input_sources_id}' not found in composite tree")
+            return None
+
+        # Evaluate condition value (for logging purposes)
+        condition_value = self._evaluate_condition_value(condition_node, snapshot)
+        # =================================================
 
         adjustment = policy.gain_hz_per_unit
 
-        new_action: ControlActionSchema = action.model_copy()
-        new_action.type = ControlActionType.ADJUST_FREQUENCY  # Incremental adjustment
+        new_action = action.model_copy()
+        new_action.type = ControlActionType.ADJUST_FREQUENCY
         new_action.value = adjustment
-        logger.info(f"[EVAL] Incremental linear: temp_diff={condition_value}°C, adjustment={adjustment}Hz")
+
+        logger.info(
+            f"[EVAL] Incremental linear: input_sources_id='{policy.input_sources_id}' "
+            f"value={condition_value if condition_value is not None else 'N/A'}, "
+            f"adjustment={adjustment}Hz"
+        )
         return new_action
 
     def _handle_emergency_override(self, action: ControlActionSchema) -> ControlActionSchema | None:
@@ -424,9 +541,7 @@ class ControlEvaluator:
         prefix = " └─" if is_last else " ├─"
         return f"{prefix} {text}"
 
-    def _pretty_log_matched_rules(
-        self, model: str, slave_id: str, matched_rules: list[ConditionSchema], snapshot: dict[str, float]
-    ) -> None:
+    def _pretty_log_matched_rules(self, model: str, slave_id: str, matched_rules: list[ConditionSchema]) -> None:
         """
         Print a human-readable summary for all matched rules.
         - No emojis or special characters.
@@ -551,3 +666,160 @@ class ControlEvaluator:
 
             if not is_last_rule:
                 logger.info(" │")
+
+    def _find_condition_by_id(self, composite: CompositeNode, condition_id: str) -> CompositeNode | None:
+        """
+        Recursively search for a condition node by ID in composite tree.
+
+        Args:
+            composite: Root composite node to search
+            condition_id: Target condition ID
+
+        Returns:
+            CompositeNode if found, None otherwise
+        """
+        if composite is None:
+            return None
+
+        # Check current node
+        if composite.sources_id == condition_id:
+            return composite
+
+        # Search in children (group nodes)
+        if composite.all:
+            for child in composite.all:
+                result = self._find_condition_by_id(child, condition_id)
+                if result:
+                    return result
+
+        if composite.any:
+            for child in composite.any:
+                result = self._find_condition_by_id(child, condition_id)
+                if result:
+                    return result
+
+        if composite.not_:
+            result = self._find_condition_by_id(composite.not_, condition_id)
+            if result:
+                return result
+
+        return None
+
+    def _evaluate_condition_value(self, condition: CompositeNode, snapshot: dict[str, float]) -> float | None:
+        """
+        Evaluate a condition node and return its numeric value.
+
+        This is used by policies to get the condition's computed value.
+
+        Args:
+            condition: Condition node to evaluate
+            snapshot: Current snapshot data
+
+        Returns:
+            Computed value or None if cannot evaluate
+        """
+        if condition.type is None:
+            logger.warning("[EVAL] Cannot evaluate condition without type")
+            return None
+
+        if not condition.sources:
+            logger.warning(f"[EVAL] Condition {condition.sources_id} has no sources")
+            return None
+
+        get_value = partial(self.get_snapshot_value, snapshot)
+
+        # Different evaluation based on condition type
+        match condition.type:
+            case ConditionType.THRESHOLD:
+                # Single source value
+                if len(condition.sources) != 1:
+                    logger.warning(f"[EVAL] THRESHOLD requires 1 source, got {len(condition.sources)}")
+                    return None
+                return get_value(condition.sources[0])
+
+            case ConditionType.DIFFERENCE:
+                # Difference between two sources
+                if len(condition.sources) != 2:
+                    logger.warning(f"[EVAL] DIFFERENCE requires 2 sources, got {len(condition.sources)}")
+                    return None
+
+                v1 = get_value(condition.sources[0])
+                v2 = get_value(condition.sources[1])
+
+                if v1 is None or v2 is None:
+                    return None
+
+                diff = v1 - v2
+                return abs(diff) if condition.abs else diff
+
+            case ConditionType.AVERAGE:
+                # Average of multiple sources
+                if len(condition.sources) < 2:
+                    logger.warning(f"[EVAL] AVERAGE requires >=2 sources, got {len(condition.sources)}")
+                    return None
+
+                values = []
+                for source in condition.sources:
+                    v = get_value(source)
+                    if v is not None:
+                        values.append(v)
+
+                if not values:
+                    return None
+
+                return sum(values) / len(values)
+
+            case ConditionType.SUM:
+                # Sum of multiple sources
+                if len(condition.sources) < 2:
+                    logger.warning(f"[EVAL] SUM requires >=2 sources, got {len(condition.sources)}")
+                    return None
+
+                values = []
+                for source in condition.sources:
+                    v = get_value(source)
+                    if v is not None:
+                        values.append(v)
+
+                if not values:
+                    return None
+
+                return sum(values)
+
+            case ConditionType.MIN:
+                # Minimum of multiple sources
+                if len(condition.sources) < 2:
+                    logger.warning(f"[EVAL] MIN requires >=2 sources, got {len(condition.sources)}")
+                    return None
+
+                values = []
+                for source in condition.sources:
+                    v = get_value(source)
+                    if v is not None:
+                        values.append(v)
+
+                if not values:
+                    return None
+
+                return min(values)
+
+            case ConditionType.MAX:
+                # Maximum of multiple sources
+                if len(condition.sources) < 2:
+                    logger.warning(f"[EVAL] MAX requires >=2 sources, got {len(condition.sources)}")
+                    return None
+
+                values = []
+                for source in condition.sources:
+                    v = get_value(source)
+                    if v is not None:
+                        values.append(v)
+
+                if not values:
+                    return None
+
+                return max(values)
+
+            case _:
+                logger.warning(f"[EVAL] Unsupported condition type for value evaluation: {condition.type}")
+                return None
