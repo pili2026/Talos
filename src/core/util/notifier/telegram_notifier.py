@@ -90,9 +90,9 @@ class TelegramNotifier(WebhookNotifier):
             device_info = f"{alert.device_name} <code>({alert.model}_{alert.slave_id})</code>"
             message_parts.append(f"<b>{labels['device']}:</b> {device_info}")
 
-        # Add name
-        if "name" in labels:
-            message_parts.append(f"<b>{labels['name']}:</b> {alert.name}")
+        # Add name(Skip ths at present)
+        # if "name" in labels:
+        #     message_parts.append(f"<b>{labels['name']}:</b> {alert.name}")
 
         # Add time
         message_parts.append(f"<b>{labels['time']}:</b> {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
