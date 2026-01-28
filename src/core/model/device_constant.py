@@ -1,3 +1,6 @@
+from core.model.enum.condition_enum import ControlActionType
+from core.model.enum.device_constant_enum import DeviceConstantEnum
+
 REG_RW_ON_OFF = (
     "RW_ON_OFF"  # Already Added in device_constant_enums.py, kept here for completeness, can be removed later if needed
 )
@@ -29,3 +32,15 @@ POWER_METER_FIELDS = {
     "Kwh": {"common": False, "round": 2},  # Not common (pattern-dependent)
     "Kvarh": {"common": False, "round": 2},
 }
+
+
+# Default target mapping
+DEFAULT_TARGET_BY_ACTION: dict[ControlActionType, str] = {
+    ControlActionType.SET_FREQUENCY: DeviceConstantEnum.REG_RW_HZ.value,
+    ControlActionType.ADJUST_FREQUENCY: DeviceConstantEnum.REG_RW_HZ.value,
+    ControlActionType.WRITE_DO: DeviceConstantEnum.REG_RW_DO.value,
+    ControlActionType.RESET: DeviceConstantEnum.REG_RW_RESET.value,
+}
+
+# Numeric equality tolerance for value writes
+VALUE_TOLERANCE: float = 0.0
