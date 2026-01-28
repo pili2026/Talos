@@ -236,23 +236,23 @@ class ConditionSchema(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_policy_input_sources_id(self):
+    def validate_policy_input_source(self):
         """Validate that linear policies reference valid conditions"""
         if not self.policy or not self.composite:
             return self
 
-        # Linear policies require input_sources_id
+        # Linear policies require input_source
         if self.policy.type in {ControlPolicyType.ABSOLUTE_LINEAR, ControlPolicyType.INCREMENTAL_LINEAR}:
-            if not self.policy.input_sources_id:
+            if not self.policy.input_source:
                 raise ValueError(
-                    f"Control '{self.code}': {self.policy.type.value} policy " f"requires 'input_sources_id' field"
+                    f"Control '{self.code}': {self.policy.type.value} policy " f"requires 'input_source' field"
                 )
 
-            # Verify input_sources_id references a valid condition
-            if not self._find_condition_by_id(self.composite, self.policy.input_sources_id):
+            # Verify input_source references a valid condition
+            if not self._find_condition_by_id(self.composite, self.policy.input_source):
                 raise ValueError(
-                    f"Control '{self.code}': Policy input_sources_id='{self.policy.input_sources_id}' "
-                    f"not found in composite. Please add sources_id='{self.policy.input_sources_id}' "
+                    f"Control '{self.code}': Policy input_source='{self.policy.input_source}' "
+                    f"not found in composite. Please add sources_id='{self.policy.input_source}' "
                     f"to the condition you want to reference."
                 )
 

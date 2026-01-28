@@ -61,7 +61,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                "input_sources_id": "SD400.3:AIn01",
+                                "input_source": "SD400.3:AIn01",
                                 "base_freq": 40.0,
                                 "base_temp": 25.0,
                                 "gain_hz_per_unit": 1.2,
@@ -97,7 +97,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "incremental_linear",
-                                "input_sources_id": "SD400.3:AIn01-AIn02",
+                                "input_source": "SD400.3:AIn01-AIn02",
                                 "gain_hz_per_unit": 1.5,
                             },
                             "actions": [
@@ -449,7 +449,7 @@ def config_with_string_adjust_frequency_value() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "incremental_linear",
-                                "input_sources_id": "cond_0",  # ✅ v2.0: input reference
+                                "input_source": "cond_0",
                                 "gain_hz_per_unit": 1.5,
                             },
                             "actions": [
@@ -655,7 +655,7 @@ def config_with_invalid_policy() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                "input_sources_id": "cond_0",
+                                "input_source": "cond_0",
                                 # ❌ Missing: base_freq, base_temp, gain_hz_per_unit
                             },
                             "actions": [
@@ -676,8 +676,8 @@ def config_with_invalid_policy() -> dict[str, Any]:
 
 
 @pytest.fixture
-def config_with_missing_input_sources_id() -> dict[str, Any]:
-    """Configuration with policy missing input_sources_id"""
+def config_with_missing_input_source() -> dict[str, Any]:
+    """Configuration with policy missing input_source"""
     return {
         "version": "1.0.0",
         "SD400": {
@@ -700,7 +700,7 @@ def config_with_missing_input_sources_id() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                # Missing input_sources_id
+                                # Missing input_source
                                 "base_freq": 40.0,
                                 "base_temp": 25.0,
                                 "gain_hz_per_unit": 1.2,
@@ -747,7 +747,7 @@ def config_with_wrong_condition_reference() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "absolute_linear",
-                                "input_sources_id": "wrong_id",  # ← References non-existent ID
+                                "input_source": "wrong_id",  # ← References non-existent ID
                                 "base_freq": 40.0,
                                 "base_temp": 25.0,
                                 "gain_hz_per_unit": 1.2,

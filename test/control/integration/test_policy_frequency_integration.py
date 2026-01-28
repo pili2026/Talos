@@ -96,7 +96,7 @@ SD400:
                 abs: false
           policy:
             type: absolute_linear
-            input_sources_id: lin_abs_temp
+            input_source: lin_abs_temp
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
@@ -139,7 +139,7 @@ SD400:
                 abs: false
           policy:
             type: incremental_linear
-            input_sources_id: lin_inc_diff_pos
+            input_source: lin_inc_diff_pos
             gain_hz_per_unit: 1.5
           actions:
             - model: TECO_VFD

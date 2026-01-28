@@ -112,15 +112,15 @@ class TestVersionValidation:
 
 
 class TestPolicyInputSourceReference:
-    """Tests for v2.0 policy input_sources_id reference mechanism"""
+    """Tests for v2.0 policy input_source reference mechanism"""
 
-    def test_when_policy_uses_input_sources_id_then_references_condition_correctly(self, valid_sd400_config_data):
+    def test_when_policy_uses_input_source_then_references_condition_correctly(self, valid_sd400_config_data):
         """
         Test that policies correctly reference conditions by sources_id.
 
         v2.0 Design:
         - Composite conditions have sources_id
-        - Policies reference conditions via input_sources_id
+        - Policies reference conditions via input_source
         - Condition type information is in composite, not policy
         """
         # Arrange
@@ -151,7 +151,7 @@ class TestPolicyInputSourceReference:
         abs_control = absolute_linear_controls[0]
 
         # Policy should reference condition by ID
-        assert abs_control.policy.input_sources_id == "SD400.3:AIn01"
+        assert abs_control.policy.input_source == "SD400.3:AIn01"
 
         # Policy should have required parameters
         assert abs_control.policy.base_freq == 40.0
@@ -180,7 +180,7 @@ class TestPolicyInputSourceReference:
         inc_control = incremental_linear_controls[0]
 
         # Policy should reference condition by ID
-        assert inc_control.policy.input_sources_id == "SD400.3:AIn01-AIn02"
+        assert inc_control.policy.input_source == "SD400.3:AIn01-AIn02"
 
         # Policy should have required parameters
         assert inc_control.policy.gain_hz_per_unit == 1.5
@@ -203,8 +203,8 @@ class TestPolicyInputSourceReference:
         # === Test DISCRETE_SETPOINT policy ===
         discrete_control = discrete_setpoint_controls[0]
 
-        # Discrete setpoint should NOT have input_sources_id
-        assert discrete_control.policy.input_sources_id is None
+        # Discrete setpoint should NOT have input_source
+        assert discrete_control.policy.input_source is None
 
     def _find_all_leaf_conditions(self, composite: CompositeNode) -> list[CompositeNode]:
         """Helper: Recursively find all leaf conditions in composite tree"""
@@ -251,7 +251,7 @@ class TestAutoGenerateConditionIds:
             },
             "policy": {
                 "type": "absolute_linear",
-                "input_sources_id": "cond_0",
+                "input_source": "cond_0",
                 "base_freq": 40.0,
                 "base_temp": 25.0,
                 "gain_hz_per_unit": 1.2,
@@ -277,7 +277,7 @@ class TestAutoGenerateConditionIds:
         assert leaf_conditions[0].sources_id == "cond_0"
 
         # Policy should reference the auto-generated ID
-        assert condition.policy.input_sources_id == "cond_0"
+        assert condition.policy.input_source == "cond_0"
 
     def test_when_multiple_conditions_without_ids_then_auto_generated_sequentially(self):
         """Test that multiple conditions get sequential auto-generated IDs"""
@@ -308,7 +308,7 @@ class TestAutoGenerateConditionIds:
             },
             "policy": {
                 "type": "absolute_linear",
-                "input_sources_id": "cond_1",
+                "input_source": "cond_1",
                 "base_temp": 0.0,
                 "base_freq": 40.0,
                 "gain_hz_per_unit": 2.0,
@@ -336,7 +336,7 @@ class TestAutoGenerateConditionIds:
         assert leaf_conditions[1].sources_id == "cond_1"
 
         # Policy should reference the second condition
-        assert condition.policy.input_sources_id == "cond_1"
+        assert condition.policy.input_source == "cond_1"
 
     def test_when_sources_id_provided_then_not_overwritten(self):
         """Test that manually provided sources_id is preserved"""
@@ -357,7 +357,7 @@ class TestAutoGenerateConditionIds:
             },
             "policy": {
                 "type": "absolute_linear",
-                "input_sources_id": "my_custom_temp_sensor",
+                "input_source": "my_custom_temp_sensor",
                 "base_freq": 40.0,
                 "base_temp": 25.0,
                 "gain_hz_per_unit": 1.2,
@@ -383,7 +383,7 @@ class TestAutoGenerateConditionIds:
         assert leaf_conditions[0].sources_id == "my_custom_temp_sensor"
 
         # Policy should reference the custom ID
-        assert condition.policy.input_sources_id == "my_custom_temp_sensor"
+        assert condition.policy.input_source == "my_custom_temp_sensor"
 
     def _find_all_leaf_conditions(self, composite: CompositeNode) -> list[CompositeNode]:
         """Helper: Recursively find all leaf conditions"""
@@ -633,7 +633,7 @@ class TestInvalidPolicyHandling:
         assert len(controls) == 0  # Invalid policy rule should be filtered out
         assert "invalid policy" in caplog.text or "absolute_linear policy requires" in caplog.text
 
-    def test_when_absolute_linear_missing_input_sources_id_then_validation_error_is_raised(self):
+    def test_when_absolute_linear_missing_input_source_then_validation_error_is_raised(self):
         config_data = {
             "version": "1.0.0",
             "SD400": {
@@ -657,7 +657,7 @@ class TestInvalidPolicyHandling:
                                 },
                                 "policy": {
                                     "type": "absolute_linear",
-                                    # missing input_sources_id
+                                    # missing input_source
                                     "base_freq": 40.0,
                                     "base_temp": 25.0,
                                     "gain_hz_per_unit": 1.2,
@@ -686,7 +686,7 @@ class TestInvalidPolicyHandling:
         msg = str(exc_info.value).lower()
         assert "no_input" in msg
         assert "absolute_linear" in msg
-        assert "input_sources_id" in msg
+        assert "input_source" in msg
 
     def test_when_incremental_linear_missing_gain_then_filtered(self, caplog):
         """Test that incremental_linear without gain is filtered out"""
@@ -716,7 +716,7 @@ class TestInvalidPolicyHandling:
                                 },
                                 "policy": {
                                     "type": "incremental_linear",
-                                    "input_sources_id": "cond_0",
+                                    "input_source": "cond_0",
                                     # Missing gain_hz_per_unit
                                 },
                                 "actions": [
@@ -770,7 +770,7 @@ class TestInvalidPolicyHandling:
                                 },
                                 "policy": {
                                     "type": "absolute_linear",
-                                    "input_sources_id": "nonexistent_id",
+                                    "input_source": "nonexistent_id",
                                     "base_freq": 40.0,
                                     "base_temp": 25.0,
                                     "gain_hz_per_unit": 1.2,
@@ -797,7 +797,7 @@ class TestInvalidPolicyHandling:
             ControlConfig(version="1.0.0", root=root_data)
 
         msg = str(exc_info.value)
-        assert "input_sources_id" in msg
+        assert "input_source" in msg
         assert "not found in composite" in msg.lower()
 
 

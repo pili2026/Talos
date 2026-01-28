@@ -89,7 +89,7 @@ class TestControlEvaluatorPolicyProcessing:
 
         mock_policy = Mock()
         mock_policy.type = ControlPolicyType.ABSOLUTE_LINEAR
-        mock_policy.input_sources_id = "cond_0"
+        mock_policy.input_source = "cond_0"
         mock_policy.base_freq = 40.0
         mock_policy.base_temp = 25.0
         mock_policy.gain_hz_per_unit = 1.2
@@ -128,7 +128,7 @@ class TestControlEvaluatorPolicyProcessing:
         # Mock policy
         mock_policy = Mock()
         mock_policy.type = ControlPolicyType.ABSOLUTE_LINEAR
-        mock_policy.input_sources_id = "cond_0"
+        mock_policy.input_source = "cond_0"
         mock_policy.base_freq = 40.0
         mock_policy.base_temp = 25.0
         mock_policy.gain_hz_per_unit = 1.2
@@ -171,7 +171,7 @@ class TestControlEvaluatorPolicyProcessing:
 
         mock_policy = Mock()
         mock_policy.type = ControlPolicyType.INCREMENTAL_LINEAR
-        mock_policy.input_sources_id = "cond_0"
+        mock_policy.input_source = "cond_0"
         mock_policy.gain_hz_per_unit = 1.5
 
         mock_condition = Mock()
@@ -209,7 +209,7 @@ class TestControlEvaluatorPolicyProcessing:
 
         mock_policy = Mock()
         mock_policy.type = ControlPolicyType.INCREMENTAL_LINEAR
-        mock_policy.input_sources_id = "cond_0"
+        mock_policy.input_source = "cond_0"
         mock_policy.gain_hz_per_unit = -1.5
 
         mock_condition = Mock()
@@ -312,7 +312,7 @@ class TestControlEvaluatorIntegration:
         # Mock policy
         mock_policy = Mock()
         mock_policy.type = ControlPolicyType.ABSOLUTE_LINEAR
-        mock_policy.input_sources_id = "cond_0"
+        mock_policy.input_source = "cond_0"
         mock_policy.base_freq = 40.0
         mock_policy.base_temp = 25.0
         mock_policy.gain_hz_per_unit = 1.2

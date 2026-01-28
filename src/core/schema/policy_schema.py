@@ -32,7 +32,7 @@ class PolicyConfig(BaseModel):
     )
 
     type: ControlPolicyType = Field(..., description="Policy type")
-    input_sources_id: str | None = Field(default=None, description="Condition ID to reference")
+    input_source: str | None = Field(default=None, description="Condition ID to reference")
 
     # Absolute linear policy parameters
     base_freq: float | None = Field(default=None, description="Base frequency output at base_temp input")
@@ -50,10 +50,8 @@ class PolicyConfig(BaseModel):
 
         # Linear policies require input reference
         if self.type in {ControlPolicyType.ABSOLUTE_LINEAR, ControlPolicyType.INCREMENTAL_LINEAR}:
-            if not self.input_sources_id:
-                problems.append(
-                    f"{self.type.value} policy requires 'input_sources_id' field " f"(condition ID reference)"
-                )
+            if not self.input_source:
+                problems.append(f"{self.type.value} policy requires 'input_source' field " f"(condition ID reference)")
 
         # Absolute linear specific validations
         match self.type:
@@ -72,8 +70,8 @@ class PolicyConfig(BaseModel):
                 if self.gain_hz_per_unit is None:
                     problems.append("incremental_linear policy requires gain_hz_per_unit")
             case ControlPolicyType.DISCRETE_SETPOINT:
-                if self.input_sources_id is not None:
-                    logger.warning("[POLICY] discrete_setpoint policy does not use 'input_sources_id' field")
+                if self.input_source is not None:
+                    logger.warning("[POLICY] discrete_setpoint policy does not use 'input_source' field")
 
         if problems:
             for msg in problems:

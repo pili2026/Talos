@@ -55,7 +55,7 @@ class TestEndToEndIntegration:
                         threshold: 4.0
                   policy:
                     type: incremental_linear
-                    input_sources_id: cond_0
+                    input_source: cond_0
                     gain_hz_per_unit: 1.5
                   actions:
                     - model: TECO_VFD

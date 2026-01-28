@@ -133,7 +133,7 @@ SD400:
                 threshold: 25.0
           policy:
             type: absolute_linear
-            input_sources_id: abs_temp
+            input_source: abs_temp
             base_freq: 40.0
             base_temp: 25.0
             gain_hz_per_unit: 1.2
@@ -161,7 +161,7 @@ SD400:
                 threshold: 4.0
           policy:
             type: incremental_linear
-            input_sources_id: inc_diff
+            input_source: inc_diff
             gain_hz_per_unit: 1.5
           actions:
             - model: TECO_VFD
