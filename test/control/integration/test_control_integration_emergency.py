@@ -92,7 +92,7 @@ class TestEmergencyControlIntegration:
 
         executor = ControlExecutor(mock_device_manager)
 
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act: Evaluate
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -160,7 +160,7 @@ SD400:
 
         executor = ControlExecutor(mock_device_manager)
 
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -216,7 +216,7 @@ SD400:
 
         evaluator = ControlEvaluator(control_config, constraint_config_no_limit)
 
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -271,7 +271,7 @@ SD400:
         evaluator = ControlEvaluator(control_config, constraint_config_with_limit_50)
 
         # Normal temperature: 30°C < 32°C threshold
-        snapshot = {"AIn01": 30.0}
+        snapshot = {"SD400_3": {"AIn01": 30.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -319,7 +319,7 @@ SD400:
         evaluator = ControlEvaluator(control_config, constraint_config_with_limit_50)
 
         # Exactly at threshold: 32.0 == 32.0 (not > 32.0)
-        snapshot = {"AIn01": 32.0}
+        snapshot = {"SD400_3": {"AIn01": 32.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -392,7 +392,7 @@ SD400:
 
         evaluator = ControlEvaluator(control_config, constraint_config_with_limit_50)
 
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -467,7 +467,7 @@ SD400:
         evaluator = ControlEvaluator(control_config, constraint_config_with_limit_50)
 
         # Both conditions triggered: 35°C > 30°C and 35°C > 32°C
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -559,7 +559,7 @@ SD400:
         evaluator = ControlEvaluator(control_config, constraint_config)
 
         # Only VFD1 triggers: AIn01 > 32.0, AIn02 < 34.0
-        snapshot = {"AIn01": 35.0, "AIn02": 33.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0, "AIn02": 33.0}}
 
         # Act
         actions = evaluator.evaluate("SD400", "3", snapshot)
@@ -628,7 +628,7 @@ SD400:
         executor = ControlExecutor(mock_device_manager)
 
         # Emergency temperature
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act: Step 1 - Evaluate
         actions = evaluator.evaluate("SD400", "3", snapshot)

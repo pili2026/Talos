@@ -63,7 +63,7 @@ def valid_sd400_config_data() -> dict[str, Any]:
                                 "type": "absolute_linear",
                                 "input_source": "SD400.3:AIn01",
                                 "base_freq": 40.0,
-                                "base_temp": 25.0,
+                                "base_value": 25.0,
                                 "gain_hz_per_unit": 1.2,
                             },
                             "actions": [
@@ -593,6 +593,7 @@ def config_with_duplicate_difference_sources() -> dict[str, Any]:
                             "composite": {
                                 "any": [
                                     {
+                                        "sources_id": "cond_0",
                                         "type": "difference",
                                         "sources": [
                                             {"device": "SD400", "slave_id": "1", "pins": ["AIn01"]},
@@ -605,8 +606,7 @@ def config_with_duplicate_difference_sources() -> dict[str, Any]:
                             },
                             "policy": {
                                 "type": "incremental_linear",
-                                "condition_type": "difference",
-                                "sources": ["AIn01", "AIn01"],
+                                "input_source": "cond_0",
                                 "gain_hz_per_unit": 1.5,
                             },
                             "actions": [
@@ -656,7 +656,7 @@ def config_with_invalid_policy() -> dict[str, Any]:
                             "policy": {
                                 "type": "absolute_linear",
                                 "input_source": "cond_0",
-                                # ❌ Missing: base_freq, base_temp, gain_hz_per_unit
+                                # ❌ Missing: base_freq, base_value, gain_hz_per_unit
                             },
                             "actions": [
                                 {
@@ -702,7 +702,7 @@ def config_with_missing_input_source() -> dict[str, Any]:
                                 "type": "absolute_linear",
                                 # Missing input_source
                                 "base_freq": 40.0,
-                                "base_temp": 25.0,
+                                "base_value": 25.0,
                                 "gain_hz_per_unit": 1.2,
                             },
                             "actions": [
@@ -749,7 +749,7 @@ def config_with_wrong_condition_reference() -> dict[str, Any]:
                                 "type": "absolute_linear",
                                 "input_source": "wrong_id",  # ← References non-existent ID
                                 "base_freq": 40.0,
-                                "base_temp": 25.0,
+                                "base_value": 25.0,
                                 "gain_hz_per_unit": 1.2,
                             },
                             "actions": [

@@ -35,8 +35,8 @@ class PolicyConfig(BaseModel):
     input_source: str | None = Field(default=None, description="Condition ID to reference")
 
     # Absolute linear policy parameters
-    base_freq: float | None = Field(default=None, description="Base frequency output at base_temp input")
-    base_temp: float | None = Field(default=None, description="Base temperature (or other input value)")
+    base_freq: float | None = Field(default=None, description="Base frequency output at base_value input")
+    base_value: float | None = Field(default=None, description="Base temperature (or other input value)")
     gain_hz_per_unit: float | None = Field(
         default=None, description="Frequency change per unit input change (Hz/°C, Hz/kPa, etc.)"
     )
@@ -59,8 +59,8 @@ class PolicyConfig(BaseModel):
                 missing = []
                 if self.base_freq is None:
                     missing.append("base_freq")
-                if self.base_temp is None:
-                    missing.append("base_temp")
+                if self.base_value is None:
+                    missing.append("base_value")
                 if self.gain_hz_per_unit is None:
                     missing.append("gain_hz_per_unit")
 

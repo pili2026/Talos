@@ -98,7 +98,7 @@ SD400:
             type: absolute_linear
             input_source: lin_abs_temp
             base_freq: 40.0
-            base_temp: 25.0
+            base_value: 25.0
             gain_hz_per_unit: 1.2
           actions:
             - model: TECO_VFD
@@ -199,7 +199,7 @@ SD400:
         self, control_evaluator, control_executor, mock_device_manager, mock_device
     ):
         """T1.1: DISCRETE_SETPOINT"""
-        snapshot = {"AIn03": 4.0}
+        snapshot = {"SD400_3": {"AIn03": 4.0}}
         model, slave_id = "SD400", "3"
 
         # Act
@@ -231,7 +231,7 @@ SD400:
         self, control_evaluator, control_executor, mock_device_manager, mock_device
     ):
         """T1.2: ABSOLUTE_LINEAR"""
-        snapshot = {"AIn01": 30.0, "AIn02": 28.0}
+        snapshot = {"SD400_3": {"AIn01": 30.0, "AIn02": 28.0}}
         model, slave_id = "SD400", "3"
 
         # Act
@@ -265,7 +265,7 @@ SD400:
         self, control_evaluator, control_executor, mock_device_manager, mock_device
     ):
         """T1.3: INCREMENTAL_LINEAR"""
-        snapshot = {"AIn01": 35.0, "AIn02": 25.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0, "AIn02": 25.0}}
         model, slave_id = "SD400", "3"
 
         # Act

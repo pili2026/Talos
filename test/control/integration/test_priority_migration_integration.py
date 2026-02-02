@@ -100,7 +100,7 @@ class TestPriorityMigrationIntegration:
         with patch("core.evaluator.control_evaluator.datetime") as dt:
             dt.now.return_value = fixed_now
 
-            snapshot = {"AIn01": 40.0, "AIn02": 40.0, "AIn03": 40.0}
+            snapshot = {"ADAM-4117_12": {"AIn01": 40.0, "AIn02": 40.0, "AIn03": 40.0}}
             actions = evaluator.evaluate("ADAM-4117", "12", snapshot)
 
         assert len(actions) > 0

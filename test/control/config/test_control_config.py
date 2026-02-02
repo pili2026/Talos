@@ -155,7 +155,7 @@ class TestPolicyInputSourceReference:
 
         # Policy should have required parameters
         assert abs_control.policy.base_freq == 40.0
-        assert abs_control.policy.base_temp == 25.0
+        assert abs_control.policy.base_value == 25.0
         assert abs_control.policy.gain_hz_per_unit == 1.2
 
         # Composite should have the referenced condition
@@ -253,7 +253,7 @@ class TestAutoGenerateConditionIds:
                 "type": "absolute_linear",
                 "input_source": "cond_0",
                 "base_freq": 40.0,
-                "base_temp": 25.0,
+                "base_value": 25.0,
                 "gain_hz_per_unit": 1.2,
             },
             "actions": [
@@ -309,7 +309,7 @@ class TestAutoGenerateConditionIds:
             "policy": {
                 "type": "absolute_linear",
                 "input_source": "cond_1",
-                "base_temp": 0.0,
+                "base_value": 0.0,
                 "base_freq": 40.0,
                 "gain_hz_per_unit": 2.0,
             },
@@ -359,7 +359,7 @@ class TestAutoGenerateConditionIds:
                 "type": "absolute_linear",
                 "input_source": "my_custom_temp_sensor",
                 "base_freq": 40.0,
-                "base_temp": 25.0,
+                "base_value": 25.0,
                 "gain_hz_per_unit": 1.2,
             },
             "actions": [
@@ -659,7 +659,7 @@ class TestInvalidPolicyHandling:
                                     "type": "absolute_linear",
                                     # missing input_source
                                     "base_freq": 40.0,
-                                    "base_temp": 25.0,
+                                    "base_value": 25.0,
                                     "gain_hz_per_unit": 1.2,
                                 },
                                 "actions": [
@@ -772,7 +772,7 @@ class TestInvalidPolicyHandling:
                                     "type": "absolute_linear",
                                     "input_source": "nonexistent_id",
                                     "base_freq": 40.0,
-                                    "base_temp": 25.0,
+                                    "base_value": 25.0,
                                     "gain_hz_per_unit": 1.2,
                                 },
                                 "actions": [

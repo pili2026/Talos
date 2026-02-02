@@ -84,7 +84,7 @@ class TestEndToEndIntegration:
         evaluator = ControlEvaluator(control_config, constraint_config_schema)
         executor = ControlExecutor(mock_device_manager)
 
-        snapshot = {"AIn01": 38.0, "AIn02": 25.0}
+        snapshot = {"SD400_3": {"AIn01": 38.0, "AIn02": 25.0}}
         model, slave_id = "SD400", "3"
 
         actions = evaluator.evaluate(model, slave_id, snapshot)
@@ -159,7 +159,7 @@ class TestEndToEndIntegration:
         evaluator = ControlEvaluator(control_config, constraint_config_schema)
 
         # Temperature 29°C triggers both rules
-        snapshot = {"AIn01": 29.0}
+        snapshot = {"SD400_3": {"AIn01": 29.0}}
         model, slave_id = "SD400", "3"
 
         # Act
@@ -232,7 +232,7 @@ class TestEndToEndIntegration:
         evaluator = ControlEvaluator(control_config, constraint_config_schema)
 
         # Temperature 36°C triggers both rules, but emergency blocks normal
-        snapshot = {"AIn01": 36.0}
+        snapshot = {"SD400_3": {"AIn01": 36.0}}
         model, slave_id = "SD400", "3"
 
         actions = evaluator.evaluate(model, slave_id, snapshot)
@@ -312,7 +312,7 @@ class TestEndToEndIntegration:
         executor = ControlExecutor(mock_device_manager)
 
         # Temperature 29°C triggers both rules
-        snapshot = {"AIn01": 29.0}
+        snapshot = {"SD400_3": {"AIn01": 29.0}}
         model, slave_id = "SD400", "3"
 
         # Act

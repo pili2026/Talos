@@ -135,7 +135,7 @@ SD400:
             type: absolute_linear
             input_source: abs_temp
             base_freq: 40.0
-            base_temp: 25.0
+            base_value: 25.0
             gain_hz_per_unit: 1.2
           actions:
             - model: TECO_VFD
@@ -189,7 +189,7 @@ SD400:
         - INC value = +1.5 (positive difference)
         """
         # Arrange
-        snapshot = {"AIn01": 35.0, "AIn02": 25.0}  # diff=10
+        snapshot = {"SD400_3": {"AIn01": 35.0, "AIn02": 25.0}}  # diff=10
 
         # Act
         actions = evaluator.evaluate(MODEL_SD400, INSTANCE_ID, snapshot)
@@ -476,7 +476,7 @@ SD400:
         Executor: same target → final write uses Emergency (60).
         """
         # Arrange
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act
         actions = evaluator_nonblocking.evaluate(MODEL_SD400, INSTANCE_ID, snapshot)
@@ -504,7 +504,7 @@ SD400:
     ) -> None:
         """blocking=true → Evaluator returns only Emergency."""
         # Arrange
-        snapshot = {"AIn01": 35.0}
+        snapshot = {"SD400_3": {"AIn01": 35.0}}
 
         # Act
         actions = evaluator_blocking.evaluate(MODEL_SD400, INSTANCE_ID, snapshot)

@@ -14,7 +14,6 @@ class TestControlExecutorGeneral:
     ):
         """Test that actions requiring value are skipped when value is truly None (using Mock)"""
         # Arrange - Use Mock to force None value since Pydantic converts None to default
-        from unittest.mock import Mock
 
         action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
@@ -22,6 +21,8 @@ class TestControlExecutorGeneral:
         action.type = ControlActionType.SET_FREQUENCY
         action.target = "RW_HZ"
         action.value = None  # This will stay None since it's a mock
+        action.priority = 90
+        action.reason = ""
 
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
 
@@ -160,7 +161,6 @@ class TestControlExecutorGeneral:
     ):
         """Test that tolerance check skips write for identical string values using Mock"""
         # Arrange - Use Mock to test string values since ControlActionModel only accepts numbers
-        from unittest.mock import Mock
 
         action = Mock(spec=ControlActionSchema)
         action.model = "TECO_VFD"
@@ -168,6 +168,8 @@ class TestControlExecutorGeneral:
         action.type = ControlActionType.WRITE_DO
         action.target = "RW_DO"
         action.value = "ON"  # String value (only possible with Mock)
+        action.priority = 90
+        action.reason = ""
 
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
         mock_device.read_value.return_value = "ON"  # Same string value

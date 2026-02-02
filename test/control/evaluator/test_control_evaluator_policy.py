@@ -91,7 +91,7 @@ class TestControlEvaluatorPolicyProcessing:
         mock_policy.type = ControlPolicyType.ABSOLUTE_LINEAR
         mock_policy.input_source = "cond_0"
         mock_policy.base_freq = 40.0
-        mock_policy.base_temp = 25.0
+        mock_policy.base_value = 25.0
         mock_policy.gain_hz_per_unit = 1.2
 
         # Mock condition
@@ -104,7 +104,7 @@ class TestControlEvaluatorPolicyProcessing:
         mock_action.model_copy = Mock(return_value=Mock())
 
         # Snapshot
-        snapshot = {"AIn01": 29.0}
+        snapshot = {"SD400_1": {"AIn01": 29.0}}
 
         # Act
         result = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
@@ -113,8 +113,8 @@ class TestControlEvaluatorPolicyProcessing:
         assert result is not None
         assert result.value == 44.8
 
-    def test_when_absolute_linear_at_base_temp_then_uses_base_frequency(self, control_evaluator):
-        """Test absolute_linear uses base frequency when temp equals base_temp"""
+    def test_when_absolute_linear_at_base_value_then_uses_base_frequency(self, control_evaluator):
+        """Test absolute_linear uses base frequency when temp equals base_value"""
 
         real_source = Source(device="SD400", slave_id="1", pins=["AIn01"])
         real_composite = CompositeNode(
@@ -130,7 +130,7 @@ class TestControlEvaluatorPolicyProcessing:
         mock_policy.type = ControlPolicyType.ABSOLUTE_LINEAR
         mock_policy.input_source = "cond_0"
         mock_policy.base_freq = 40.0
-        mock_policy.base_temp = 25.0
+        mock_policy.base_value = 25.0
         mock_policy.gain_hz_per_unit = 1.2
 
         # Mock condition
@@ -142,8 +142,8 @@ class TestControlEvaluatorPolicyProcessing:
         mock_action = Mock()
         mock_action.model_copy = Mock(return_value=Mock())
 
-        # Temperature equals base_temp: 25°C
-        snapshot = {"AIn01": 25.0}
+        # Temperature equals base_value: 25°C
+        snapshot = snapshot = {"SD400_1": {"AIn01": 25.0}}
 
         # Act
         result = control_evaluator._apply_policy_to_action(mock_condition, mock_action, snapshot)
@@ -300,7 +300,7 @@ class TestControlEvaluatorIntegration:
     ):
         caplog.set_level(logging.DEBUG)
 
-        real_source = Source(device="TECO_VFD", slave_id="2", pins=["AIn01"])
+        real_source = Source(device="SD400", slave_id="2", pins=["AIn01"])
         real_composite = CompositeNode(
             sources_id="cond_0",
             type=ConditionType.THRESHOLD,
@@ -314,7 +314,7 @@ class TestControlEvaluatorIntegration:
         mock_policy.type = ControlPolicyType.ABSOLUTE_LINEAR
         mock_policy.input_source = "cond_0"
         mock_policy.base_freq = 40.0
-        mock_policy.base_temp = 25.0
+        mock_policy.base_value = 25.0
         mock_policy.gain_hz_per_unit = 1.2
 
         # Mock action
@@ -346,7 +346,7 @@ class TestControlEvaluatorIntegration:
         control_evaluator.control_config.get_control_list.return_value = [mock_condition]
 
         # Snapshot
-        snapshot = {"AIn01": 29.0}
+        snapshot = {"SD400_2": {"AIn01": 29.0}}
 
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
@@ -362,20 +362,30 @@ class TestControlEvaluatorIntegration:
 
     def test_when_no_conditions_match_then_returns_empty_list(self, control_evaluator):
         """Test that empty list is returned when no conditions match"""
-        # Arrange
-        mock_condition = Mock(spec=ConditionSchema)
+
         mock_composite = Mock()
+        mock_composite.invalid = False
+
+        mock_condition = Mock(spec=ConditionSchema)
+        mock_condition.code = "TEST_CONDITION"
+        mock_condition.name = "Test Condition"
+        mock_condition.priority = 90
+        mock_condition.blocking = False
+        mock_condition.active_time_ranges = []
         mock_condition.composite = mock_composite
+        mock_condition.policy = None
+        mock_condition.actions = []
 
         # Composite evaluation returns False (condition doesn't match)
         control_evaluator.composite_evaluator.evaluate_composite_node.return_value = False
 
         control_evaluator.control_config.get_control_list.return_value = [mock_condition]
 
-        snapshot = {"AIn01": 20.0, "AIn02": 20.0}
+        snapshot = {"TECO_VFD_2": {"AIn01": 20.0, "AIn02": 20.0}}
 
         # Act
         result = control_evaluator.evaluate("TECO_VFD", "2", snapshot)
 
         # Assert
+        assert result == []
         assert len(result) == 0

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
 from core.schema.control_condition_schema import CompositeNode
+from core.schema.control_condition_source_schema import Source
 from core.util.time_util import TIMEZONE_INFO
 from repository.control_execution_store import ControlExecutionStore
 
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 Number = float | int
-ValueGetter = Callable[[str], Number | None]  # e.g., lambda key: snapshot.get(key)
+ValueGetter = Callable[[Source], Number | None]  # e.g., lambda key: snapshot.get(key)
 
 
 class CompositeEvaluator:
@@ -314,17 +315,18 @@ class CompositeEvaluator:
 
         # Calculate aggregated value
         try:
-            if node.type == ConditionType.AVERAGE:
-                aggregated = sum(values) / len(values)
-            elif node.type == ConditionType.SUM:
-                aggregated = sum(values)
-            elif node.type == ConditionType.MIN:
-                aggregated = min(values)
-            elif node.type == ConditionType.MAX:
-                aggregated = max(values)
-            else:
-                # Unknown aggregate type
-                return False
+            match node.type:
+                case ConditionType.AVERAGE:
+                    aggregated = sum(values) / len(values)
+                case ConditionType.SUM:
+                    aggregated = sum(values)
+                case ConditionType.MIN:
+                    aggregated = min(values)
+                case ConditionType.MAX:
+                    aggregated = max(values)
+                case _:
+                    # Unknown aggregate type
+                    return False
 
             # Convert to float for comparison
             aggregated = float(aggregated)

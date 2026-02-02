@@ -5,7 +5,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from core.model.enum.condition_enum import ConditionOperator, ConditionType
+from core.model.enum.condition_enum import AggregationType, ConditionOperator, ConditionType
 from core.schema.control_condition_source_schema import Source
 
 logger = logging.getLogger(__name__)
@@ -14,48 +14,15 @@ logger = logging.getLogger(__name__)
 class CompositeNode(BaseModel):
     """
     Composite condition tree node (v2.0).
-
-    Supports hierarchical condition evaluation with multi-device data sources.
-
-    Breaking Changes from v1.x:
-        - sources field now only accepts list[Source] objects
-        - Legacy list[str] format is NO LONGER supported
-        - Use Source objects with explicit device/slave_id/pins specification
-
-    Examples:
-        # Simple threshold
-        CompositeNode(
-            type=ConditionType.THRESHOLD,
-            sources=[Source(device="ADAM-4117", slave_id="12", pins=["AIn01"])],
-            operator=ConditionOperator.GREATER_THAN,
-            threshold=40.0
-        )
-
-        # Hierarchical aggregation
-        CompositeNode(
-            type=ConditionType.DIFFERENCE,
-            sources=[
-                Source(
-                    device="ADAM-4117",
-                    slave_id="12",
-                    pins=["AIn01", "AIn02"],
-                    aggregation=AggregationType.AVERAGE
-                ),
-                Source(
-                    device="ADAM-4117",
-                    slave_id="14",
-                    pins=["AIn01", "AIn02"],
-                    aggregation=AggregationType.AVERAGE
-                )
-            ],
-            operator=ConditionOperator.GREATER_THAN,
-            threshold=30.0
-        )
     """
 
     model_config = ConfigDict(
-        str_strip_whitespace=True, use_enum_values=False, validate_assignment=True, populate_by_name=True
+        str_strip_whitespace=True,
+        use_enum_values=False,
+        validate_assignment=True,
+        populate_by_name=True,
     )
+
     sources_id: str | None = Field(
         default=None,
         description=(
@@ -79,7 +46,7 @@ class CompositeNode(BaseModel):
     hysteresis: float | None = None
     debounce_sec: float | None = None
 
-    # threshold condition fields
+    # threshold / numeric fields
     threshold: float | None = None
     min: float | None = None
     max: float | None = None
@@ -93,6 +60,10 @@ class CompositeNode(BaseModel):
 
     # validation state
     invalid: bool = False
+
+    # =========================
+    # Tree utilities
+    # =========================
 
     def calculate_max_depth(self, visited: set[int] | None = None) -> int:
         """Calculate maximum nesting depth of the composite tree."""
@@ -108,7 +79,7 @@ class CompositeNode(BaseModel):
         max_child_depth = 0
 
         try:
-            child_nodes = []
+            child_nodes: list[CompositeNode] = []
             if self.all:
                 child_nodes.extend(self.all)
             if self.any:
@@ -127,9 +98,13 @@ class CompositeNode(BaseModel):
 
         return max_child_depth + 1
 
+    # =========================
+    # Root validator
+    # =========================
+
     @model_validator(mode="after")
     def validate_structure(self) -> CompositeNode:
-        """Validate composite structure"""
+        """Validate composite structure."""
         problems: list[str] = []
 
         group_count = sum(x is not None for x in (self.all, self.any, self.not_))
@@ -146,7 +121,6 @@ class CompositeNode(BaseModel):
                     "leaf(type=threshold|difference|average|sum|min|max|time_elapsed)"
                 )
 
-        # ---- Advanced validations (only if basic structure is valid) ----
         if not problems:
             depth = self.calculate_max_depth()
             if depth == -1:
@@ -161,10 +135,14 @@ class CompositeNode(BaseModel):
 
         return self
 
+    # =========================
+    # Field validators
+    # =========================
+
     @field_validator("hysteresis", "debounce_sec", "threshold", "min", "max", "interval_hours")
     @classmethod
     def validate_numeric_fields(cls, v, info):
-        """Ensure numeric fields are non-negative where applicable"""
+        """Ensure numeric fields are non-negative where applicable."""
         if v is not None:
             try:
                 float_v = float(v)
@@ -178,9 +156,42 @@ class CompositeNode(BaseModel):
                 return None
         return v
 
+    # =========================
+    # Helpers (signatures / identity)
+    # =========================
+
+    def _build_input_signature(self, source: Source, pin: str) -> tuple[str, str, str, str | None]:
+        """
+        Build a unique identity for a single input pin.
+        Used to detect duplicated inputs in difference conditions.
+        """
+        aggregation = source.get_effective_aggregation()
+        aggregation_value = aggregation.value if aggregation else None
+        return (source.device, str(source.slave_id), pin, aggregation_value)
+
+    def _expand_sources_to_input_signatures(self, sources: list[Source]) -> list[tuple[str, str, str, str | None]]:
+        """Expand sources into per-pin input signatures."""
+        signatures: list[tuple[str, str, str, str | None]] = []
+        for source in sources:
+            for pin in source.pins:
+                signatures.append(self._build_input_signature(source, pin))
+        return signatures
+
+    def _build_source_signature(self, source: Source) -> tuple[str, str, tuple[str, ...], str | None]:
+        """
+        Build a unique identity for a Source (device/slave + pins + aggregation).
+        Used to detect duplicated sources in aggregate conditions.
+        """
+        aggregation = source.get_effective_aggregation()
+        aggregation_value = aggregation.value if aggregation else None
+        return (source.device, str(source.slave_id), tuple(source.pins), aggregation_value)
+
+    # =========================
+    # Operator + threshold rules (THRESHOLD only)
+    # =========================
+
     def _validate_operator_threshold_combination(self) -> list[str]:
-        """Validate operator and threshold field combinations for leaf nodes"""
-        problems = []
+        problems: list[str] = []
 
         if self.type != ConditionType.THRESHOLD:
             return problems
@@ -222,25 +233,26 @@ class CompositeNode(BaseModel):
                     problems.append("NOT_EQUAL operator should not specify 'min' or 'max' (use 'threshold')")
 
             case _:
-                logger.warning(f"Operator '{operator.value}' is not supported")
+                if operator is not None:
+                    logger.warning(f"Operator '{operator.value}' is not supported")
 
         return problems
 
-    def _validate_group_node(self) -> list[str]:
-        """Validate group node (all / any / not_)"""
-        problems: list[str] = []
+    # =========================
+    # Group nodes
+    # =========================
 
+    def _validate_group_node(self) -> list[str]:
+        problems: list[str] = []
         problems.extend(self._validate_group_children("all", self.all))
         problems.extend(self._validate_group_children("any", self.any))
 
-        # not_ is a single child
         if self.not_ is not None and self.not_.invalid:
             problems.append("'not' contains invalid child node")
 
         return problems
 
     def _validate_group_children(self, group_name: str, children: list[CompositeNode] | None) -> list[str]:
-        """Shared validation logic for 'all' and 'any' groups."""
         problems: list[str] = []
 
         if children is None:
@@ -251,7 +263,6 @@ class CompositeNode(BaseModel):
         elif len(children) > self.MAX_CHILDREN_PER_NODE:
             problems.append(f"'{group_name}' cannot have more than {self.MAX_CHILDREN_PER_NODE} children")
 
-        # Always check child validity regardless of count issues
         if children:
             invalid_indices = [i for i, child in enumerate(children) if child.invalid]
             if invalid_indices:
@@ -259,10 +270,11 @@ class CompositeNode(BaseModel):
 
         return problems
 
-    # ====== Leaf node dispatcher (match-case by type) ======
+    # =========================
+    # Leaf dispatcher
+    # =========================
 
     def _validate_leaf_node(self) -> list[str]:
-        """Dispatch leaf validation based on condition type."""
         problems: list[str] = []
 
         if self.type is None:
@@ -283,7 +295,9 @@ class CompositeNode(BaseModel):
 
         return problems
 
-    # ====== THRESHOLD leaf ======
+    # =========================
+    # THRESHOLD leaf
+    # =========================
 
     def _validate_threshold_leaf(self) -> list[str]:
         problems: list[str] = []
@@ -292,17 +306,42 @@ class CompositeNode(BaseModel):
             problems.append("threshold condition requires non-empty 'sources' list")
             return problems
 
+        # Type check
+        for idx, source in enumerate(self.sources):
+            if not isinstance(source, Source):
+                problems.append(f"threshold source[{idx}] must be Source object, got {type(source).__name__}")
+                return problems
+
+        total_pins: int = sum(len(source.pins) for source in self.sources)
+
+        # Case A) single scalar input (total pins == 1)
+        if total_pins == 1:
+            problems.extend(self._validate_operator_threshold_combination())
+            return problems
+
+        # Case B) multi-pin threshold is ONLY allowed for SINGLE source with intra-source aggregation
         if len(self.sources) != 1:
-            problems.append("threshold condition requires exactly 1 source in 'sources' list")
+            problems.append(
+                "threshold with multiple pins is only allowed for a single source with intra-source aggregation; "
+                f"got {len(self.sources)} sources and {total_pins} pins"
+            )
             return problems
 
         source = self.sources[0]
-        if not isinstance(source, Source):
-            problems.append(f"threshold source must be Source object, got {type(source).__name__}")
+        agg = source.get_effective_aggregation()
+        if agg is None:
+            problems.append(
+                f"threshold with multiple pins requires aggregation to reduce to a scalar; got pins={source.pins}"
+            )
             return problems
 
+        # Multi-pin threshold with aggregation is valid; still must validate operator/threshold fields
         problems.extend(self._validate_operator_threshold_combination())
         return problems
+
+    # =========================
+    # DIFFERENCE leaf
+    # =========================
 
     def _validate_difference_leaf(self) -> list[str]:
         problems: list[str] = []
@@ -314,27 +353,50 @@ class CompositeNode(BaseModel):
             problems.append("difference condition requires 'sources' list")
             return problems
 
-        if len(self.sources) != 2:
-            problems.append("difference condition requires exactly 2 sources")
-            return problems
-
-        # type check
+        # Type check
         for idx, source in enumerate(self.sources):
             if not isinstance(source, Source):
                 problems.append(f"difference source[{idx}] must be Source object, got {type(source).__name__}")
                 return problems
 
-        s1, s2 = self.sources
+        effective_inputs: list[tuple[str, str, str, str | None]] = []
 
-        def _sig(s: Source) -> tuple[str, str, tuple[str, ...]]:
-            # pins already cleaned in Source validator; keep order for determinism
-            return (s.device, s.slave_id, tuple(s.pins))
+        for source in self.sources:
+            if not source.pins:
+                problems.append("difference condition source pins cannot be empty")
+                return problems
 
-        if _sig(s1) == _sig(s2):
-            problems.append("difference condition sources must be distinct (duplicate sources detected)")
+            aggregation: AggregationType | None = source.get_effective_aggregation()
+            aggregation_value = aggregation.value if aggregation else None
+
+            # Multiple pins with aggregation → collapses to 1 effective input
+            if len(source.pins) > 1 and aggregation is not None:
+                pins_key = ",".join(sorted(source.pins))
+                effective_inputs.append(
+                    (source.device, str(source.slave_id), f"aggregation({pins_key})", aggregation_value)
+                )
+                continue
+
+            # Raw pins (no aggregation) → each pin is an effective input
+            for pin in source.pins:
+                effective_inputs.append((source.device, str(source.slave_id), pin, aggregation_value))
+
+        # DIFFERENCE requires exactly 2 effective inputs
+        if len(effective_inputs) != 2:
+            problems.append(
+                f"difference condition requires exactly 2 effective inputs after aggregation, "
+                f"got {len(effective_inputs)} input(s). "
+                f"Hint: Use intra-source aggregation to reduce multiple pins to one value per source. "
+                f"Details: {effective_inputs}"
+            )
             return problems
 
-        # existing operator checks...
+        # Must be two DISTINCT inputs
+        if effective_inputs[0] == effective_inputs[1]:
+            problems.append(f"difference condition requires two distinct inputs; " f"duplicate: {effective_inputs[0]}")
+            return problems
+
+        # Operator/threshold validation
         match self.operator:
             case ConditionOperator.BETWEEN:
                 if self.min is None or self.max is None:
@@ -354,8 +416,11 @@ class CompositeNode(BaseModel):
 
         return problems
 
+    # =========================
+    # Aggregate leaf: AVERAGE / SUM / MIN / MAX
+    # =========================
+
     def _validate_aggregate_leaf(self) -> list[str]:
-        """Validation for AVERAGE / SUM / MIN / MAX types."""
         problems: list[str] = []
         agg_type = self.type.value if self.type is not None else "aggregate"
 
@@ -367,7 +432,12 @@ class CompositeNode(BaseModel):
             return problems
 
         if len(self.sources) < 2:
-            problems.append(f"{agg_type} condition requires at least 2 sources")
+            problems.append(
+                f"{agg_type} condition requires at least 2 sources for aggregation, "
+                f"got {len(self.sources)} source(s). "
+                f"Note: Each source produces one value (after intra-source aggregation if applicable). "
+                f"For single source with multiple pins, use 'threshold' with intra-source aggregation instead."
+            )
             return problems
 
         # Type check
@@ -378,17 +448,13 @@ class CompositeNode(BaseModel):
         if problems:
             return problems
 
-        def signature(s: Source) -> tuple:
-            pins_sig = tuple(s.pins)
-            agg_sig = s.get_effective_aggregation().value if s.get_effective_aggregation() else None
-            return (s.device, s.slave_id, pins_sig, agg_sig)
-
-        sigs = [signature(s) for s in self.sources]
+        # Duplicate source detection
+        sigs = [self._build_source_signature(s) for s in self.sources]
         if len(sigs) != len(set(sigs)):
             dup_sigs = {sig for sig in sigs if sigs.count(sig) > 1}
             problems.append(f"{agg_type} condition sources must be distinct; duplicates: {dup_sigs}")
 
-        # Operator/threshold constraints
+        # Operator validation
         match self.operator:
             case ConditionOperator.BETWEEN:
                 if self.min is None or self.max is None:
@@ -408,19 +474,18 @@ class CompositeNode(BaseModel):
 
         return problems
 
-    # ====== TIME_ELAPSED leaf ======
+    # =========================
+    # TIME_ELAPSED leaf
+    # =========================
 
     def _validate_time_elapsed_leaf(self) -> list[str]:
-        """Validation for TIME_ELAPSED type."""
         problems: list[str] = []
 
-        # Must have interval_hours
         if self.interval_hours is None:
             problems.append("time_elapsed condition requires 'interval_hours'")
         elif self.interval_hours <= 0:
             problems.append("time_elapsed 'interval_hours' must be positive")
 
-        # time_elapsed doesn't need these fields
         if self.operator is not None:
             problems.append("time_elapsed condition should not specify 'operator'")
         if self.sources is not None:

@@ -110,6 +110,8 @@ class TestControlExecutorReset:
         action.type = ControlActionType.RESET
         action.target = "RW_RESET"
         action.value = None  # This will stay None since it's a mock
+        action.priority = 90
+        action.reason = ""
 
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
 

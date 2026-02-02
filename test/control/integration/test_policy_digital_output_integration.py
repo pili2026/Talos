@@ -140,7 +140,7 @@ SD400:
     ):
         """1: High temperature (>40°C) should turn ON DOut01"""
         # Arrange: High temperature triggers DOut01 ON
-        snapshot = {"AIn01": 45.0}  # > 40°C threshold
+        snapshot = {"SD400_3": {"AIn01": 45.0}}  # > 40°C threshold
         model, slave_id = "SD400", "3"
 
         # Act: Evaluator generates action
@@ -192,7 +192,7 @@ SD400:
     ):
         """2: Low temperature (<25°C) should turn OFF DOut02"""
         # Arrange: Low temperature triggers DOut02 OFF
-        snapshot = {"AIn01": 20.0}  # < 25°C threshold
+        snapshot = {"SD400_3": {"AIn01": 20.0}}  # < 25°C threshold
         model, slave_id = "SD400", "3"
 
         # Act: Evaluator generates action
@@ -254,7 +254,7 @@ SD400:
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
 
         # Generate action
-        snapshot = {"AIn01": 45.0}
+        snapshot = {"SD400_3": {"AIn01": 45.0}}
         actions = control_evaluator.evaluate("SD400", "3", snapshot)
         assert len(actions) == 1
 
@@ -281,7 +281,7 @@ SD400:
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
 
         # Generate action for DOut01
-        snapshot = {"AIn01": 45.0}
+        snapshot = {"SD400_3": {"AIn01": 45.0}}
         actions = control_evaluator.evaluate("SD400", "3", snapshot)
         assert len(actions) == 1
         assert actions[0].target == "DOut01"

@@ -153,7 +153,7 @@ SD400:
             type: absolute_linear
             input_source: cond_p13_abs
             base_freq: 40.0
-            base_temp: 25.0
+            base_value: 25.0
             gain_hz_per_unit: 1.2
           actions:
             - model: TECO_VFD
@@ -228,7 +228,7 @@ def evaluator(mixed_config: ControlConfig, constraint_cfg: ConstraintConfigSchem
 def test_when_low_temperature_then_evaluator_returns_all_in_priority_order(evaluator: ControlEvaluator):
     """AIn01=20 (<25) triggers p10 and p11; ensure all returned and sorted"""
     # Arrange
-    snapshot = {"AIn01": 20.0, "AIn02": 18.0, "AIn03": 4.0}
+    snapshot = {"SD400_3": {"AIn01": 20.0, "AIn02": 18.0, "AIn03": 4.0}}
 
     # Act
     action_list: list[ControlActionSchema] = evaluator.evaluate("SD400", "3", snapshot)
@@ -243,7 +243,7 @@ def test_when_low_temperature_then_evaluator_returns_all_in_priority_order(evalu
 def test_when_high_temperature_then_evaluator_accumulates_multiple_actions(evaluator: ControlEvaluator):
     """AIn01=45 (>40) triggers p13, p14, p15"""
     # Arrange
-    snapshot = {"AIn01": 45.0, "AIn02": 43.0, "AIn03": 4.0}
+    snapshot = {"SD400_3": {"AIn01": 45.0, "AIn02": 43.0, "AIn03": 4.0}}
 
     # Act
     action_list: list[ControlActionSchema] = evaluator.evaluate("SD400", "3", snapshot)

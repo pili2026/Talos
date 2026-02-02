@@ -139,7 +139,7 @@ SD400:
     ):
         """1: High temperature (>40°C) should turn ON TECO_VFD inverter"""
         # Arrange: High temperature triggers inverter ON
-        snapshot = {"AIn01": 45.0}  # > 40°C threshold
+        snapshot = {"SD400_3": {"AIn01": 45.0}}  # > 40°C threshold
         model, slave_id = "SD400", "3"
 
         # Act: Evaluator generates action
@@ -172,7 +172,7 @@ SD400:
     ):
         """1b: Should skip write if inverter is already ON"""
         # Arrange: Generate TURN_ON action
-        snapshot = {"AIn01": 45.0}
+        snapshot = {"SD400_3": {"AIn01": 45.0}}
         actions = control_evaluator.evaluate("SD400", "3", snapshot)
         assert len(actions) == 1
         assert actions[0].type == ControlActionType.TURN_ON
@@ -197,7 +197,7 @@ SD400:
     ):
         """2: Low temperature (<25°C) should turn OFF TECO_VFD inverter"""
         # Arrange: Low temperature triggers inverter OFF
-        snapshot = {"AIn01": 20.0}  # < 25°C threshold
+        snapshot = {"SD400_3": {"AIn01": 20.0}}  # < 25°C threshold
         model, slave_id = "SD400", "3"
 
         # Act: Evaluator generates action
@@ -229,7 +229,7 @@ SD400:
     ):
         """2b: Should skip write if inverter is already OFF"""
         # Arrange: Generate TURN_OFF action
-        snapshot = {"AIn01": 20.0}
+        snapshot = {"SD400_3": {"AIn01": 20.0}}
         actions = control_evaluator.evaluate("SD400", "3", snapshot)
         assert len(actions) == 1
         assert actions[0].type == ControlActionType.TURN_OFF
@@ -254,7 +254,7 @@ SD400:
         # Arrange: Temperature that triggers both conditions
         # AIn01 = 22°C: triggers OFF (< 25°C, priority=95) but not ON (< 40°C)
         # This test verifies OFF wins due to higher priority
-        snapshot = {"AIn01": 22.0}
+        snapshot = {"SD400_3": {"AIn01": 22.0}}
         model, slave_id = "SD400", "3"
 
         # Act: Evaluator should choose highest priority
@@ -283,7 +283,7 @@ SD400:
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
 
         # Generate TURN_ON action
-        snapshot = {"AIn01": 45.0}
+        snapshot = {"SD400_3": {"AIn01": 45.0}}
         actions = control_evaluator.evaluate("SD400", "3", snapshot)
         assert len(actions) == 1
         assert actions[0].type == ControlActionType.TURN_ON
@@ -304,7 +304,7 @@ SD400:
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_teco_vfd_device
 
         # Generate TURN_ON action
-        snapshot = {"AIn01": 45.0}
+        snapshot = {"SD400_3": {"AIn01": 45.0}}
         actions = control_evaluator.evaluate("SD400", "3", snapshot)
 
         # Act: Execute with read failure

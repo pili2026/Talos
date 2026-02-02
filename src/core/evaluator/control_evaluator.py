@@ -35,15 +35,12 @@ class ControlEvaluator:
         self.composite_evaluator = CompositeEvaluator(execution_store=execution_store)
         self.timezone = timezone
 
-    def get_snapshot_value(self, snapshot: dict[str, float], source: Source) -> float | None:
+    def get_snapshot_value(self, global_snapshot: dict[str, dict[str, float]], source: Source) -> float | None:
         """
-        Fetch numeric value from snapshot using Source object.
-
-        Supports both single-pin and multi-pin sources with aggregation.
-        Filters out invalid values (None, -1, NaN).
+        Fetch numeric value from global snapshot using Source object.
 
         Args:
-            snapshot: Device snapshot data (pin -> value mapping)
+            global_snapshot: Global snapshot data (device_id -> {pin -> value})
             source: Source object defining device/pins/aggregation
 
         Returns:
@@ -58,10 +55,16 @@ class ControlEvaluator:
             logger.warning("[EVAL] Source has no pins")
             return None
 
+        device_id = f"{source.device}_{source.slave_id}"
+        device_snapshot: dict[str, float] | None = global_snapshot.get(device_id)
+        if device_snapshot is None:
+            logger.debug(f"[EVAL] Device {device_id} not found in global snapshot")
+            return None
+
         # Collect values from snapshot (with validation)
         values: list[float] = []
         for pin in pins:
-            raw_value = snapshot.get(pin)
+            raw_value: float | None = device_snapshot.get(pin)
 
             # Skip None values
             if raw_value is None:
@@ -120,7 +123,7 @@ class ControlEvaluator:
                 logger.warning(f"[EVAL] Unknown aggregation: {aggregation}, using average")
                 return sum(values) / len(values)
 
-    def evaluate(self, model: str, slave_id: str, snapshot: dict[str, float]) -> list[ControlActionSchema]:
+    def evaluate(self, model: str, slave_id: str, snapshot: dict[str, dict[str, float]]) -> list[ControlActionSchema]:
         """
         Evaluate control conditions and return all matching actions in priority order.
 
@@ -131,6 +134,10 @@ class ControlEvaluator:
         - Supports blocking: if a rule has blocking=True, stops processing remaining rules.
         """
         condition_list: list[ConditionSchema] = self.control_config.get_control_list(model, slave_id)
+        logger.info("=" * 80)
+        logger.info(f"[EVAL] Starting evaluation for {model}_{slave_id}")
+        logger.info(f"[EVAL] Total controls: {len(condition_list)}")
+        logger.info("=" * 80)
 
         # Step 1: Collect all triggered rules
         triggered_rule_list: list[ConditionSchema] = []
@@ -140,19 +147,25 @@ class ControlEvaluator:
         datetime_now = datetime.now(self.timezone)
 
         for rule in condition_list:
+            logger.info(f"[EVAL] Checking: {rule.code} (priority={rule.priority})")
+
             if rule.composite is None or rule.composite.invalid:
+                logger.info("[EVAL]   └─ SKIP: Invalid composite")
                 continue
 
             # Check time-based activation
 
             if not self._is_time_active(rule, datetime_now):
-                logger.debug(f"[EVAL] [{model}_{slave_id}] Skip '{rule.code}': " f"outside active time ranges")
+                logger.info(f"[EVAL] [{model}_{slave_id}] Skip '{rule.code}': " f"outside active time ranges")
                 continue
 
             # Set evaluation context before evaluating
             self.composite_evaluator.set_evaluation_context(rule.code, model, slave_id)
 
             is_matched: bool = self.composite_evaluator.evaluate_composite_node(rule.composite, get_value_by_snapshot)
+
+            logger.info(f"[EVAL]   └─ Condition met: {is_matched}")
+
             if is_matched:
                 triggered_rule_list.append(rule)
 
@@ -165,9 +178,7 @@ class ControlEvaluator:
         )
 
         # Pretty-print matched rules summary
-        self._pretty_log_matched_rules(
-            model=model, slave_id=slave_id, matched_rules=triggered_rule_list, snapshot=snapshot
-        )
+        self._pretty_log_matched_rules(model=model, slave_id=slave_id, matched_rules=triggered_rule_list)
 
         # Step 3: Process each rule and collect actions
         result_action_list: list[ControlActionSchema] = []
@@ -256,6 +267,15 @@ class ControlEvaluator:
                 f"for {model}_{slave_id}"
             )
 
+        logger.info("=" * 80)
+        logger.info(f"[EVAL] Final result: {len(result_action_list)} action(s)")
+        for i, action in enumerate(result_action_list):
+            logger.info(
+                f"[EVAL]   Action {i+1}: {action.model}_{action.slave_id}.{action.target} = {action.value} "
+                f"(type={action.type}, priority={action.priority})"
+            )
+        logger.info("=" * 80)
+
         return result_action_list
 
     # Time-based activation check
@@ -308,7 +328,7 @@ class ControlEvaluator:
     # Below: All existing methods (unchanged
 
     def _apply_policy_to_action(
-        self, condition: ConditionSchema, action: ControlActionSchema, snapshot: dict[str, float]
+        self, condition: ConditionSchema, action: ControlActionSchema, snapshot: dict[str, dict[str, float]]
     ) -> ControlActionSchema | None:
         """Apply policy processing to calculate dynamic action values"""
         if condition.policy is None:
@@ -333,16 +353,20 @@ class ControlEvaluator:
         return action
 
     def _apply_absolute_linear_policy(
-        self, condition: ConditionSchema, action: ControlActionSchema, policy: PolicyConfig, snapshot: dict[str, float]
+        self,
+        condition: ConditionSchema,
+        action: ControlActionSchema,
+        policy: PolicyConfig,
+        snapshot: dict[str, dict[str, float]],
     ) -> ControlActionSchema | None:
         """
         Apply absolute linear policy using condition reference.
 
-        Formula: target_freq = base_freq + (condition_value - base_temp) * gain
+        Formula: target_freq = base_freq + (condition_value - base_value) * gain
         """
         # Validate required fields
-        if policy.base_freq is None or policy.base_temp is None or policy.gain_hz_per_unit is None:
-            logger.warning("[EVAL] ABSOLUTE_LINEAR missing required fields (base_freq/base_temp/gain)")
+        if policy.base_freq is None or policy.base_value is None or policy.gain_hz_per_unit is None:
+            logger.warning("[EVAL] ABSOLUTE_LINEAR missing required fields (base_freq/base_value/gain)")
             return None
 
         if not policy.input_source:
@@ -363,7 +387,7 @@ class ControlEvaluator:
         # =================================================
 
         # Calculate target frequency
-        target_freq = policy.base_freq + (condition_value - policy.base_temp) * policy.gain_hz_per_unit
+        target_freq: float = policy.base_freq + (condition_value - policy.base_value) * policy.gain_hz_per_unit
 
         new_action: ControlActionSchema = action.model_copy()
         new_action.value = target_freq
@@ -371,7 +395,7 @@ class ControlEvaluator:
 
         logger.info(
             f"[EVAL] Absolute linear: input_source='{policy.input_source}' "
-            f"value={condition_value:.2f}, base_temp={policy.base_temp}°C, "
+            f"value={condition_value:.2f}, base_value={policy.base_value}°C, "
             f"target_freq={target_freq:.2f}Hz"
         )
         return new_action
@@ -381,7 +405,7 @@ class ControlEvaluator:
         condition: ConditionSchema,
         action: ControlActionSchema,
         policy: PolicyConfig,
-        snapshot: dict[str, float],
+        snapshot: dict[str, dict[str, float]],
     ) -> ControlActionSchema | None:
         """
         Apply incremental linear policy using condition reference.
@@ -490,9 +514,7 @@ class ControlEvaluator:
         prefix = " └─" if is_last else " ├─"
         return f"{prefix} {text}"
 
-    def _pretty_log_matched_rules(
-        self, model: str, slave_id: str, matched_rules: list[ConditionSchema], snapshot: dict[str, float]
-    ) -> None:
+    def _pretty_log_matched_rules(self, model: str, slave_id: str, matched_rules: list[ConditionSchema]) -> None:
         """Print a human-readable summary for all matched rules (v2.0)"""
         try:
             total_rule_count = len(self.control_config.get_control_list(model, slave_id))
@@ -584,7 +606,9 @@ class ControlEvaluator:
 
         return None
 
-    def _evaluate_condition_value(self, condition: CompositeNode, snapshot: dict[str, float]) -> float | None:
+    def _evaluate_condition_value(
+        self, condition: CompositeNode, snapshot: dict[str, dict[str, float]]
+    ) -> float | None:
         """
         Evaluate a condition node and return its numeric value.
 

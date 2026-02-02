@@ -17,6 +17,8 @@ class ControlSubscriber:
         self.executor = executor
         self.logger = logging.getLogger(__class__.__name__)
 
+        self._global_snapshot: dict[str, dict[str, float]] = {}
+
     async def run(self):
         await asyncio.gather(self.run_snapshot_listener(), self.run_control_listener())
 
@@ -27,8 +29,11 @@ class ControlSubscriber:
                 slave_id: str = message["slave_id"]
                 snapshot: dict = message["values"]
 
+                device_id = f"{model}_{slave_id}"
+                self._global_snapshot[device_id] = snapshot
+
                 control_actions: list[ControlActionSchema] = self.evaluator.evaluate(
-                    model=model, slave_id=slave_id, snapshot=snapshot
+                    model=model, slave_id=slave_id, snapshot=self._global_snapshot
                 )
                 if control_actions:
                     self.logger.info(f"[{model}] Control actions: {control_actions}")

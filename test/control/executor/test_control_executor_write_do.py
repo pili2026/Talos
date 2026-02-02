@@ -112,6 +112,8 @@ class TestControlExecutorWriteDO:
         action.type = ControlActionType.WRITE_DO
         action.target = "DO_01"
         action.value = None  # This will stay None since it's a mock
+        action.priority = 90
+        action.reason = ""
 
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_do_device
 

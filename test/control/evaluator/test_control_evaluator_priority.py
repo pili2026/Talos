@@ -342,9 +342,13 @@ class TestControlEvaluatorMultiConditionEdgeCases:
         condition1 = Mock(spec=ConditionSchema)
         condition1.composite = Mock()
         condition1.composite.invalid = True
+        condition1.code = "TEST_CONDITION"
+        condition1.priority = 90
 
         condition2 = Mock(spec=ConditionSchema)
         condition2.composite = None
+        condition2.code = "TEST_CONDITION"
+        condition2.priority = 91
 
         conditions = [condition1, condition2]
         control_evaluator.control_config.get_control_list.return_value = conditions

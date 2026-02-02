@@ -241,7 +241,7 @@ class TestEvaluateWithTimeRanges:
 
     def test_time_based_rule_active_during_time_range(self, evaluator):
         """Test that a time-based rule triggers within its active time range"""
-        snapshot = {"TEMP": 30.0}  # Triggers MORNING_FIXED and SPEED_UP
+        snapshot = {"TEST_DEVICE_1": {"TEMP": 30.0}}
 
         # Mock time as 10:00 (within 09:00-12:00)
         mock_time = datetime(2025, 1, 13, 10, 0, 0, tzinfo=TIMEZONE_INFO)
@@ -264,7 +264,7 @@ class TestEvaluateWithTimeRanges:
 
     def test_time_based_rule_inactive_outside_time_range(self, evaluator):
         """Test that a time-based rule does not trigger outside its active time range"""
-        snapshot = {"TEMP": 30.0}  # Triggers SPEED_UP but not MORNING_FIXED
+        snapshot = {"TEST_DEVICE_1": {"TEMP": 30.0}}
 
         # Mock time as 14:00 (outside 09:00-12:00)
         mock_time = datetime(2025, 1, 13, 14, 0, 0, tzinfo=TIMEZONE_INFO)
@@ -282,7 +282,7 @@ class TestEvaluateWithTimeRanges:
 
     def test_emergency_always_active_regardless_of_time(self, evaluator):
         """Test that emergency rules are not affected by time restrictions"""
-        snapshot = {"TEMP": 85.0}  # Triggers EMERGENCY
+        snapshot = {"TEST_DEVICE_1": {"TEMP": 85.0}}
 
         # Test different time points
         test_times = [
@@ -304,7 +304,7 @@ class TestEvaluateWithTimeRanges:
 
     def test_time_override_blocks_normal_control(self, evaluator):
         """Test that time override blocks normal control (via the priority protection mechanism)"""
-        snapshot = {"TEMP": 30.0}  # Triggers MORNING_FIXED and SPEED_UP
+        snapshot = {"TEST_DEVICE_1": {"TEMP": 30.0}}
 
         # Mock time as 10:00 (within range)
         mock_time = datetime(2025, 1, 13, 10, 0, 0, tzinfo=TIMEZONE_INFO)
@@ -376,7 +376,7 @@ class TestEvaluateWithTimeRanges:
         constraint = ConstraintConfigSchema(version="1.0.0", devices={})
         eval_test = ControlEvaluator(config, constraint)
 
-        snapshot = {"TEMP": 25.0}
+        snapshot = {"TEST_DEVICE_1": {"TEMP": 25.0}}
 
         # 10:00 - within the first range
         mock_time = datetime(2025, 1, 13, 10, 0, 0, tzinfo=TIMEZONE_INFO)

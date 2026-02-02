@@ -69,6 +69,15 @@ class ControlExecutor:
         Args:
             action_list: List of actions to execute (should be pre-sorted by priority)
         """
+        self.logger.info("=" * 80)
+        self.logger.info(f"[EXEC] Received {len(action_list)} action(s) to execute")
+        for i, action in enumerate(action_list):
+            self.logger.info(
+                f"[EXEC]   Action {i+1}: {action.model}_{action.slave_id}.{action.target} = {action.value} "
+                f"(priority={action.priority}, reason={action.reason[:50] if action.reason else 'N/A'}...)"
+            )
+        self.logger.info("=" * 80)
+
         # Track written targets: "model_slave_target" → (value, priority, rule_code)
         written_targets: dict[str, WrittenTarget] = {}
         self._execution_stats.reset(total_actions=len(action_list))
@@ -238,10 +247,15 @@ class ControlExecutor:
             return
 
         # Check redundancy
-        current_value = await self._read_value(device, target)
+        current_value: float | None = await self._read_value(device, target)
         if current_value is not None and self._is_redundant_write(current_value, action.value):
             self._execution_stats.skipped_redundant += 1
-            self.logger.info(f"[EXEC] [SKIP] {device.model} {target} already {action.value}")
+            self.logger.debug(
+                f"[EXEC] [REDUNDANT] {device.model} {target}: "
+                f"current_value={current_value}, expected={action.value}, "
+                f"priority={action.priority}, "
+                f"reason={action.reason[:80] if action.reason else 'N/A'}"
+            )
             return
 
         # Write value
@@ -273,7 +287,7 @@ class ControlExecutor:
             return False
 
         # Check register is writable
-        register_config = device.register_map[target]
+        register_config: dict = device.register_map[target]
         if not register_config.get("writable", False):
             self.logger.info(f"[EXEC] [SKIP] {device.model} {target} is not writable")
             return False
