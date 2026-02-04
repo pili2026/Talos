@@ -211,6 +211,15 @@ class AlertEvaluator:
                 case ConditionType.MAX:
                     return max(values)
 
+                case ConditionType.DIFFERENCE:
+                    if len(values) != 2:
+                        logger.warning(
+                            f"[{device_id}] Alert '{alert.code}': "
+                            f"DIFFERENCE type requires exactly 2 sources, got {len(values)}"
+                        )
+                        return None
+                    return values[0] - values[1]
+
                 case _:
                     logger.warning(f"[{device_id}] Unknown alert type: {alert.type}")
                     return None
