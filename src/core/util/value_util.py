@@ -119,3 +119,25 @@ def safe_float(v, default=0.0):
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def get_float_or_none(values: dict, key: str) -> float | None:
+    """
+    Semantic wrapper:
+    - key missing → None (unsupported)
+    - key exists → to_float (may return -1.0 on failure)
+    """
+    if key not in values:
+        return None
+    return to_float(values.get(key))
+
+
+def get_int_or_none(values: dict, key: str) -> int | None:
+    """
+    Semantic wrapper:
+    - key missing → None
+    - key exists → to_int (may return -1 on failure)
+    """
+    if key not in values:
+        return None
+    return to_int(values.get(key))

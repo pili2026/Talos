@@ -1,0 +1,40 @@
+model: SHIHLIN_SW1100
+register_type: input
+type: power_meter
+
+description: >
+  Shihlin SW1100 Pre-Payment Meter
+  Minimal driver: only provides Total kWh.
+  - Total kWh: 30001-30002 (DWord), UInt32 x0.01, High->Low.
+
+health_check:
+  strategy: single_register
+  registers: [Kwh]
+  register_type: input
+  retry_on_failure: 1
+  timeout_sec: 0.5
+  reason: "Total kWh is the only required field."
+
+register_map:
+  Kwh_W1_HI:
+    offset: 0 # 30001
+    format: u16
+    readable: true
+    writable: false
+
+  Kwh_W2_LO:
+    offset: 1 # 30002
+    format: u16
+    readable: true
+    writable: false
+
+  Kwh:
+    kind: composed
+    readable: true
+    composed_of: ["Kwh_W1_HI", "Kwh_W2_LO"]
+    compose_format: u32_be
+    scale: 0.01
+    type: energy_active
+    unit: "kWh"
+    precision: 2
+    writable: false

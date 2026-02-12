@@ -209,6 +209,20 @@ def combine_64bit_4word_with_dp(w3, w2, w1, w0, dp):
     return apply_decimal_point(raw, dp)
 
 
+def combine_48bit_3word_be(w2, w1, w0):
+    """
+    Combine three 16-bit words into 48-bit unsigned value.
+    Big-endian order:
+        w2: high
+        w1: middle
+        w0: low
+    """
+    if None in (w2, w1, w0):
+        return None
+
+    return (int(w2) << 32) | (int(w1) << 16) | int(w0)
+
+
 # Formula Registry - maps formula names to functions
 FORMULA_REGISTRY: dict[str, Callable] = {
     "combine_32bit_be": combine_32bit_be,
@@ -219,6 +233,7 @@ FORMULA_REGISTRY: dict[str, Callable] = {
     "apply_decimal_point": apply_decimal_point,
     "combine_32bit_be_with_dp": combine_32bit_be_with_dp,
     "combine_64bit_4word_with_dp": combine_64bit_4word_with_dp,
+    "combine_48bit_3word_be": combine_48bit_3word_be,
 }
 
 

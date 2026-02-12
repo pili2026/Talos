@@ -6,21 +6,14 @@ from typing import Any
 
 from core.model.device_constant import DEFAULT_MISSING_VALUE, POWER_METER_FIELDS
 from core.model.enum.equipment_enum import EquipmentType
-from core.util.converter_invstatus import compute_legacy_invstatus_code, to_int_or_none, u16_to_bit_flags, u16_to_hex
+from core.util.converter_invstatus import compute_legacy_invstatus_code, parse_int_or_none, u16_to_bit_flags, u16_to_hex
 from core.util.device_id_policy import DeviceIdPolicy, get_policy
-from core.util.value_util import to_float, to_int
+from core.util.register_formula import combine_48bit_3word_be
+from core.util.value_util import get_float_or_none, get_int_or_none, to_float, to_int
 
 _COMMON_FIELDS = [k for k, v in POWER_METER_FIELDS.items() if v["common"]]
 
 logger = logging.getLogger("SnapshotConverter")
-
-
-def _apply_rounding(mapped: dict) -> dict:
-    """Apply rounding rules based on field metadata."""
-    for field, config in POWER_METER_FIELDS.items():
-        if field in mapped:
-            mapped[field] = round(mapped[field], config["round"])
-    return mapped
 
 
 def _get_do_state_for_di(snapshot: dict, di_pin_num: int, model: str) -> int:
@@ -91,6 +84,85 @@ def _get_bypass_value(snapshot: dict, *, default: int = 0) -> int:
             f"[LegacyFormat] Invalid ByPass value: {snapshot.get('ByPass')}, error: {e} - degrading to {default}"
         )
         return default
+
+
+def _infer_idx_from_key(key: str) -> int:
+    m = re.search(r"(\d+)$", key)  # extract trailing number
+    return int(m.group(1)) - 1 if m else 0  # 1-based → 0-based
+
+
+def _resolve_energy(snapshot: dict[str, str], energy_key: str) -> float | None:
+    """
+    Resolve energy value (e.g., "Kwh", "Kvarh") using priority:
+
+    1. Direct field
+    2. SUM field
+    3. Legacy 3-word + SCALE_EnergyIndex
+
+    Semantic rules:
+    - key missing entirely → None (unsupported)
+    - key exists but read failed → -1
+    - legacy: any word = -1 → return -1
+    """
+
+    # --------------------------------------------------
+    # Pattern 1: Direct
+    # --------------------------------------------------
+    if energy_key in snapshot:
+        return to_float(snapshot.get(energy_key))
+
+    # --------------------------------------------------
+    # Pattern 2: SUM
+    # --------------------------------------------------
+    sum_key = f"{energy_key}_SUM"
+    if sum_key in snapshot:
+        return to_float(snapshot.get(sum_key))
+
+    # --------------------------------------------------
+    # Pattern 3: Legacy 3-word
+    # --------------------------------------------------
+    word_keys = [
+        f"{energy_key}_W1_HI",
+        f"{energy_key}_W2_MD",
+        f"{energy_key}_W3_LO",
+    ]
+
+    if not all(k in snapshot for k in word_keys):
+        return None  # unsupported
+
+    # parse words (read failure → -1)
+    w1 = to_int(snapshot.get(word_keys[0]))
+    w2 = to_int(snapshot.get(word_keys[1]))
+    w3 = to_int(snapshot.get(word_keys[2]))
+
+    # if any word read failed → whole energy read failed
+    if w1 == DEFAULT_MISSING_VALUE or w2 == DEFAULT_MISSING_VALUE or w3 == DEFAULT_MISSING_VALUE:
+        return float(DEFAULT_MISSING_VALUE)
+
+    # scale index
+    scale_index = get_int_or_none(snapshot, "SCALE_EnergyIndex")
+
+    scale_table = [
+        0.1,
+        1.0,
+        10.0,
+        100.0,
+        1000.0,
+        10000.0,
+        100000.0,
+        1000000.0,
+    ]
+
+    multiplier = (
+        scale_table[scale_index] * 0.001 if scale_index is not None and 0 <= scale_index < len(scale_table) else 0.001
+    )
+
+    raw_value = combine_48bit_3word_be(w1, w2, w3)
+
+    if raw_value is None:
+        return None  # theoretically不會發生，但防禦式寫法
+
+    return raw_value * multiplier
 
 
 def convert_di_module_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str, str], model: str) -> list[dict]:
@@ -263,7 +335,7 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
             pass
 
     # ---- INVSTATUS section: raw + derived fields + compatibility mapping ----
-    invstatus_raw: int | None = to_int_or_none(snapshot.get("INVSTATUS"))
+    invstatus_raw: int | None = parse_int_or_none(snapshot.get("INVSTATUS"))
 
     # Debug-friendly / visualization fields (raw, hex, bit-flags)
     data["invstatus_raw_u16"] = invstatus_raw
@@ -279,11 +351,6 @@ def convert_inverter_snapshot(gateway_id: str, slave_id: str, snapshot: dict[str
         data["invstatus"] = invstatus_code
 
     return [{"DeviceID": device_id, "Data": data}] if data else []
-
-
-def _infer_idx_from_key(key: str) -> int:
-    m = re.search(r"(\d+)$", key)  # extract trailing number
-    return int(m.group(1)) - 1 if m else 0  # 1-based → 0-based
 
 
 def convert_ai_module_snapshot(
@@ -373,71 +440,55 @@ def convert_flow_meter(gateway_id: str, slave_id: int, values: dict) -> list[dic
     ]
 
 
-def convert_power_meter_snapshot(gateway_id: str, slave_id: str | int, values: dict[str, str]) -> list[dict]:
+def convert_power_meter_snapshot(
+    gateway_id: str,
+    slave_id: str | int,
+    snapshot: dict[str, str],
+) -> list[dict]:
     """
-    Convert driver snapshot into SE's Data.
+    Convert power meter snapshot into SE Data.
 
-    NOTE: Driver contract guarantees that failed reads are represented as "-1" string.
-          This ensures to_float("-1") correctly returns -1.0 (our missing value sentinel).
-
-    Supports multiple power meter patterns:
-    1. Simple pattern (e.g., DAE_PM210): Direct Kwh/Kvarh fields
-       - Driver provides simple scaled values
-
-    2. Composed pattern (e.g., ADTEK_CPM10): Kwh_SUM/Kvarh_SUM fields
-       - Driver uses scale_from mechanism
-       - PT/CT ratios already included in scaling
-
-    3. Legacy pattern: 3-word format with SCALE_EnergyIndex
-       - Backward compatibility for old drivers
-       - Manual 3-word reconstruction and scaling
+    Semantic rules:
+    - Unsupported field → None
+    - Read failed → -1
+    - Valid → actual value
     """
 
-    # --- Direct mapping for common fields ---
-    # Driver puts "-1" for failed reads, so to_float("-1") → -1.0 (correct)
-    # Missing fields use else branch → float(DEFAULT_MISSING_VALUE) → -1.0
-    mapped = {
-        field: to_float(values[field]) if field in values else float(DEFAULT_MISSING_VALUE) for field in _COMMON_FIELDS
-    }
+    # --------------------------------------------------
+    # Common fields
+    # --------------------------------------------------
+    mapped: dict[str, float | None] = {field: get_float_or_none(snapshot, field) for field in _COMMON_FIELDS}
 
-    # --- Energies: Try patterns in order of simplicity ---
+    # --------------------------------------------------
+    # Energies (independent resolution)
+    # --------------------------------------------------
+    mapped["Kwh"] = _resolve_energy(snapshot, "Kwh")
+    mapped["Kvarh"] = _resolve_energy(snapshot, "Kvarh")
 
-    # Pattern 1: Simple direct values (e.g., DAE_PM210)
-    if "Kwh" in values and "Kvarh" in values:
-        mapped["Kwh"] = to_float(values.get("Kwh"))
-        mapped["Kvarh"] = to_float(values.get("Kvarh"))
+    # --------------------------------------------------
+    # Rounding (skip None and -1)
+    # --------------------------------------------------
+    for field, config in POWER_METER_FIELDS.items():
+        value = mapped.get(field)
 
-    # Pattern 2: Composed SUM fields (e.g., ADTEK_CPM10)
-    elif "Kwh_SUM" in values and "Kvarh_SUM" in values:
-        mapped["Kwh"] = to_float(values.get("Kwh_SUM"))
-        mapped["Kvarh"] = to_float(values.get("Kvarh_SUM"))
+        if value is None:
+            continue
 
-    # Pattern 3: Legacy 3-word format (backward compatibility)
-    else:
-        ki = to_int(values.get("SCALE_EnergyIndex"))
-        k_list = [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]
-        e_mul = (k_list[ki] * 0.001) if 0 <= ki < len(k_list) else 0.001
+        if value == DEFAULT_MISSING_VALUE:
+            continue  # -1 不做 rounding
 
-        def read_3w(prefix: str) -> float:
-            """Read and combine 3 words into 48-bit value."""
-            w1 = to_int(values.get(f"{prefix}_W1_HI"))
-            w2 = to_int(values.get(f"{prefix}_W2_MD"))
-            w3 = to_int(values.get(f"{prefix}_W3_LO"))
-            return ((w1 << 32) | (w2 << 16) | w3) * e_mul
+        mapped[field] = round(float(value), config["round"])
 
-        mapped["Kwh"] = read_3w("Kwh")
-        mapped["Kvarh"] = read_3w("Kvarh")
-
-    # NOTE: Kvah intentionally omitted (DAE_PM210, ADTEK_CPM10 hardware doesn't support this field).
-    # Maintains NULL in database for consistency with other unsupported meter fields.
-    # TODO: Standardize unsupported field handling across all power meters.
-
-    # --- Apply rounding rules based on metadata ---
-    mapped = _apply_rounding(mapped)
-
-    # --- Generate Device ID ---
-    policy: DeviceIdPolicy = get_policy()
-    device_id: str = policy.build_device_id(gateway_id=gateway_id, slave_id=slave_id, idx=0, eq_suffix=EquipmentType.SE)
+    # --------------------------------------------------
+    # Device ID
+    # --------------------------------------------------
+    policy = get_policy()
+    device_id = policy.build_device_id(
+        gateway_id=gateway_id,
+        slave_id=slave_id,
+        idx=0,
+        eq_suffix=EquipmentType.SE,
+    )
 
     return [{"DeviceID": device_id, "Data": mapped}]
 

@@ -1,7 +1,7 @@
 from core.model.device_constant import INVALID_U16_SENTINEL
 
 
-def to_int_or_none(value) -> int | None:
+def parse_int_or_none(value) -> int | None:
     """
     Attempt to convert the input into an integer; return None if conversion fails.
     Supports values that are strings or numeric strings (e.g., "709", "709.0").
