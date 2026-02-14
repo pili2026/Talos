@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core.schema.modbus_config_metadata import ConfigMetadata
+
 
 class InitializationConfig(BaseModel):
     startup_frequency: float | None = Field(default=None, description="Device startup frequency in Hz")
@@ -31,6 +33,13 @@ class DeviceConfig(BaseModel):
 class ConstraintConfigSchema(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    metadata: ConfigMetadata = Field(
+        default_factory=ConfigMetadata,
+        validation_alias="_metadata",
+        serialization_alias="_metadata",
+        description="Configuration metadata for version tracking",
+    )
+
     global_defaults: DeviceConfig | None = None
     # Use a dictionary to hold device configurations with device model as the key
     devices: dict[str, DeviceConfig] = Field(default_factory=dict)
@@ -41,15 +50,35 @@ class ConstraintConfigSchema(BaseModel):
         """
         Handle two input formats:
         1. YAML format: devices at top level
-           {"global_defaults": {...}, "TECO_VFD": {...}, "ADAM_4117": {...}}
+           {"_metadata": {...}, "global_defaults": {...}, "TECO_VFD": {...}, "ADAM_4117": {...}}
 
         2. Direct construction: devices already in dict
-           {"global_defaults": {...}, "devices": {"TECO_VFD": {...}}}
+           {"_metadata": {...}, "global_defaults": {...}, "devices": {"TECO_VFD": {...}}}
+
+        3. Direct Python construction with metadata kwarg:
+           ConstraintConfigSchema(metadata=..., global_defaults=..., devices={...})
         """
         if not isinstance(data, dict):
             return data
 
+        # Extract metadata if present (for YAML loading)
+        metadata = data.pop("_metadata", None)
+
+        # Check if metadata was passed directly (Python construction)
+        if "metadata" in data:
+            # Convert ConfigMetadata object to dict if needed
+            metadata_val = data.pop("metadata")
+            if hasattr(metadata_val, "model_dump"):
+                # It's a Pydantic model, convert to dict
+                metadata = metadata_val.model_dump()
+            else:
+                metadata = metadata_val
+
+        # Extract global_defaults
         global_defaults = data.pop("global_defaults", None)
+
+        # Extract version (legacy field, if any)
+        data.pop("version", None)
 
         # Check if devices already exists and is properly formatted
         if "devices" in data and isinstance(data.get("devices"), dict):
@@ -62,7 +91,13 @@ class ConstraintConfigSchema(BaseModel):
                 if isinstance(value, dict):
                     devices[key] = value
 
-        return {
+        result = {
             "global_defaults": global_defaults,
             "devices": devices,
         }
+
+        # Re-add metadata with correct key
+        if metadata is not None:
+            result["_metadata"] = metadata
+
+        return result

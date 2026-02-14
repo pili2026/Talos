@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from core.schema.modbus_config_metadata import ConfigMetadata
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,8 +106,19 @@ class ModbusDeviceFileConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, populate_by_name=True)
 
-    bus_dict: dict[str, ModbusBusConfig] = Field(default_factory=dict, validation_alias="buses")
-    device_list: list[ModbusDeviceConfig] = Field(default_factory=list, validation_alias="devices")
+    metadata: ConfigMetadata = Field(
+        default_factory=ConfigMetadata,
+        validation_alias="_metadata",
+        serialization_alias="_metadata",
+        description="Configuration metadata for version tracking",
+    )
+
+    bus_dict: dict[str, ModbusBusConfig] = Field(
+        default_factory=dict, validation_alias="buses", serialization_alias="buses"
+    )
+    device_list: list[ModbusDeviceConfig] = Field(
+        default_factory=list, validation_alias="devices", serialization_alias="devices"
+    )
 
     # ---- Derived / helper API ----
 
