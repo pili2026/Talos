@@ -13,8 +13,9 @@ Design principles:
 
 import asyncio
 import logging
+import os
 import re
-import shutil
+import signal
 from asyncio.subprocess import Process
 from pathlib import Path
 
@@ -167,6 +168,42 @@ class ProvisionService:
         except Exception as e:
             logger.error(f"Failed to trigger reboot: {e}", exc_info=True)
             raise
+
+    async def restart_talos_service(self) -> dict:
+        """
+        Restart the Talos service to apply configuration changes.
+
+        Special design: using the os.kill(SIGKILL) strategy
+
+        Reason:
+        - talos.service is the FastAPI process itself.
+        - `sudo systemctl restart` requires a TTY (due to use_pty restriction)
+        and cannot be executed via subprocess in this context.
+        - Solution: send SIGKILL to the current process. systemd detects
+        the abnormal termination and automatically restarts the service.
+        (Restart=on-failure is triggered because SIGKILL results in a non-zero exit code.)
+
+        Flow:
+        1. Return success: True first (to ensure the HTTP response is sent).
+        2. Wait for 1 second.
+        3. Send SIGKILL to the current process → systemd automatically restarts it.
+        """
+
+        async def _do_restart():
+            await asyncio.sleep(1)
+            try:
+                logger.warning("Sending SIGKILL to self for systemd restart")
+                os.kill(os.getpid(), signal.SIGKILL)
+            except Exception as e:
+                logger.error(f"Failed to send SIGKILL: {e}")
+
+        asyncio.create_task(_do_restart())
+
+        logger.info("Talos service restart scheduled via SIGKILL (deferred 1s)")
+        return {
+            "success": True,
+            "message": "Talos service restart initiated",
+        }
 
     # ========================================
     # Hostname Operations

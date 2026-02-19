@@ -12,6 +12,7 @@ from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
 from core.util.config_manager import ConfigManager
+from core.util.yaml_manager import YAMLManager
 from device_manager import AsyncDeviceManager
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,18 @@ async def startup_event(app: FastAPI) -> None:
 
                 logger.info(f"Snapshot config loaded (db={app.state.talos.snapshot_db_path})")
 
+            # Initialize YAMLManager and ConfigManager for unified mode (optional)
+            # If main_service doesn't provide them, initialize here
+            if app.state.talos.yaml_manager is None:
+                base_res_path = Path(__file__).parent.parent.parent / "res"
+                yaml_manager = YAMLManager(base_res_path, backup_count=10)
+                config_manager_with_yaml = ConfigManager(yaml_manager=yaml_manager)
+
+                app.state.talos.yaml_manager = yaml_manager
+                app.state.talos.config_manager = config_manager_with_yaml
+
+                logger.info("YAMLManager and ConfigManager initialized (unified mode)")
+
             logger.info("=" * 60)
             logger.info("API startup completed (UNIFIED MODE)")
             logger.info("=" * 60)
@@ -102,12 +115,21 @@ async def startup_event(app: FastAPI) -> None:
         provision_service = ProvisionService(system_config=system_config)
         logger.info("ProvisionService initialized")
 
+        # Initialize configuration management (Phase 1.2)
+        yaml_manager = YAMLManager(base_res_path, backup_count=10)
+        config_manager_with_yaml = ConfigManager(yaml_manager=yaml_manager)
+
+        logger.info("YAMLManager initialized (version control enabled)")
+        logger.info("ConfigManager initialized (managed mode)")
+
         # Update app state
         app.state.talos.async_device_manager = async_device_manager
         app.state.talos.constraint_schema = constraint_schema
         app.state.talos.system_config = system_config
         app.state.talos.wifi_service = wifi_service
         app.state.talos.provision_service = provision_service
+        app.state.talos.yaml_manager = yaml_manager
+        app.state.talos.config_manager = config_manager_with_yaml
         app.state.talos.unified_mode = False
 
         # Load snapshot config

@@ -8,8 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
+from core.util.config_manager import ConfigManager
 from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
+from core.util.yaml_manager import YAMLManager
 from device_manager import AsyncDeviceManager
 
 
@@ -42,6 +44,13 @@ class TalosAppState(BaseModel):
     health_manager: DeviceHealthManager | None = None
 
     system_config: SystemConfig | None = None
+
+    yaml_manager: YAMLManager | None = Field(
+        default=None, description="YAML configuration manager with version control and backup"
+    )
+    config_manager: ConfigManager | None = Field(
+        default=None, description="Configuration manager supporting both legacy and managed modes"
+    )
 
     # System services
     wifi_service: object | None = Field(default=None, description="WiFi management service with auto-fallback monitor")
@@ -144,6 +153,34 @@ class TalosAppState(BaseModel):
             raise RuntimeError("SystemConfig not initialized")
         return self.system_config
 
+    def get_yaml_manager(self) -> YAMLManager:
+        """
+        Get YAMLManager instance.
+
+        Returns:
+            YAMLManager instance with version control and backup support
+
+        Raises:
+            RuntimeError: If YAMLManager not initialized
+        """
+        if self.yaml_manager is None:
+            raise RuntimeError("YAMLManager not initialized")
+        return self.yaml_manager
+
+    def get_config_manager(self) -> ConfigManager:
+        """
+        Get ConfigManager instance.
+
+        Returns:
+            ConfigManager instance supporting both legacy and managed modes
+
+        Raises:
+            RuntimeError: If ConfigManager not initialized
+        """
+        if self.config_manager is None:
+            raise RuntimeError("ConfigManager not initialized")
+        return self.config_manager
+
     def __repr__(self) -> str:
         """String representation for logging."""
         mode = "unified" if self.is_unified_mode() else "standalone"
@@ -151,11 +188,15 @@ class TalosAppState(BaseModel):
         pubsub_status = "OK" if self.pubsub else "NO"
         wifi_status = "OK" if self.wifi_service else "NO"
         provision_status = "OK" if self.provision_service else "NO"
+        yaml_mgr_status = "OK" if self.yaml_manager else "NO"
+        config_mgr_status = "OK" if self.config_manager else "NO"
 
         return (
             f"TalosAppState(mode={mode}, "
             f"devices={device_count}, "
             f"pubsub={pubsub_status}, "
             f"wifi={wifi_status}, "
-            f"provision={provision_status})"
+            f"provision={provision_status}, "
+            f"yaml_mgr={yaml_mgr_status}, "
+            f"config_mgr={config_mgr_status})"
         )

@@ -6,18 +6,21 @@ Centralized management of injectable services and repositories.
 import logging
 from functools import lru_cache
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 
 from api.repository.config_repository import ConfigRepository
 from api.service.constraint_service import ConstraintService
 from api.service.device_service import DeviceService
+from api.service.modbus_config_service import ConfigService
 from api.service.parameter_service import ParameterService
 from api.service.provision_service import ProvisionService
 from api.service.snapshot_service import SnapshotService
 from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
+from core.util.config_manager import ConfigManager
 from core.util.device_health_manager import DeviceHealthManager
 from core.util.pubsub.base import PubSub
+from core.util.yaml_manager import YAMLManager
 from device_manager import AsyncDeviceManager
 from repository.snapshot_repository import SnapshotRepository
 from repository.util.db_manager import SQLiteSnapshotDBManager
@@ -101,6 +104,88 @@ def get_constraint_service(
 ) -> ConstraintService:
     """Resolve ConstraintService with constraint configuration."""
     return ConstraintService(constraint_schema, config_repo)
+
+
+# ===== Configuration Management (Phase 1.2) =====
+
+
+def get_yaml_manager(request: Request) -> YAMLManager:
+    """
+    Provide YAMLManager from app state.
+
+    YAMLManager provides version control, backup, and metadata management
+    for configuration files.
+
+    Returns:
+        YAMLManager instance
+
+    Raises:
+        RuntimeError: If YAMLManager not initialized
+    """
+    return request.app.state.talos.get_yaml_manager()
+
+
+def get_config_manager(request: Request) -> ConfigManager:
+    """
+    Provide ConfigManager from app state.
+
+    ConfigManager supports both legacy (direct file access) and managed
+    (with version control) modes.
+
+    Returns:
+        ConfigManager instance
+
+    Raises:
+        RuntimeError: If ConfigManager not initialized
+    """
+    return request.app.state.talos.get_config_manager()
+
+
+def get_current_user(x_user_email: str | None = Header(None, description="User email from request header")) -> str:
+    """
+    Get current user email from request header.
+
+    In production, this would validate authentication token and extract user info.
+    For now, we use a simple header-based approach.
+
+    Args:
+        x_user_email: User email from X-User-Email header
+
+    Returns:
+        User email or "system" if not provided
+
+    Example:
+        ```bash
+        curl -H "X-User-Email: jeremy@example.com" http://localhost:8000/api/...
+        ```
+    """
+    if x_user_email:
+        logger.debug(f"[Auth] Request from user: {x_user_email}")
+        return x_user_email
+
+    # Default to "system" for requests without user header
+    logger.debug("[Auth] No user email in request, using 'system'")
+    return "system"
+
+
+def get_config_service(request: Request) -> ConfigService:
+    """
+    Provide ConfigService from app state.
+
+    ConfigService handles configuration management with version control,
+    backup, and metadata tracking.
+
+    Returns:
+        ConfigService instance
+
+    Raises:
+        RuntimeError: If YAMLManager or ConfigManager not initialized
+    """
+
+    yaml_manager = request.app.state.talos.get_yaml_manager()
+    config_manager = request.app.state.talos.get_config_manager()
+
+    return ConfigService(yaml_manager=yaml_manager, config_manager=config_manager)
 
 
 # ===== Snapshot DB / Repository / Service =====

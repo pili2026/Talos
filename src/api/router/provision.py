@@ -65,3 +65,26 @@ async def trigger_reboot(service: ProvisionService = Depends(get_provision_servi
     except Exception as e:
         logger.error(f"Failed to trigger reboot: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+
+@router.post("/service/restart")
+async def restart_talos_service(service: ProvisionService = Depends(get_provision_service)):
+    """
+    Restart talos.service to apply configuration changes
+    """
+    try:
+        result = await service.restart_talos_service()
+
+        if result["success"]:
+            return result
+
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result["message"])
+
+    except RuntimeError as e:
+        logger.error(f"Failed to restart talos service: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to restart talos service"
+        ) from e

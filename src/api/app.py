@@ -29,7 +29,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.lifecycle import shutdown_event, startup_event
 from api.middleware.error_handler import add_error_handlers
 from api.middleware.logging_middleware import LoggingMiddleware
-from api.router import batch, constraint, device, health, monitoring, parameter, provision, snapshot, wifi
+from api.router import (
+    batch,
+    constraint,
+    device,
+    drvier_config,
+    health,
+    modbus_config,
+    monitoring,
+    parameter,
+    provision,
+    snapshot,
+    wifi,
+)
 
 # from api.util.logging_config import setup_logging
 
@@ -99,6 +111,8 @@ def create_application() -> FastAPI:
     app.include_router(monitoring.router, prefix="/api/monitoring", tags=["Monitoring"])
     app.include_router(snapshot.router, prefix="/api/snapshots", tags=["Snapshots"])
     app.include_router(provision.router, prefix="/api/provision", tags=["Provisioning"])
+    app.include_router(modbus_config.router, prefix="/api/config/modbus", tags=["Modbus Configuration"])
+    app.include_router(drvier_config.router, prefix="/api/config/modbus_drivers", tags=["Modbus Driver Configuration"])
 
     # Register static files
     static_dir = BASE_DIR / "static"
