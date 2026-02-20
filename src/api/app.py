@@ -40,6 +40,7 @@ from api.router import (
     parameter,
     provision,
     snapshot,
+    system_config,
     wifi,
 )
 
@@ -113,6 +114,7 @@ def create_application() -> FastAPI:
     app.include_router(provision.router, prefix="/api/provision", tags=["Provisioning"])
     app.include_router(modbus_config.router, prefix="/api/config/modbus", tags=["Modbus Configuration"])
     app.include_router(drvier_config.router, prefix="/api/config/modbus_drivers", tags=["Modbus Driver Configuration"])
+    app.include_router(system_config.router, prefix="/api/config/system", tags=["System Configuration"])
 
     # Register static files
     static_dir = BASE_DIR / "static"

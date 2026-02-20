@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.schema.config_metadata import ConfigMetadata
+
 
 class PathsConfig(BaseModel):
     """Path configuration"""
@@ -81,4 +83,26 @@ class SystemConfig(BaseModel):
     DEVICE_ID_POLICY: DeviceIdPolicyConfig = Field(default_factory=DeviceIdPolicyConfig)
     SUBSCRIBERS: SubscribersConfig = Field(default_factory=SubscribersConfig)
 
+    REMOTE_ACCESS: RemoteAccessConfig = Field(default_factory=RemoteAccessConfig)
+
+
+class SystemConfigFileSchema(BaseModel):
+    """
+    system_config.yml schema for YAMLManager.
+    Adds _metadata block for version control, backup, and checksum.
+    Used only by SystemConfigService for reading/writing yml.
+    Core continues to use SystemConfig (without metadata).
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    metadata: ConfigMetadata = Field(default_factory=ConfigMetadata, alias="_metadata")
+
+    MONITOR_INTERVAL_SECONDS: float = Field(default=10.0, gt=0)
+    MONITOR_READ_CONCURRENCY: int = Field(default=50, ge=1, le=500)
+    MONITOR_DEVICE_TIMEOUT_SEC: float = Field(default=3.0, gt=0, le=60)
+    MONITOR_LOG_EACH_DEVICE: bool = Field(default=False)
+    PATHS: PathsConfig = Field(default_factory=PathsConfig)
+    DEVICE_ID_POLICY: DeviceIdPolicyConfig = Field(default_factory=DeviceIdPolicyConfig)
+    SUBSCRIBERS: SubscribersConfig = Field(default_factory=SubscribersConfig)
     REMOTE_ACCESS: RemoteAccessConfig = Field(default_factory=RemoteAccessConfig)

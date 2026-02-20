@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from core.schema.config_metadata import ConfigSource
 from core.schema.constraint_schema import ConstraintConfigSchema, DeviceConfig, InitializationConfig
-from core.schema.modbus_config_metadata import ConfigSource
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig, ModbusDeviceFileConfig
 from core.util.yaml_manager import YAMLManager
 

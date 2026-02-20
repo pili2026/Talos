@@ -7,13 +7,8 @@ from datetime import datetime
 import pytest
 import yaml
 
+from core.schema.config_metadata import ConfigMetadata, ConfigSource, calculate_config_checksum, increment_generation
 from core.schema.constraint_schema import ConstraintConfigSchema, DeviceConfig, InitializationConfig
-from core.schema.modbus_config_metadata import (
-    ConfigMetadata,
-    ConfigSource,
-    calculate_config_checksum,
-    increment_generation,
-)
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig, ModbusDeviceFileConfig
 
 

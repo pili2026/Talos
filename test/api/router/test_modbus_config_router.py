@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.app_state import TalosAppState
 from api.router import modbus_config
-from core.schema.modbus_config_metadata import ConfigSource
+from core.schema.config_metadata import ConfigSource
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig, ModbusDeviceFileConfig
 from core.util.config_manager import ConfigManager
 from core.util.yaml_manager import YAMLManager

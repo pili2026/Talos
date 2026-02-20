@@ -6,10 +6,8 @@ API endpoints for modbus device configuration
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependency import get_config_service, get_current_user
+from api.model.common import BackupListResponse, ConfigUpdateResponse, MetadataResponse
 from api.model.modbus_config import (
-    BackupListResponse,
-    ConfigUpdateResponse,
-    MetadataResponse,
     ModbusBusCreateRequest,
     ModbusConfigResponse,
     ModbusDeviceCreateRequest,

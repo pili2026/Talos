@@ -6,6 +6,7 @@ Centralized state management with type safety and runtime validation.
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.service.system_config_service import SystemConfigService
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
 from core.util.config_manager import ConfigManager
@@ -57,6 +58,7 @@ class TalosAppState(BaseModel):
     provision_service: object | None = Field(
         default=None, description="System provisioning service (hostname, reverse SSH port)"
     )
+    system_config_service: object | None = Field(default=None, description="System config management service")
 
     # Snapshot storage
     snapshot_db_path: str | None = Field(default=None, description="Path to SQLite snapshot database")
@@ -181,6 +183,11 @@ class TalosAppState(BaseModel):
             raise RuntimeError("ConfigManager not initialized")
         return self.config_manager
 
+    def get_system_config_service(self) -> SystemConfigService:
+        if self.system_config_service is None:
+            raise RuntimeError("SystemConfigService not initialized")
+        return self.system_config_service
+
     def __repr__(self) -> str:
         """String representation for logging."""
         mode = "unified" if self.is_unified_mode() else "standalone"
@@ -190,6 +197,7 @@ class TalosAppState(BaseModel):
         provision_status = "OK" if self.provision_service else "NO"
         yaml_mgr_status = "OK" if self.yaml_manager else "NO"
         config_mgr_status = "OK" if self.config_manager else "NO"
+        system_config_service_status = "OK" if self.system_config_service else "NO"
 
         return (
             f"TalosAppState(mode={mode}, "
@@ -198,5 +206,6 @@ class TalosAppState(BaseModel):
             f"wifi={wifi_status}, "
             f"provision={provision_status}, "
             f"yaml_mgr={yaml_mgr_status}, "
-            f"config_mgr={config_mgr_status})"
+            f"config_mgr={config_mgr_status}),"
+            f"system_config_service={system_config_service_status}),"
         )

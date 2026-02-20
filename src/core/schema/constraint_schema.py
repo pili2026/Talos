@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from core.schema.modbus_config_metadata import ConfigMetadata
+from core.schema.config_metadata import ConfigMetadata
 
 
 class InitializationConfig(BaseModel):

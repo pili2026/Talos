@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from core.schema.modbus_config_metadata import ConfigMetadata
+from core.schema.config_metadata import ConfigMetadata
 
 logger = logging.getLogger(__name__)
 

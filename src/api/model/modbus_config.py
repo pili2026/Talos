@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from api.model.common import MetadataInfo
 from api.model.responses import BaseResponse
 
 # ============================================================================
@@ -38,18 +39,6 @@ class ModbusBusCreateRequest(BaseModel):
 # ============================================================================
 
 
-class MetadataInfo(BaseModel):
-    """Configuration metadata information"""
-
-    generation: int = Field(..., description="Current generation number")
-    source: str = Field(..., description="Last modification source (cloud/edge/manual)")
-    last_modified: str = Field(..., description="Last modification timestamp (ISO 8601)")
-    last_modified_by: str | None = Field(None, description="User/system that made the modification")
-    checksum: str | None = Field(None, description="SHA256 checksum")
-    applied_at: str | None = Field(None, description="When configuration was applied")
-    cloud_sync_id: str | None = Field(None, description="Cloud sync identifier")
-
-
 class ModbusDeviceInfo(BaseModel):
     """Modbus device information"""
 
@@ -73,24 +62,9 @@ class ModbusBusInfo(BaseModel):
     timeout: float
 
 
-class BackupInfo(BaseModel):
-    """Backup file information"""
-
-    filename: str
-    generation: int | None = None
-    created_at: str
-    size_bytes: int
-
-
 # ============================================================================
 # API Response Models (using BaseResponse pattern)
 # ============================================================================
-
-
-class MetadataResponse(BaseResponse):
-    """Response for configuration metadata"""
-
-    metadata: MetadataInfo
 
 
 class ModbusConfigResponse(BaseResponse):
@@ -99,18 +73,3 @@ class ModbusConfigResponse(BaseResponse):
     metadata: MetadataInfo
     buses: dict[str, ModbusBusInfo]
     devices: list[ModbusDeviceInfo]
-
-
-class ConfigUpdateResponse(BaseResponse):
-    """Response for configuration update operations"""
-
-    generation: int = Field(..., description="New generation number")
-    checksum: str = Field(..., description="New checksum")
-    modified_at: str = Field(..., description="Modification timestamp")
-
-
-class BackupListResponse(BaseResponse):
-    """Response for backup list"""
-
-    backups: list[BackupInfo]
-    total: int

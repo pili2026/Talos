@@ -5,6 +5,7 @@ Integration tests for ConfigManager with YAMLManager support
 import pytest
 import yaml
 
+from core.schema.config_metadata import ConfigSource
 from core.schema.constraint_schema import (
     ConstraintConfig,
     ConstraintConfigSchema,
@@ -12,7 +13,6 @@ from core.schema.constraint_schema import (
     InitializationConfig,
     InstanceConfig,
 )
-from core.schema.modbus_config_metadata import ConfigSource
 from core.util.config_manager import ConfigManager
 from core.util.yaml_manager import YAMLManager
 

@@ -15,6 +15,7 @@ from api.service.modbus_config_service import ConfigService
 from api.service.parameter_service import ParameterService
 from api.service.provision_service import ProvisionService
 from api.service.snapshot_service import SnapshotService
+from api.service.system_config_service import SystemConfigService
 from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.util.config_manager import ConfigManager
@@ -48,6 +49,10 @@ def get_wifi_service(request: Request) -> WiFiService:
 def get_provision_service(request: Request) -> ProvisionService:
     """Get ProvisionService from app state."""
     return request.app.state.talos.get_provision_service()
+
+
+def get_system_config_service(request: Request) -> SystemConfigService:
+    return request.app.state.talos.get_system_config_service()
 
 
 # ===== AsyncDeviceManager & Device-related Services =====

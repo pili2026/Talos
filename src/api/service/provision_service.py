@@ -18,6 +18,7 @@ import re
 import signal
 from asyncio.subprocess import Process
 from pathlib import Path
+from typing import Callable
 
 from api.model.provision import ProvisionCurrentConfig, ProvisionRebootResult, ProvisionSetConfigResult
 from api.model.provision_config import ProvisionConfig
@@ -45,6 +46,7 @@ class ProvisionService:
         self,
         config: ProvisionConfig | None = None,
         system_config: SystemConfig | None = None,
+        on_port_updated: Callable[[int], None] | None = None,
     ):
         """
         Initialize provisioning service
@@ -55,7 +57,7 @@ class ProvisionService:
         """
         self._config = config or ProvisionConfig.from_env()
         self._system_config = system_config
-
+        self._on_port_updated = on_port_updated
         self._lock = asyncio.Lock()
 
         if self._system_config is None:
@@ -132,6 +134,13 @@ class ProvisionService:
                     await self._update_service_port(reverse_port)
                     await self._reload_and_restart_service()
                     changes.append("reverse_port")
+
+                    if self._on_port_updated:
+                        try:
+                            self._on_port_updated(reverse_port)
+                        except Exception as callback_err:
+                            logger.error(f"Port update callback failed: {callback_err}")
+
                     logger.info(f"Reverse port updated: {current_port} → {reverse_port}")
                 else:
                     logger.info(f"Reverse port unchanged: {reverse_port}")

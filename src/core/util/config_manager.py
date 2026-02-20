@@ -9,8 +9,8 @@ import re
 
 import yaml
 
+from core.schema.config_metadata import ConfigSource
 from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema, DeviceConfig, InstanceConfig
-from core.schema.modbus_config_metadata import ConfigSource
 from core.util.yaml_manager import YAMLManager
 
 logger = logging.getLogger(__name__)

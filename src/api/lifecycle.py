@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from api.repository.config_repository import ConfigRepository
 from api.service.provision_service import ProvisionService
+from api.service.system_config_service import SystemConfigService
 from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
@@ -16,6 +17,20 @@ from core.util.yaml_manager import YAMLManager
 from device_manager import AsyncDeviceManager
 
 logger = logging.getLogger(__name__)
+
+
+def _init_system_config_service_and_provision(
+    yaml_manager: YAMLManager, system_config: SystemConfig | None
+) -> tuple[SystemConfigService, ProvisionService]:
+    system_config_service = SystemConfigService(
+        yaml_manager=yaml_manager,
+        system_config=system_config,
+    )
+    provision_service = ProvisionService(
+        system_config=system_config,
+        on_port_updated=system_config_service.update_reverse_ssh_port,
+    )
+    return system_config_service, provision_service
 
 
 async def startup_event(app: FastAPI) -> None:
@@ -61,8 +76,7 @@ async def startup_event(app: FastAPI) -> None:
 
                 logger.info(f"Snapshot config loaded (db={app.state.talos.snapshot_db_path})")
 
-            # Initialize YAMLManager and ConfigManager for unified mode (optional)
-            # If main_service doesn't provide them, initialize here
+            # Initialize YAMLManager and ConfigManager (if not provided by main_service)
             if app.state.talos.yaml_manager is None:
                 base_res_path = Path(__file__).parent.parent.parent / "res"
                 yaml_manager = YAMLManager(base_res_path, backup_count=10)
@@ -73,6 +87,16 @@ async def startup_event(app: FastAPI) -> None:
 
                 logger.info("YAMLManager and ConfigManager initialized (unified mode)")
 
+            # Initialize SystemConfigService with port sync callback
+            # Note: in unified mode, provision_service is already injected by main_service,
+            # so we wrap it with the callback here instead of recreating it
+            system_config_service = SystemConfigService(
+                yaml_manager=app.state.talos.yaml_manager, system_config=app.state.talos.system_config
+            )
+            app.state.talos.provision_service.on_port_updated = system_config_service.update_reverse_ssh_port
+            app.state.talos.system_config_service = system_config_service
+
+            logger.info("SystemConfigService initialized (unified mode)")
             logger.info("=" * 60)
             logger.info("API startup completed (UNIFIED MODE)")
             logger.info("=" * 60)
@@ -105,22 +129,24 @@ async def startup_event(app: FastAPI) -> None:
 
         async_device_manager = AsyncDeviceManager(str(modbus_device_path), constraint_schema)
         await async_device_manager.init()
-
         logger.info(f"AsyncDeviceManager initialized ({len(async_device_manager.device_list)} devices)")
 
-        # Initialize system services
+        # Initialize configuration management
+        yaml_manager = YAMLManager(base_res_path, backup_count=10)
+        config_manager_with_yaml = ConfigManager(yaml_manager=yaml_manager)
+        logger.info("YAMLManager initialized (version control enabled)")
+
+        # Initialize WiFiService
         wifi_service = WiFiService()
         logger.info("WiFiService initialized")
 
-        provision_service = ProvisionService(system_config=system_config)
-        logger.info("ProvisionService initialized")
-
-        # Initialize configuration management (Phase 1.2)
-        yaml_manager = YAMLManager(base_res_path, backup_count=10)
-        config_manager_with_yaml = ConfigManager(yaml_manager=yaml_manager)
-
-        logger.info("YAMLManager initialized (version control enabled)")
-        logger.info("ConfigManager initialized (managed mode)")
+        # Initialize SystemConfigService + ProvisionService with port sync callback
+        system_config_service, provision_service = _init_system_config_service_and_provision(
+            yaml_manager=yaml_manager,
+            system_config=system_config,
+        )
+        logger.info("SystemConfigService initialized")
+        logger.info("ProvisionService initialized (with port sync callback)")
 
         # Update app state
         app.state.talos.async_device_manager = async_device_manager
@@ -128,6 +154,7 @@ async def startup_event(app: FastAPI) -> None:
         app.state.talos.system_config = system_config
         app.state.talos.wifi_service = wifi_service
         app.state.talos.provision_service = provision_service
+        app.state.talos.system_config_service = system_config_service
         app.state.talos.yaml_manager = yaml_manager
         app.state.talos.config_manager = config_manager_with_yaml
         app.state.talos.unified_mode = False
