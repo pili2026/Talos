@@ -32,6 +32,7 @@ from api.middleware.logging_middleware import LoggingMiddleware
 from api.router import (
     backups,
     batch,
+    config_io,
     constraint,
     device,
     drvier_config,
@@ -117,6 +118,8 @@ def create_application() -> FastAPI:
     app.include_router(drvier_config.router, prefix="/api/config/modbus_drivers", tags=["Modbus Driver Configuration"])
     app.include_router(system_config.router, prefix="/api/config/system", tags=["System Configuration"])
     app.include_router(backups.router, prefix="/api/config/backups", tags=["Backups"])
+    app.include_router(config_io.export_router, prefix="/api/config/export", tags=["Config IO"])
+    app.include_router(config_io.import_router, prefix="/api/config/import", tags=["Config IO"])
 
     # Register static files
     static_dir = BASE_DIR / "static"
