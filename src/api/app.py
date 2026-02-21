@@ -30,6 +30,7 @@ from api.lifecycle import shutdown_event, startup_event
 from api.middleware.error_handler import add_error_handlers
 from api.middleware.logging_middleware import LoggingMiddleware
 from api.router import (
+    backups,
     batch,
     constraint,
     device,
@@ -115,6 +116,7 @@ def create_application() -> FastAPI:
     app.include_router(modbus_config.router, prefix="/api/config/modbus", tags=["Modbus Configuration"])
     app.include_router(drvier_config.router, prefix="/api/config/modbus_drivers", tags=["Modbus Driver Configuration"])
     app.include_router(system_config.router, prefix="/api/config/system", tags=["System Configuration"])
+    app.include_router(backups.router, prefix="/api/config/backups", tags=["Backups"])
 
     # Register static files
     static_dir = BASE_DIR / "static"

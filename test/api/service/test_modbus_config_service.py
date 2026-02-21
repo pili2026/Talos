@@ -7,7 +7,7 @@ import pytest
 
 from api.model.enums import ResponseStatus
 from api.model.modbus_config import ModbusBusCreateRequest, ModbusDeviceCreateRequest
-from api.service.modbus_config_service import ConfigService
+from api.service.modbus_config_service import ModbusConfigService
 from core.schema.config_metadata import ConfigSource
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig, ModbusDeviceFileConfig
 from core.util.yaml_manager import YAMLManager
@@ -30,7 +30,7 @@ def yaml_manager(temp_config_dir):
 @pytest.fixture
 def config_service(yaml_manager):
     """Create ConfigService instance"""
-    return ConfigService(yaml_manager=yaml_manager)
+    return ModbusConfigService(yaml_manager=yaml_manager)
 
 
 @pytest.fixture

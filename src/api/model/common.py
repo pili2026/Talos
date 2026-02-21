@@ -48,3 +48,10 @@ class BackupListResponse(BaseResponse):
 
     backups: list[BackupInfo]
     total: int
+
+
+class BackupDetailResponse(BaseModel):
+    status: str
+    filename: str
+    metadata: dict
+    content: dict

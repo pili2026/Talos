@@ -13,7 +13,7 @@ from api.model.modbus_config import (
     ModbusDeviceCreateRequest,
     ModbusDeviceInfo,
 )
-from api.service.modbus_config_service import ConfigService
+from api.service.modbus_config_service import ModbusConfigService
 
 router = APIRouter()
 
@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 @router.get("/metadata", response_model=MetadataResponse, summary="Get configuration metadata")
-async def get_metadata(config_service: ConfigService = Depends(get_config_service)) -> MetadataResponse:
+async def get_metadata(config_service: ModbusConfigService = Depends(get_config_service)) -> MetadataResponse:
     """Get modbus device configuration metadata (generation, checksum, etc.)"""
     return await config_service.get_metadata()
 
@@ -35,7 +35,7 @@ async def get_metadata(config_service: ConfigService = Depends(get_config_servic
 
 
 @router.get("", response_model=ModbusConfigResponse, summary="Get complete modbus configuration")
-async def get_config(config_service: ConfigService = Depends(get_config_service)) -> ModbusConfigResponse:
+async def get_config(config_service: ModbusConfigService = Depends(get_config_service)) -> ModbusConfigResponse:
     """Get all modbus buses and devices with metadata"""
     return await config_service.get_config()
 
@@ -49,7 +49,7 @@ async def get_config(config_service: ConfigService = Depends(get_config_service)
 async def create_or_update_bus(
     bus_name: str,
     bus_request: ModbusBusCreateRequest,
-    config_service: ConfigService = Depends(get_config_service),
+    config_service: ModbusConfigService = Depends(get_config_service),
     current_user: str = Depends(get_current_user),
 ) -> ConfigUpdateResponse:
     """Create or update a modbus bus configuration"""
@@ -59,7 +59,7 @@ async def create_or_update_bus(
 @router.delete("/buses/{bus_name}", response_model=ConfigUpdateResponse, summary="Delete modbus bus")
 async def delete_bus(
     bus_name: str,
-    config_service: ConfigService = Depends(get_config_service),
+    config_service: ModbusConfigService = Depends(get_config_service),
     current_user: str = Depends(get_current_user),
 ) -> ConfigUpdateResponse:
     """Delete a modbus bus (fails if devices are using it)"""
@@ -74,7 +74,7 @@ async def delete_bus(
 @router.post("/devices", response_model=ConfigUpdateResponse, summary="Create or update modbus device")
 async def create_or_update_device(
     device_request: ModbusDeviceCreateRequest,
-    config_service: ConfigService = Depends(get_config_service),
+    config_service: ModbusConfigService = Depends(get_config_service),
     current_user: str = Depends(get_current_user),
 ) -> ConfigUpdateResponse:
     """
@@ -117,32 +117,11 @@ async def create_or_update_device(
 async def delete_device(
     model: str,
     slave_id: int,
-    config_service: ConfigService = Depends(get_config_service),
+    config_service: ModbusConfigService = Depends(get_config_service),
     current_user: str = Depends(get_current_user),
 ) -> ConfigUpdateResponse:
     """Delete a modbus device by model and slave_id"""
     return await config_service.delete_device(model, slave_id, current_user)
-
-
-# ============================================================================
-# Backup Endpoints
-# ============================================================================
-
-
-@router.get("/backups", response_model=BackupListResponse, summary="List configuration backups")
-async def list_backups(config_service: ConfigService = Depends(get_config_service)) -> BackupListResponse:
-    """Get list of available backup files"""
-    return await config_service.list_backups()
-
-
-@router.post("/backups/{filename}/restore", response_model=ConfigUpdateResponse, summary="Restore from backup")
-async def restore_backup(
-    filename: str,
-    config_service: ConfigService = Depends(get_config_service),
-    current_user: str = Depends(get_current_user),
-) -> ConfigUpdateResponse:
-    """Restore configuration from a backup file"""
-    return await config_service.restore_backup(filename, current_user)
 
 
 # ============================================================================

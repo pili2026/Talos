@@ -38,24 +38,3 @@ async def update_system_config(
     except Exception as e:
         logger.error(f"Failed to update system config: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-
-
-@router.get("/backups", response_model=BackupListResponse, summary="List system config backups")
-async def list_backups(
-    service: SystemConfigService = Depends(get_system_config_service),
-) -> BackupListResponse:
-    """Get list of available system config backup files."""
-    return service.list_backups()
-
-
-@router.post(
-    "/backups/{filename}/restore",
-    response_model=SystemConfigUpdateResponse,
-    summary="Restore system config from backup",
-)
-async def restore_backup(
-    filename: str,
-    service: SystemConfigService = Depends(get_system_config_service),
-) -> SystemConfigUpdateResponse:
-    """Restore system configuration from a backup file."""
-    return service.restore_backup(filename)

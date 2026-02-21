@@ -17,7 +17,6 @@ from api.model.modbus_config import (
     ModbusDeviceCreateRequest,
     ModbusDeviceInfo,
 )
-from api.service.base_config_service import BaseConfigService
 from core.schema.config_metadata import ConfigSource
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig
 from core.util.config_manager import ConfigManager
@@ -26,14 +25,13 @@ from core.util.yaml_manager import YAMLManager
 logger = logging.getLogger(__name__)
 
 
-class ConfigService(BaseConfigService):
+class ModbusConfigService:
     """
     Configuration Management Service for modbus devices.
-    Inherits backup operations from BaseConfigService.
     """
 
     def __init__(self, yaml_manager: YAMLManager, config_manager: ConfigManager | None = None):
-        super().__init__(yaml_manager=yaml_manager, config_type="modbus_device")
+        self._yaml_manager = yaml_manager
         self.config_manager = config_manager
 
     # ============================================================================
@@ -272,35 +270,6 @@ class ConfigService(BaseConfigService):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete device: {str(e)}",
-            ) from e
-
-    # ============================================================================
-    # Backup Operations（Override restore_backup，base support list_backups）
-    # ============================================================================
-
-    async def restore_backup(self, filename: str, user: str) -> ConfigUpdateResponse:
-        try:
-            self._do_restore(filename)
-
-            config = self._yaml_manager.read_config("modbus_device")
-
-            logger.info(f"[ConfigService] Restored from backup '{filename}' by {user}")
-
-            return ConfigUpdateResponse(
-                status=ResponseStatus.SUCCESS,
-                message=f"Configuration restored from backup '{filename}'",
-                generation=config.metadata.generation,
-                checksum=config.metadata.checksum,
-                modified_at=config.metadata.last_modified,
-            )
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"[ConfigService] Failed to restore backup: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to restore backup: {str(e)}",
             ) from e
 
     # ============================================================================

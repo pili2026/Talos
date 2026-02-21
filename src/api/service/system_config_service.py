@@ -14,7 +14,6 @@ from api.model.system_config import (
     SystemConfigUpdateRequest,
     SystemConfigUpdateResponse,
 )
-from api.service.base_config_service import BaseConfigService
 from core.schema.config_metadata import ConfigSource
 from core.schema.system_config_schema import SystemConfig, SystemConfigFileSchema
 from core.util.yaml_manager import YAMLManager
@@ -22,14 +21,13 @@ from core.util.yaml_manager import YAMLManager
 logger = logging.getLogger(__name__)
 
 
-class SystemConfigService(BaseConfigService):
+class SystemConfigService:
     """
     System config management service.
-    Inherits backup operations from BaseConfigService.
     """
 
     def __init__(self, yaml_manager: YAMLManager, system_config: SystemConfig):
-        super().__init__(yaml_manager=yaml_manager, config_type="system_config")
+        self._yaml_manager = yaml_manager
         self._system_config = system_config
 
     # ============================================================================
@@ -70,7 +68,7 @@ class SystemConfigService(BaseConfigService):
 
             self._write_schema(schema)
 
-            # 同步更新 in-memory
+            # Synchronous update in-memory
             self._system_config.MONITOR_INTERVAL_SECONDS = req.monitor_interval_seconds
             self._system_config.DEVICE_ID_POLICY.SERIES = req.device_id_series
 
@@ -106,31 +104,3 @@ class SystemConfigService(BaseConfigService):
 
         except Exception as e:
             logger.warning(f"[SystemConfigService] Failed to sync SSH port to yml: {e}")
-
-    # ============================================================================
-    # Backup Operations（Override restore_backup，base Support list_backups）
-    # ============================================================================
-
-    def restore_backup(self, filename: str) -> SystemConfigUpdateResponse:
-        try:
-            self._do_restore(filename)
-
-            # Only system config：After restore Synchronous in-memory
-            schema = self._read_schema()
-            self._system_config.MONITOR_INTERVAL_SECONDS = schema.MONITOR_INTERVAL_SECONDS
-            self._system_config.DEVICE_ID_POLICY.SERIES = schema.DEVICE_ID_POLICY.SERIES
-            self._system_config.REMOTE_ACCESS.REVERSE_SSH.PORT = schema.REMOTE_ACCESS.REVERSE_SSH.PORT
-
-            return SystemConfigUpdateResponse(
-                status=ResponseStatus.SUCCESS,
-                message=f"System config restored from backup '{filename}'. Restart Talos service to apply changes.",
-            )
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"[SystemConfigService] Failed to restore backup: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to restore backup: {str(e)}",
-            ) from e

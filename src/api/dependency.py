@@ -11,7 +11,7 @@ from fastapi import Depends, Header, Request
 from api.repository.config_repository import ConfigRepository
 from api.service.constraint_service import ConstraintService
 from api.service.device_service import DeviceService
-from api.service.modbus_config_service import ConfigService
+from api.service.modbus_config_service import ModbusConfigService
 from api.service.parameter_service import ParameterService
 from api.service.provision_service import ProvisionService
 from api.service.snapshot_service import SnapshotService
@@ -173,7 +173,7 @@ def get_current_user(x_user_email: str | None = Header(None, description="User e
     return "system"
 
 
-def get_config_service(request: Request) -> ConfigService:
+def get_config_service(request: Request) -> ModbusConfigService:
     """
     Provide ConfigService from app state.
 
@@ -190,7 +190,7 @@ def get_config_service(request: Request) -> ConfigService:
     yaml_manager = request.app.state.talos.get_yaml_manager()
     config_manager = request.app.state.talos.get_config_manager()
 
-    return ConfigService(yaml_manager=yaml_manager, config_manager=config_manager)
+    return ModbusConfigService(yaml_manager=yaml_manager, config_manager=config_manager)
 
 
 # ===== Snapshot DB / Repository / Service =====

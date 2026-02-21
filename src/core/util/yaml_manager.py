@@ -14,6 +14,7 @@ from typing import Type, TypeVar
 import yaml
 from pydantic import BaseModel
 
+from api.model.enum.config_type import ConfigTypeEnum
 from core.schema.config_metadata import ConfigMetadata, ConfigSource, calculate_config_checksum
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.modbus_device_schema import ModbusDeviceFileConfig
@@ -196,7 +197,7 @@ class YAMLManager:
         metadata_dict = raw_data.get("_metadata", {})
         return ConfigMetadata.model_validate(metadata_dict)
 
-    def list_backups(self, config_type: str) -> list[Path]:
+    def list_backups(self, config_type: ConfigTypeEnum) -> list[Path]:
         """
         List all backup files for a config type (newest first).
 
@@ -264,7 +265,7 @@ class YAMLManager:
     # Private Helpers
     # ============================================================================
 
-    def _get_backup_dir(self, config_type: str) -> Path:
+    def _get_backup_dir(self, config_type: ConfigTypeEnum) -> Path:
         """
         Get or create backup subdirectory for a specific config type.
 
@@ -280,7 +281,7 @@ class YAMLManager:
         backup_subdir.mkdir(exist_ok=True)
         return backup_subdir
 
-    def _create_backup(self, config_type: str, generation: int) -> None:
+    def _create_backup(self, config_type: ConfigTypeEnum, generation: int) -> None:
         """
         Create backup of current config file in its subdirectory.
 
