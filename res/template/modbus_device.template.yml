@@ -69,7 +69,7 @@ devices:
     type: sensor
     model_file: driver/do750.yml
     <<: *rtu0
-    slave_id: 12 
+    slave_id: 12
 
   - model: GTA_A26A
     type: panel_meter
@@ -94,3 +94,9 @@ devices:
     model_file: driver/jy_dam0404.yml
     <<: *rtu0
     slave_id: 16
+
+  - model: SHIHLIN_SW1100
+    type: power_meter
+    model_file: driver/shihlin_sw1100.yml
+    <<: *rtu0
+    slave_id: 17

@@ -8,6 +8,7 @@ import logging
 from fastapi import HTTPException, status
 
 from api.model.common import ConfigUpdateResponse, MetadataResponse
+from api.model.enum.config_type import ConfigTypeEnum
 from api.model.enums import ResponseStatus
 from api.model.modbus_config import (
     MetadataInfo,
@@ -243,15 +244,30 @@ class ModbusConfigService:
         try:
             config = self._yaml_manager.read_config("modbus_device")
 
-            device_index = self._find_device_index(config.device_list, model, slave_id)
+            device_index: int | None = self._find_device_index(config.device_list, model, slave_id)
             if device_index is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=f"Device {model}_{slave_id} not found"
                 )
 
             config.device_list.pop(device_index)
-
             self._yaml_manager.update_config("modbus_device", config, config_source=ConfigSource.EDGE, modified_by=user)
+
+            remaining_models = {d.model for d in config.device_list}
+            if model not in remaining_models:
+                try:
+                    instance_config = self._yaml_manager.read_config(ConfigTypeEnum.DEVICE_INSTANCE)
+                    if model in instance_config.devices:
+                        del instance_config.devices[model]
+                        self._yaml_manager.update_config(
+                            ConfigTypeEnum.DEVICE_INSTANCE,
+                            instance_config,
+                            config_source=ConfigSource.EDGE,
+                            modified_by=user,
+                        )
+                        logger.info(f"[ConfigService] Cleaned up instance config for model='{model}'")
+                except Exception as e:
+                    logger.warning(f"[ConfigService] Failed to clean up instance config for '{model}': {e}")
 
             logger.info(f"[ConfigService] Device {model}_{slave_id} deleted by {user}")
 

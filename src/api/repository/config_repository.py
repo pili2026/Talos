@@ -221,9 +221,9 @@ class ConfigRepository:
             final_constraints = {**default_constraints, **instance_constraints}
 
             # Get initialization settings
-            global_init = self._instance_config.get("global_defaults", {}).get("initialization", {})
-            model_init = model_config.get("initialization", {})
-            instance_init = instance_config.get("initialization", {})
+            global_init = self._instance_config.get("global_defaults", {}).get("initialization") or {}
+            model_init = model_config.get("initialization") or {}
+            instance_init = instance_config.get("initialization") or {}
             final_init = {**global_init, **model_init, **instance_init}
 
             self._device_map[device_id] = {

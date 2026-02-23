@@ -201,9 +201,9 @@ class TestYAMLManagerRead:
         self, yaml_manager, sample_device_instance_config
     ):
         """Test reading device instance config"""
-        yaml_manager.update_config("device_instance", sample_device_instance_config)
+        yaml_manager.update_config("device_instance_config", sample_device_instance_config)
 
-        loaded = yaml_manager.read_config("device_instance")
+        loaded = yaml_manager.read_config("device_instance_config")
         assert loaded.metadata.generation == 1
         assert "TECO_VFD" in loaded.devices
 
@@ -463,13 +463,13 @@ class TestYAMLManagerRoundTrip:
         """Test writing and reading device instance config"""
         # Write
         yaml_manager.update_config(
-            "device_instance",
+            "device_instance_config",
             sample_device_instance_config,
             modified_by="system",
         )
 
         # Read
-        loaded = yaml_manager.read_config("device_instance")
+        loaded = yaml_manager.read_config("device_instance_config")
 
         # Verify metadata
         assert loaded.metadata.generation == 1

@@ -66,9 +66,9 @@ class TestConfigManagerLegacyMode:
     ):
         """Test legacy load_constraint_config() method"""
         # First, create a config file using YAMLManager
-        yaml_manager.update_config("device_instance", sample_constraint_config)
+        yaml_manager.update_config("device_instance_config", sample_constraint_config)
 
-        config_path = temp_config_dir / "device_instance.yml"
+        config_path = temp_config_dir / "device_instance_config.yml"
 
         # Load using legacy method
         config = ConfigManager.load_constraint_config(str(config_path))
@@ -165,7 +165,7 @@ class TestConfigManagerManagedMode:
 
         # Modify directly via yaml_manager (simulating external change)
         config1.devices["EXTERNAL_CHANGE"] = DeviceConfig(instances={})
-        yaml_manager.update_config("device_instance", config1, config_source=ConfigSource.CLOUD)
+        yaml_manager.update_config("device_instance_config", config1, config_source=ConfigSource.CLOUD)
 
         # Reload should get the new version
         config2 = manager.reload_constraint_config()
@@ -232,8 +232,8 @@ class TestConfigManagerMigrationScenarios:
     ):
         """Test loading with legacy method, saving with managed method"""
         # Create config file using YAMLManager
-        yaml_manager.update_config("device_instance", sample_constraint_config)
-        config_path = temp_config_dir / "device_instance.yml"
+        yaml_manager.update_config("device_instance_config", sample_constraint_config)
+        config_path = temp_config_dir / "device_instance_config.yml"
 
         # Load using legacy method
         config = ConfigManager.load_constraint_config(str(config_path))
@@ -252,7 +252,7 @@ class TestConfigManagerMigrationScenarios:
     ):
         """Test gradual migration pattern"""
         # Start with legacy
-        config_path = temp_config_dir / "device_instance.yml"
+        config_path = temp_config_dir / "device_instance_config.yml"
 
         data = sample_constraint_config.model_dump(by_alias=True, mode="json")
         with open(config_path, "w") as f:
@@ -282,14 +282,14 @@ class TestConfigManagerWithBackup:
 
         # First save
         manager.save_constraint_config_managed(sample_constraint_config)
-        backups = yaml_manager.list_backups("device_instance")
+        backups = yaml_manager.list_backups("device_instance_config")
         assert len(backups) == 0  # No backup on first save
 
         # Second save
         sample_constraint_config.devices["NEW"] = DeviceConfig(instances={})
         manager.save_constraint_config_managed(sample_constraint_config)
 
-        backups = yaml_manager.list_backups("device_instance")
+        backups = yaml_manager.list_backups("device_instance_config")
         assert len(backups) == 1  # Backup created
 
     def test_given_backup_restored_when_reloading_then_changes_are_reverted(
@@ -306,9 +306,9 @@ class TestConfigManagerWithBackup:
         manager.save_constraint_config_managed(sample_constraint_config)
 
         # Restore backup
-        backups = yaml_manager.list_backups("device_instance")
+        backups = yaml_manager.list_backups("device_instance_config")
         if backups:
-            yaml_manager.restore_backup(backups[0], "device_instance")
+            yaml_manager.restore_backup(backups[0], "device_instance_config")
 
         # Reload and verify
         restored = manager.reload_constraint_config()

@@ -18,6 +18,7 @@ from api.model.enum.config_type import ConfigTypeEnum
 from core.schema.config_metadata import ConfigMetadata, ConfigSource, calculate_config_checksum
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.modbus_device_schema import ModbusDeviceFileConfig
+from core.schema.pin_mapping_schema import PinMappingConfig
 from core.schema.system_config_schema import SystemConfigFileSchema
 from core.util.time_util import TIMEZONE_INFO
 
@@ -27,38 +28,19 @@ T = TypeVar("T", ModbusDeviceFileConfig, ConstraintConfigSchema)
 
 
 class YAMLManager:
-    """
-    Manages YAML configuration files with automatic metadata tracking.
-
-    Features:
-    - Automatic generation increment
-    - Checksum calculation and validation
-    - Atomic writes (temp file + rename)
-    - Automatic backup creation per config type (in subdirectories)
-    - Backup rotation (keeps last N backups)
-    """
-
     def __init__(self, config_dir: Path | str, backup_count: int = 10):
-        """
-        Initialize YAML Manager.
-
-        Args:
-            config_dir: Directory containing configuration files
-            backup_count: Number of backups to keep per config type (default: 10)
-        """
         self.config_dir = Path(config_dir)
         self.backup_dir = self.config_dir / "backups"
         self.backup_count = backup_count
 
-        # Ensure base directories exist
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.backup_dir.mkdir(exist_ok=True)
 
-        # Config type to schema mapping
         self.config_schemas: dict[str, Type[BaseModel]] = {
             "modbus_device": ModbusDeviceFileConfig,
-            "device_instance": ConstraintConfigSchema,
+            "device_instance_config": ConstraintConfigSchema,
             "system_config": SystemConfigFileSchema,
+            "pin_mapping": PinMappingConfig,
         }
 
         logger.info(f"[YAMLManager] Initialized with config_dir={config_dir}, backup_count={backup_count}")
@@ -67,27 +49,12 @@ class YAMLManager:
     # Public API
     # ============================================================================
 
-    def read_config(self, config_type: str) -> BaseModel:
-        """
-        Read and parse configuration file.
-
-        Args:
-            config_type: Configuration type (e.g., 'modbus_device', 'system_config')
-
-        Returns:
-            Parsed configuration as Pydantic model
-
-        Raises:
-            ValueError: If config_type is unknown
-            FileNotFoundError: If config file doesn't exist
-            yaml.YAMLError: If YAML is malformed
-            pydantic.ValidationError: If config doesn't match schema
-        """
+    def read_config(self, config_type: str, model: str | None = None) -> BaseModel:
         schema_class = self.config_schemas.get(config_type)
         if not schema_class:
             raise ValueError(f"Unknown config type: {config_type}")
 
-        path = self.config_dir / f"{config_type}.yml"
+        path = self._resolve_path(config_type, model)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
@@ -99,11 +66,8 @@ class YAMLManager:
 
             config = schema_class.model_validate(raw_data)
 
-            logger.info(
-                f"[YAMLManager] Loaded {config_type}: "
-                f"generation={config.metadata.generation}, "
-                f"config_source={config.metadata.config_source}"
-            )
+            gen = config.metadata.generation if config.metadata else "N/A"
+            logger.info(f"[YAMLManager] Loaded {config_type}: generation={gen}")
 
             return config
 
@@ -121,33 +85,29 @@ class YAMLManager:
         config_source: ConfigSource = ConfigSource.EDGE,
         modified_by: str | None = None,
         create_backup: bool = True,
+        model: str | None = None,
     ) -> None:
-        """
-        Update configuration file with automatic metadata management.
-
-        Args:
-            config_type: Configuration type
-            config: Configuration object to write
-            config_source: Source of this change (default: EDGE)
-            modified_by: User/system identifier
-            create_backup: Whether to create backup of old config
-        """
         schema_class = self.config_schemas.get(config_type)
         if not schema_class:
             raise ValueError(f"Unknown config type: {config_type}")
 
-        path = self.config_dir / f"{config_type}.yml"
+        path = self._resolve_path(config_type, model)
 
         # Get current generation
         current_gen = 0
         if path.exists():
             try:
-                current_config = self.read_config(config_type)
-                current_gen = current_config.metadata.generation
+                current_config = self.read_config(config_type, model)
+                if current_config.metadata:
+                    current_gen = current_config.metadata.generation
             except Exception as e:
                 logger.warning(f"[YAMLManager] Cannot read current config for generation: {e}")
 
         new_gen = current_gen + 1
+
+        # Ensure metadata exists
+        if config.metadata is None:
+            config.metadata = ConfigMetadata()
 
         # Update metadata
         time_now = datetime.now(TIMEZONE_INFO).isoformat()
@@ -162,32 +122,22 @@ class YAMLManager:
         config.metadata.checksum = calculate_config_checksum(data_dict)
 
         logger.info(
-            f"[YAMLManager] Updating {config_type}: "
-            f"gen {current_gen} → {new_gen}, "
-            f"config_source={config_source}, "
-            f"by={modified_by}"
+            f"[YAMLManager] Updating {config_type}"
+            + (f"/{model}" if model else "")
+            + f": gen {current_gen} → {new_gen}, source={config_source}, by={modified_by}"
         )
 
         # Backup old file
         if create_backup and path.exists():
-            self._create_backup(config_type, current_gen)
+            self._create_backup(config_type, current_gen, model)
 
         # Atomic write
         self._atomic_write(path, config)
 
         logger.info(f"[YAMLManager] Config {config_type} updated successfully (gen {new_gen})")
 
-    def get_metadata(self, config_type: str) -> ConfigMetadata:
-        """
-        Get only the metadata from a config file.
-
-        Args:
-            config_type: Configuration type
-
-        Returns:
-            ConfigMetadata object
-        """
-        path = self.config_dir / f"{config_type}.yml"
+    def get_metadata(self, config_type: str, model: str | None = None) -> ConfigMetadata:
+        path = self._resolve_path(config_type, model)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
@@ -197,60 +147,45 @@ class YAMLManager:
         metadata_dict = raw_data.get("_metadata", {})
         return ConfigMetadata.model_validate(metadata_dict)
 
-    def list_backups(self, config_type: ConfigTypeEnum) -> list[Path]:
-        """
-        List all backup files for a config type (newest first).
-
-        Backups are stored in: backups/{config_type}/
-
-        Args:
-            config_type: Configuration type
-
-        Returns:
-            List of backup file paths, sorted by modification time (newest first)
-        """
+    def list_backups(self, config_type: ConfigTypeEnum, model: str | None = None) -> list[Path]:
         backup_subdir = self._get_backup_dir(config_type)
+
+        if config_type == "pin_mapping" and model:
+            pattern = f"pin_mapping_{model.lower()}_*.yml"
+        else:
+            pattern = f"{config_type}_*.yml"
+
         return sorted(
-            backup_subdir.glob(f"{config_type}_*.yml"),
+            backup_subdir.glob(pattern),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
 
-    def restore_backup(self, backup_path: Path, config_type: str) -> None:
-        """
-        Restore a config from a backup file.
-
-        Args:
-            backup_path: Path to backup file
-            config_type: Configuration type
-
-        Raises:
-            FileNotFoundError: If backup doesn't exist
-        """
+    def restore_backup(
+        self,
+        backup_path: Path,
+        config_type: str,
+        model: str | None = None,
+    ) -> None:
         if not backup_path.exists():
             raise FileNotFoundError(f"Backup file not found: {backup_path}")
 
-        target_path = self.config_dir / f"{config_type}.yml"
+        target_path = self._resolve_path(config_type, model)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Backup current config before restoring
+        # Backup current before restoring
         if target_path.exists():
-            current_config = self.read_config(config_type)
-            self._create_backup(config_type, current_config.metadata.generation)
+            try:
+                current_config = self.read_config(config_type, model)
+                gen = current_config.metadata.generation if current_config.metadata else 0
+                self._create_backup(config_type, gen, model)
+            except Exception as e:
+                logger.warning(f"[YAMLManager] Could not backup before restore: {e}")
 
         shutil.copy2(backup_path, target_path)
         logger.info(f"[YAMLManager] Restored {config_type} from backup: {backup_path.name}")
 
     def validate_config(self, config_type: str, config_data: dict) -> tuple[bool, str | None]:
-        """
-        Validate config data against schema without writing to file.
-
-        Args:
-            config_type: Configuration type
-            config_data: Raw config dictionary
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
         schema_class = self.config_schemas.get(config_type)
         if not schema_class:
             return False, f"Unknown config type: {config_type}"
@@ -265,57 +200,59 @@ class YAMLManager:
     # Private Helpers
     # ============================================================================
 
+    def _resolve_path(self, config_type: str, model: str | None = None) -> Path:
+        """
+        Resolve the file path for a given config type.
+
+        For pin_mapping: res/pin_mapping/{model}_default.yml
+        For others:      res/{config_type}.yml
+        """
+        if config_type == "pin_mapping":
+            if not model:
+                raise ValueError("model is required for pin_mapping config type")
+            path = self.config_dir / "pin_mapping" / f"{model.lower()}_default.yml"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return path
+        return self.config_dir / f"{config_type}.yml"
+
     def _get_backup_dir(self, config_type: ConfigTypeEnum) -> Path:
-        """
-        Get or create backup subdirectory for a specific config type.
-
-        Structure: backups/{config_type}/
-
-        Args:
-            config_type: Configuration type
-
-        Returns:
-            Path to backup subdirectory
-        """
         backup_subdir = self.backup_dir / config_type
         backup_subdir.mkdir(exist_ok=True)
         return backup_subdir
 
-    def _create_backup(self, config_type: ConfigTypeEnum, generation: int) -> None:
-        """
-        Create backup of current config file in its subdirectory.
-
-        Args:
-            config_type: Configuration type
-            generation: Current generation number
-        """
-        config_source_path = self.config_dir / f"{config_type}.yml"
+    def _create_backup(self, config_type: str, generation: int, model: str | None = None) -> None:
+        config_source_path = self._resolve_path(config_type, model)
         if not config_source_path.exists():
             return
 
         backup_subdir = self._get_backup_dir(config_type)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_filename = f"{config_type}_{timestamp}_gen{generation}.yml"
+
+        if config_type == "pin_mapping" and model:
+            backup_filename = f"pin_mapping_{model.lower()}_{timestamp}_gen{generation}.yml"
+        else:
+            backup_filename = f"{config_type}_{timestamp}_gen{generation}.yml"
+
         backup_path = backup_subdir / backup_filename
 
         try:
             shutil.copy2(config_source_path, backup_path)
             logger.debug(f"[YAMLManager] Created backup: {backup_subdir.name}/{backup_filename}")
-            self._cleanup_old_backups(config_type)
+            self._cleanup_old_backups(config_type, model)
         except Exception as e:
             logger.error(f"[YAMLManager] Backup creation failed: {e}")
 
-    def _cleanup_old_backups(self, config_type: str) -> None:
-        """
-        Remove old backups, keeping only the most recent N.
-
-        Args:
-            config_type: Configuration type
-        """
+    def _cleanup_old_backups(self, config_type: str, model: str | None = None) -> None:
         try:
             backup_subdir = self._get_backup_dir(config_type)
+
+            if config_type == "pin_mapping" and model:
+                pattern = f"pin_mapping_{model.lower()}_*.yml"
+            else:
+                pattern = f"{config_type}_*.yml"
+
             backup_list = sorted(
-                backup_subdir.glob(f"{config_type}_*.yml"),
+                backup_subdir.glob(pattern),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )
@@ -332,13 +269,6 @@ class YAMLManager:
             logger.error(f"[YAMLManager] Backup cleanup failed: {e}")
 
     def _atomic_write(self, path: Path, config: BaseModel) -> None:
-        """
-        Atomically write config to file using temp file + rename.
-
-        Args:
-            path: Target file path
-            config: Configuration to write
-        """
         temp_path = path.with_suffix(".tmp")
 
         try:

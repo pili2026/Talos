@@ -37,9 +37,11 @@ from api.router import (
     device,
     drvier_config,
     health,
+    instance_config,
     modbus_config,
     monitoring,
     parameter,
+    pin_mapping,
     provision,
     snapshot,
     system_config,
@@ -120,6 +122,8 @@ def create_application() -> FastAPI:
     app.include_router(backups.router, prefix="/api/config/backups", tags=["Backups"])
     app.include_router(config_io.export_router, prefix="/api/config/export", tags=["Config IO"])
     app.include_router(config_io.import_router, prefix="/api/config/import", tags=["Config IO"])
+    app.include_router(instance_config.router, prefix="/api/config/instance", tags=["Instance Config"])
+    app.include_router(pin_mapping.router, prefix="/api/config/pin_mapping", tags=["Pin Mapping Config"])
 
     # Register static files
     static_dir = BASE_DIR / "static"

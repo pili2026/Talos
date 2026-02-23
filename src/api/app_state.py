@@ -6,7 +6,10 @@ Centralized state management with type safety and runtime validation.
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.service.instance_config_service import InstanceConfigService
+from api.service.provision_service import ProvisionService
 from api.service.system_config_service import SystemConfigService
+from api.service.wifi_service import WiFiService
 from core.schema.constraint_schema import ConstraintConfigSchema
 from core.schema.system_config_schema import SystemConfig
 from core.util.config_manager import ConfigManager
@@ -59,6 +62,8 @@ class TalosAppState(BaseModel):
         default=None, description="System provisioning service (hostname, reverse SSH port)"
     )
     system_config_service: object | None = Field(default=None, description="System config management service")
+
+    instance_config_service: object | None = Field(default=None, description="Instance config management service")
 
     # Snapshot storage
     snapshot_db_path: str | None = Field(default=None, description="Path to SQLite snapshot database")
@@ -137,13 +142,13 @@ class TalosAppState(BaseModel):
             raise RuntimeError("DeviceHealthManager not initialized")
         return self.health_manager
 
-    def get_wifi_service(self) -> "WiFiService":  # type: ignore
+    def get_wifi_service(self) -> WiFiService:
         """Get WiFi service instance."""
         if self.wifi_service is None:
             raise RuntimeError("WiFiService not initialized")
         return self.wifi_service
 
-    def get_provision_service(self) -> "ProvisionService":  # type: ignore
+    def get_provision_service(self) -> ProvisionService:
         """Get ProvisionService instance."""
         if self.provision_service is None:
             raise RuntimeError("ProvisionService not initialized")
@@ -188,6 +193,11 @@ class TalosAppState(BaseModel):
             raise RuntimeError("SystemConfigService not initialized")
         return self.system_config_service
 
+    def get_instance_config_service(self) -> InstanceConfigService:
+        if self.instance_config_service is None:
+            raise RuntimeError("InstanceConfigService not initialized")
+        return self.instance_config_service
+
     def __repr__(self) -> str:
         """String representation for logging."""
         mode = "unified" if self.is_unified_mode() else "standalone"
@@ -198,6 +208,7 @@ class TalosAppState(BaseModel):
         yaml_mgr_status = "OK" if self.yaml_manager else "NO"
         config_mgr_status = "OK" if self.config_manager else "NO"
         system_config_service_status = "OK" if self.system_config_service else "NO"
+        instance_config_service_status = "OK" if self.instance_config_service else "NO"
 
         return (
             f"TalosAppState(mode={mode}, "
@@ -208,4 +219,5 @@ class TalosAppState(BaseModel):
             f"yaml_mgr={yaml_mgr_status}, "
             f"config_mgr={config_mgr_status}),"
             f"system_config_service={system_config_service_status}),"
+            f"instance_config_service={instance_config_service_status})"
         )

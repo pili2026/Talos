@@ -9,6 +9,7 @@ import re
 
 import yaml
 
+from api.model.enum.config_type import ConfigTypeEnum
 from core.schema.config_metadata import ConfigSource
 from core.schema.constraint_schema import ConstraintConfig, ConstraintConfigSchema, DeviceConfig, InstanceConfig
 from core.util.yaml_manager import YAMLManager
@@ -22,7 +23,7 @@ class ConfigManager:
 
     Mode 1 (Legacy): Direct file access without version management
         manager = ConfigManager()
-        config = manager.load_constraint_config("config/device_instance.yml")
+        config = manager.load_constraint_config("res/device_instance_config.yml")
 
     Mode 2 (Managed): With YAMLManager for version control and backup
         yaml_mgr = YAMLManager("config")
@@ -73,7 +74,7 @@ class ConfigManager:
         version management or backup support.
 
         Args:
-            config_path: Path to device_instance.yml file
+            config_path: Path to device_instance_config.yml file
 
         Returns:
             Validated ConstraintConfigSchema
@@ -110,9 +111,9 @@ class ConfigManager:
                 "or initialize with ConfigManager(yaml_manager=...)"
             )
 
-        self._constraint_config = self.yaml_manager.read_config("device_instance")
+        self._constraint_config = self.yaml_manager.read_config(ConfigTypeEnum.DEVICE_INSTANCE)
         logger.info(
-            f"[ConfigManager] Loaded device_instance config: "
+            f"[ConfigManager] Loaded device_instance_config config: "
             f"generation={self._constraint_config.metadata.generation}, "
             f"source={self._constraint_config.metadata.config_source}"
         )
@@ -163,14 +164,14 @@ class ConfigManager:
             )
 
         self.yaml_manager.update_config(
-            "device_instance", config_to_save, config_source=source, modified_by=modified_by
+            ConfigTypeEnum.DEVICE_INSTANCE, config_to_save, config_source=source, modified_by=modified_by
         )
 
         # Update cached config
         self._constraint_config = config_to_save
 
         logger.info(
-            f"[ConfigManager] Saved device_instance config: "
+            f"[ConfigManager] Saved device_instance_config: "
             f"generation={config_to_save.metadata.generation}, "
             f"source={source}, modified_by={modified_by}"
         )

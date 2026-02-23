@@ -1,0 +1,60 @@
+driver_model: "ADAM-4117"
+mapping_name: "default"
+description: "Default pin mapping for ADAM-4117 - Temperature and pressure sensors (4-20mA)"
+
+pin_mappings:
+  AIn01:
+    name: "Temp1"
+    formula: [0, 0.00076293945, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn02:
+    name: "Temp2"
+    formula: [0, 0.00076293945, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn03:
+    name: "Pressure3"
+    formula: [0, 0.00006103515625, 0]
+    type: "pressure"
+    unit: "kg/cm²"
+    precision: 3
+  
+  AIn04:
+    name: "Temp4"
+    formula: [0, 0.00076293945, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn05:
+    name: "Temp5"
+    formula: [0, 0.00076293945, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn06:
+    name: "Pressure6"
+    formula: [0, 0.00006103515625, 0]
+    type: "pressure"
+    unit: "kg/cm²"
+    precision: 3
+  
+  AIn07:
+    name: "Temp7"
+    formula: [0, 0.00076293945, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn08:
+    name: "Temp8"
+    formula: [0, 0.00076293945, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2

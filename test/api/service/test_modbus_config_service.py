@@ -5,8 +5,10 @@ Tests the configuration management service layer
 
 import pytest
 
+from api.model.enum.config_type import ConfigTypeEnum
 from api.model.enums import ResponseStatus
 from api.model.modbus_config import ModbusBusCreateRequest, ModbusDeviceCreateRequest
+from api.service.backup_service import BackupService
 from api.service.modbus_config_service import ModbusConfigService
 from core.schema.config_metadata import ConfigSource
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig, ModbusDeviceFileConfig
@@ -31,6 +33,12 @@ def yaml_manager(temp_config_dir):
 def config_service(yaml_manager):
     """Create ConfigService instance"""
     return ModbusConfigService(yaml_manager=yaml_manager)
+
+
+@pytest.fixture
+def backup_service(yaml_manager):
+    """Create ConfigService instance"""
+    return BackupService(yaml_manager=yaml_manager, config_type=ConfigTypeEnum.MODBUS_DEVICE, model=None)
 
 
 @pytest.fixture
@@ -249,10 +257,10 @@ class TestConfigServiceBackup:
 
     @pytest.mark.asyncio
     async def test_given_no_backups_when_listing_backups_then_empty_list_is_returned(
-        self, config_service, initialized_config
+        self, backup_service, initialized_config
     ):
         """Test listing backups when none exist"""
-        response = await config_service.list_backups()
+        response = backup_service.list_backups()
 
         assert response.status == ResponseStatus.SUCCESS
         assert response.total == 0
@@ -260,14 +268,14 @@ class TestConfigServiceBackup:
 
     @pytest.mark.asyncio
     async def test_given_updates_occur_when_listing_backups_then_backups_are_returned(
-        self, config_service, initialized_config
+        self, backup_service, config_service, initialized_config
     ):
         """Test listing backups after making updates"""
         # Make a change to trigger backup
         bus_request = ModbusBusCreateRequest(port="/dev/ttyUSB1", baudrate=9600, timeout=1.0)
         await config_service.create_or_update_bus("rtu1", bus_request, "test_user")
 
-        response = await config_service.list_backups()
+        response = backup_service.list_backups()
 
         assert response.status == ResponseStatus.SUCCESS
         assert response.total >= 1
@@ -281,7 +289,7 @@ class TestConfigServiceBackup:
 
     @pytest.mark.asyncio
     async def test_given_backup_filename_when_restoring_backup_then_restore_succeeds(
-        self, config_service, initialized_config, yaml_manager
+        self, backup_service, config_service, initialized_config, yaml_manager
     ):
         """Test restoring from backup"""
         # Make changes
@@ -290,12 +298,12 @@ class TestConfigServiceBackup:
         )
 
         # Get backups
-        backups_response = await config_service.list_backups()
+        backups_response = backup_service.list_backups()
         assert backups_response.total > 0
 
         # Restore
         backup_filename = backups_response.backups[0].filename
-        response = await config_service.restore_backup(backup_filename, "test_user")
+        response = backup_service.restore_backup(backup_filename)
 
         assert response.status == ResponseStatus.SUCCESS
         assert "restored" in response.message.lower()

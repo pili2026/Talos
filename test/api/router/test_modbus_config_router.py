@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.app_state import TalosAppState
-from api.router import modbus_config
+from api.router import backups, modbus_config
 from core.schema.config_metadata import ConfigSource
 from core.schema.modbus_device_schema import ModbusBusConfig, ModbusDeviceConfig, ModbusDeviceFileConfig
 from core.util.config_manager import ConfigManager
@@ -56,6 +56,7 @@ def app(yaml_manager):
     app.state.talos.config_manager = ConfigManager(yaml_manager=yaml_manager)
 
     app.include_router(modbus_config.router, prefix="/api/config/modbus")
+    app.include_router(backups.router, prefix="/api/config/backups")
     return app
 
 
@@ -227,7 +228,7 @@ class TestDeviceEndpoints:
 
 
 class TestBackupEndpoints:
-    """Test /api/config/modbus/backups"""
+    """Test /api/config/backups/modbus_device"""
 
     def test_given_config_is_updated_when_listing_backups_then_backups_are_returned(self, client, initialized_config):
         """Test GET /backups"""
@@ -238,7 +239,7 @@ class TestBackupEndpoints:
             headers={"X-User-Email": "test@example.com"},
         )
 
-        response = client.get("/api/config/modbus/backups")
+        response = client.get("/api/config/backups/modbus_device")
 
         assert response.status_code == 200
         data = response.json()
@@ -259,14 +260,14 @@ class TestBackupEndpoints:
         )
 
         # Get backup list
-        backups_response = client.get("/api/config/modbus/backups")
+        backups_response = client.get("/api/config/backups/modbus_device")
         backups = backups_response.json()["backups"]
 
         if backups:
             filename = backups[0]["filename"]
 
             response = client.post(
-                f"/api/config/modbus/backups/{filename}/restore", headers={"X-User-Email": "test@example.com"}
+                f"/api/config/backups/modbus_device/{filename}/restore", headers={"X-User-Email": "test@example.com"}
             )
 
             assert response.status_code == 200

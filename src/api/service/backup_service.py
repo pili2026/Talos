@@ -20,13 +20,17 @@ logger = logging.getLogger(__name__)
 
 class BackupService:
 
-    def __init__(self, yaml_manager: YAMLManager, config_type: ConfigTypeEnum):
+    def __init__(self, yaml_manager: YAMLManager, config_type: ConfigTypeEnum, model: str | None = None):
         self._yaml_manager = yaml_manager
         self._config_type = config_type
+        self._model = model
 
     def list_backups(self) -> BackupListResponse:
         try:
-            backup_paths = self._yaml_manager.list_backups(self._config_type)
+            backup_paths = self._yaml_manager.list_backups(
+                self._config_type,
+                model=self._model,
+            )
 
             backups = []
             for backup_path in backup_paths:
@@ -91,23 +95,20 @@ class BackupService:
             backup_path = self._yaml_manager.backup_dir / self._config_type / filename
 
             if not backup_path.exists():
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Backup '{filename}' not found",
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Backup '{filename}' not found")
 
-            self._yaml_manager.restore_backup(backup_path, self._config_type)
+            self._yaml_manager.restore_backup(backup_path, self._config_type, model=self._model)
 
-            config = self._yaml_manager.read_config(self._config_type)
+            config = self._yaml_manager.read_config(self._config_type, model=self._model)
 
             logger.info(f"[BackupService] Restored {self._config_type} from '{filename}'")
 
             return ConfigUpdateResponse(
                 status=ResponseStatus.SUCCESS,
                 message=f"Restored from backup '{filename}'",
-                generation=config.metadata.generation,
-                checksum=config.metadata.checksum,
-                modified_at=config.metadata.last_modified,
+                generation=config.metadata.generation if config.metadata else None,
+                checksum=config.metadata.checksum if config.metadata else None,
+                modified_at=config.metadata.last_modified if config.metadata else None,
             )
 
         except HTTPException:

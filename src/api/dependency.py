@@ -11,8 +11,10 @@ from fastapi import Depends, Header, Request
 from api.repository.config_repository import ConfigRepository
 from api.service.constraint_service import ConstraintService
 from api.service.device_service import DeviceService
+from api.service.instance_config_service import InstanceConfigService
 from api.service.modbus_config_service import ModbusConfigService
 from api.service.parameter_service import ParameterService
+from api.service.pin_mapping_service import PinMappingService
 from api.service.provision_service import ProvisionService
 from api.service.snapshot_service import SnapshotService
 from api.service.system_config_service import SystemConfigService
@@ -88,6 +90,17 @@ def get_parameter_service(
 # ===== Constraint Schema & Service =====
 
 
+def get_pin_mapping_service(request: Request) -> PinMappingService:
+    yaml_manager = request.app.state.talos.get_yaml_manager()
+    template_dir = yaml_manager.config_dir / "template" / "pin_mapping"
+    return PinMappingService(yaml_manager, template_dir)
+
+
+def get_instance_config_service(request: Request) -> InstanceConfigService:
+    yaml_manager = request.app.state.talos.get_yaml_manager()
+    return InstanceConfigService(yaml_manager=yaml_manager)
+
+
 def get_constraint_schema(request: Request) -> ConstraintConfigSchema:
     """Provide ConstraintConfigSchema from app state."""
     return request.app.state.talos.get_constraint_schema()
@@ -111,7 +124,7 @@ def get_constraint_service(
     return ConstraintService(constraint_schema, config_repo)
 
 
-# ===== Configuration Management (Phase 1.2) =====
+# ===== Configuration Management  =====
 
 
 def get_yaml_manager(request: Request) -> YAMLManager:

@@ -1,0 +1,116 @@
+driver_model: "SD400"
+mapping_name: "default"
+description: "Default pin mapping for SD400 - Temperature and pressure sensors"
+
+pin_mappings:
+  AIn01:
+    name: "Temp1"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn02:
+    name: "Temp2"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn03:
+    name: "Pressure3"
+    formula: [0, 0.0009765625, 0]
+    type: "pressure"
+    unit: "bar"
+    precision: 3
+  
+  AIn04:
+    name: "Temp4"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn05:
+    name: "Temp5"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn06:
+    name: "Pressure6"
+    formula: [0, 0.0009765625, 0]
+    type: "pressure"
+    unit: "bar"
+    precision: 3
+  
+  AIn07:
+    name: "Temp7"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn08:
+    name: "Temp8"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn09:
+    name: "Pressure9"
+    formula: [0, 0.0009765625, 0]
+    type: "pressure"
+    unit: "bar"
+    precision: 3
+  
+  AIn10:
+    name: "Temp10"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn11:
+    name: "Temp11"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn12:
+    name: "Pressure12"
+    formula: [0, 0.0009765625, 0]
+    type: "pressure"
+    unit: "bar"
+    precision: 3
+  
+  AIn13:
+    name: "Temp13"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn14:
+    name: "Temp14"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2
+  
+  AIn15:
+    name: "Pressure15"
+    formula: [0, 0.0009765625, 0]
+    type: "pressure"
+    unit: "bar"
+    precision: 3
+  
+  AIn16:
+    name: "Temp16"
+    formula: [0, 0.0122070312, 0]
+    type: "thermometer"
+    unit: "°C"
+    precision: 2

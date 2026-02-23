@@ -5,6 +5,8 @@ Defines application-layer pin mapping configuration schema
 
 from pydantic import BaseModel, Field
 
+from core.schema.config_metadata import ConfigMetadata
+
 
 class PinMapping(BaseModel):
     """Application-layer mapping definition for a single pin (overrides driver defaults)"""
@@ -26,3 +28,4 @@ class PinMappingConfig(BaseModel):
     mapping_name: str = Field(..., description="Mapping name (e.g., 'default')")
     description: str | None = Field(None, description="Mapping description")
     pin_mappings: dict[str, PinMapping] = Field(..., description="Pin mapping dictionary (keys are driver pin names)")
+    metadata: ConfigMetadata | None = None
