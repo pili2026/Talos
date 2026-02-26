@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.model.enum.alert_enum import AlertSeverity
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
+from core.schema.time_control_schema import TimeInterval
 
 
 class AlertMessageModel(BaseModel):
@@ -33,10 +34,10 @@ class BaseAlertConfig(BaseModel):
 
     name: str
     code: str
-    device_name: str
+    device_name: str = ""  # Optional display name, defaults to empty string
     sources: list[str]
     severity: AlertSeverity = AlertSeverity.INFO
-    message: str
+    message: str | None = None  # Optional custom message, system generates fallback
 
     @field_validator("sources")
     @classmethod
@@ -149,10 +150,45 @@ class ScheduleExpectedStateAlertConfig(BaseAlertConfig):
 
 
 # ============================================================
+# Schedule Threshold Alert (Time-gated Threshold)
+# ============================================================
+
+
+class ScheduleThresholdAlertConfig(BaseAlertConfig):
+    """
+    Time-gated threshold alert.
+    Only evaluates the threshold condition during active_hours.
+    Supports overnight intervals (start > end).
+
+    Example:
+        sources: ["Kw"]
+        type: "schedule_threshold"
+        condition: "gt"
+        threshold: 10.0
+        active_hours:
+            start: "20:00"
+            end: "07:00"
+    """
+
+    type: Literal[ConditionType.SCHEDULE_THRESHOLD]
+    condition: ConditionOperator
+    threshold: float
+    active_hours: TimeInterval
+
+    @model_validator(mode="after")
+    def validate_single_source(self):
+        if len(self.sources) != 1:
+            raise ValueError(f"schedule_threshold requires exactly 1 source, " f"got {len(self.sources)}")
+        return self
+
+
+# ============================================================
 # Union Type for All Alert Configurations
 # ============================================================
 
-AlertConditionModel = ThresholdAlertConfig | AggregateAlertConfig | ScheduleExpectedStateAlertConfig
+AlertConditionModel = (
+    ThresholdAlertConfig | AggregateAlertConfig | ScheduleExpectedStateAlertConfig | ScheduleThresholdAlertConfig
+)
 
 
 # ============================================================

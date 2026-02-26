@@ -1,5 +1,6 @@
 import logging
 from collections import Counter
+from datetime import datetime
 
 from core.evaluator.alert_state_manager import AlertStateManager
 from core.evaluator.time_evalutor import TimeControlEvaluator
@@ -11,8 +12,10 @@ from core.schema.alert_schema import (
     AggregateAlertConfig,
     AlertConditionModel,
     ScheduleExpectedStateAlertConfig,
+    ScheduleThresholdAlertConfig,
     ThresholdAlertConfig,
 )
+from core.util.time_util import TIMEZONE_INFO
 
 logger = logging.getLogger("AlertEvaluator")
 
@@ -103,6 +106,8 @@ class AlertEvaluator:
                 evaluation_result: tuple[bool, float] | None = self._evaluate_schedule_expected_state(
                     alert, snapshot, device_id
                 )
+            elif isinstance(alert, ScheduleThresholdAlertConfig):
+                evaluation_result = self._evaluate_schedule_threshold(alert, snapshot, device_id)
             elif isinstance(alert, (ThresholdAlertConfig, AggregateAlertConfig)):
                 # Traditional threshold/aggregate evaluation
                 evaluation_result: tuple[bool, float] | None = self._evaluate_threshold_or_aggregate(
@@ -152,7 +157,7 @@ class AlertEvaluator:
                     current_value=alert_value,
                     severity=alert.severity,
                     notification_type=notification_type,
-                    message=alert.message,
+                    message=alert.message or msg,  # Use alert message if defined, else fallback
                 )
                 result_list.append(result)
 
@@ -285,6 +290,64 @@ class AlertEvaluator:
 
         return (triggered, actual_state)
 
+    def _evaluate_schedule_threshold(
+        self, alert: ScheduleThresholdAlertConfig, snapshot: dict[str, float], device_id: str
+    ) -> tuple[bool, float] | None:
+        """
+        Evaluate time-gated threshold alert.
+
+        Logic:
+        1. Get source value from snapshot
+        2. Check if current time is within active_hours
+        3. If outside active_hours → suppress (return False)
+        4. If inside active_hours → evaluate threshold condition
+
+        Returns:
+            (triggered: bool, value: float) or None if unable to evaluate
+        """
+        source: str = alert.sources[0]
+        if source not in snapshot:
+            logger.warning(f"[{device_id}] Alert '{alert.code}': " f"Source '{source}' not found in snapshot")
+            return None
+
+        alert_value = snapshot[source]
+
+        # Check if current time is within active_hours
+        now_time = datetime.now(TIMEZONE_INFO).time()
+        in_active: bool = TimeControlEvaluator._in_interval(
+            now_time,
+            alert.active_hours.start,
+            alert.active_hours.end,
+        )
+
+        if not in_active:
+            logger.debug(
+                f"[{device_id}] Alert '{alert.code}': "
+                f"Outside active_hours ({alert.active_hours.start}~{alert.active_hours.end}), suppressed"
+            )
+            return (False, alert_value)
+
+        # Inside active_hours: evaluate threshold
+        triggered: bool = False
+        match alert.condition:
+            case ConditionOperator.GREATER_THAN:
+                triggered = alert_value > alert.threshold
+            case ConditionOperator.LESS_THAN:
+                triggered = alert_value < alert.threshold
+            case ConditionOperator.EQUAL:
+                triggered = alert_value == alert.threshold
+            case ConditionOperator.GREATER_THAN_OR_EQUAL:
+                triggered = alert_value >= alert.threshold
+            case ConditionOperator.LESS_THAN_OR_EQUAL:
+                triggered = alert_value <= alert.threshold
+            case ConditionOperator.NOT_EQUAL:
+                triggered = alert_value != alert.threshold
+            case _:
+                logger.warning(f"[{device_id}] Unknown operator: {alert.condition}")
+                return None
+
+        return (triggered, alert_value)
+
     def _evaluate_threshold_or_aggregate(
         self,
         alert: ThresholdAlertConfig | AggregateAlertConfig,
@@ -345,7 +408,7 @@ class AlertEvaluator:
         sources_str = ", ".join(alert.sources)
         if isinstance(alert, ScheduleExpectedStateAlertConfig):
             # Schedule expected state: show source and actual state
-            sources_display = f"{sources_str}"
+            sources_display = sources_str
         elif len(alert.sources) > 1:
             # Multi-source: show aggregate type
             sources_display = f"{alert.type.value}({sources_str})"
@@ -364,6 +427,13 @@ class AlertEvaluator:
                     f"{sources_display}={state_text} (expected {expected_text}) "
                     f"during shutdown period"
                 )
+            elif isinstance(alert, ScheduleThresholdAlertConfig):
+                msg = (
+                    f"[{alert.severity.value}] {alert.name}: "
+                    f"{sources_display}={alert_value:.2f} violates "
+                    f"{alert.condition.value} {alert.threshold} "
+                    f"(active_hours {alert.active_hours.start}~{alert.active_hours.end})"
+                )
             else:
                 # Threshold/aggregate message
                 msg = (
@@ -377,6 +447,12 @@ class AlertEvaluator:
                 # Schedule expected state resolved
                 state_text = "ON" if alert_value == 1 else "OFF"
                 msg = f"[RESOLVED] {alert.name}: " f"{sources_display}={state_text} returned to expected state"
+            elif isinstance(alert, ScheduleThresholdAlertConfig):
+                msg = (
+                    f"[RESOLVED] {alert.name}: "
+                    f"{sources_display}={alert_value:.2f} returned to normal "
+                    f"(threshold: {alert.threshold})"
+                )
             else:
                 # Threshold/aggregate resolved
                 msg = (

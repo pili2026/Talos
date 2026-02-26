@@ -102,10 +102,10 @@ class ModbusRegisterHandler:
         return False
 
     async def _read_composed(self, reg_config: dict) -> int:
-        """Read 48-bit composed value from three 16-bit registers."""
+        """Read composed value from multiple 16-bit registers (supports 32-bit and 48-bit)."""
         sub_registers = reg_config["composed_of"]
-        if not isinstance(sub_registers, (list, tuple)) or len(sub_registers) != 3:
-            self.logger.error(f"[{self.model}] Invalid composed_of={sub_registers}, must have exactly 3 entries")
+        if not isinstance(sub_registers, (list, tuple)) or len(sub_registers) not in (2, 3):
+            self.logger.error(f"[{self.model}] Invalid composed_of={sub_registers}, must have 2 or 3 entries")
             return DEFAULT_MISSING_VALUE
 
         register_value_list: list[int] = []
@@ -117,5 +117,13 @@ class ModbusRegisterHandler:
             word = await self.bus.read_u16(pin_cfg["offset"])
             register_value_list.append(int(word) & INVALID_U16_SENTINEL)
 
-        hi, md, lo = register_value_list
-        return (hi << HI_SHIFT) | (md << MD_SHIFT) | lo
+        if len(register_value_list) == 2:
+            hi, lo = register_value_list
+            if hi == INVALID_U16_SENTINEL and lo == INVALID_U16_SENTINEL:
+                return DEFAULT_MISSING_VALUE
+            return (hi << MD_SHIFT) | lo
+        else:
+            hi, md, lo = register_value_list
+            if hi == INVALID_U16_SENTINEL and md == INVALID_U16_SENTINEL and lo == INVALID_U16_SENTINEL:
+                return DEFAULT_MISSING_VALUE
+            return (hi << HI_SHIFT) | (md << MD_SHIFT) | lo

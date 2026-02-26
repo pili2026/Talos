@@ -99,6 +99,13 @@ class AlertConfig(BaseModel):
                 f"got {len(alert.sources)}"
             )
 
+        # Schedule threshold alerts require exactly one source
+        if alert_type == ConditionType.SCHEDULE_THRESHOLD and len(alert.sources) != 1:
+            errors.append(
+                f"{context}: schedule_threshold alert '{alert.code}' requires exactly 1 source, "
+                f"got {len(alert.sources)}"
+            )
+
         # Validate severity is appropriate
         if alert.severity not in AlertSeverity:
             errors.append(f"{context}: invalid severity '{alert.severity}' for alert '{alert.code}'")
@@ -178,6 +185,13 @@ class AlertConfig(BaseModel):
                     logger.warning(
                         f"{context} Skipping alert '{alert_code}': "
                         f"schedule_expected_state requires exactly 1 source, got {len(alert.sources)}"
+                    )
+                    continue
+
+                if alert.type == ConditionType.SCHEDULE_THRESHOLD and len(alert.sources) != 1:
+                    logger.warning(
+                        f"{context} Skipping alert '{alert_code}': "
+                        f"schedule_threshold requires exactly 1 source, got {len(alert.sources)}"
                     )
                     continue
 

@@ -243,6 +243,72 @@ def mock_alert_config_with_schedule_expected_on() -> AlertConfig:
 
 
 @pytest.fixture
+def mock_alert_config_with_schedule_threshold() -> AlertConfig:
+    """Alert config with schedule_threshold alert (night power monitoring)"""
+    return AlertConfig.model_validate(
+        {
+            "root": {
+                "ADTEK_CPM10": {
+                    "instances": {
+                        "1": {
+                            "alerts": [
+                                {
+                                    "code": "NIGHT_KW_HIGH",
+                                    "name": "用電異常（夜間）",
+                                    "device_name": "Power Meter",
+                                    "sources": ["Kw"],
+                                    "type": "schedule_threshold",
+                                    "condition": "gt",
+                                    "threshold": 10.0,
+                                    "active_hours": {
+                                        "start": "20:00",
+                                        "end": "07:00",
+                                    },
+                                    "severity": "WARNING",
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+
+@pytest.fixture
+def mock_alert_config_with_schedule_threshold_daytime() -> AlertConfig:
+    """Alert config with schedule_threshold alert (daytime, non-overnight)"""
+    return AlertConfig.model_validate(
+        {
+            "root": {
+                "ADTEK_CPM10": {
+                    "instances": {
+                        "1": {
+                            "alerts": [
+                                {
+                                    "code": "DAY_KW_HIGH",
+                                    "name": "用電異常（日間）",
+                                    "device_name": "Power Meter",
+                                    "sources": ["Kw"],
+                                    "type": "schedule_threshold",
+                                    "condition": "gt",
+                                    "threshold": 10.0,
+                                    "active_hours": {
+                                        "start": "08:00",
+                                        "end": "18:00",
+                                    },
+                                    "severity": "WARNING",
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+
+@pytest.fixture
 def mock_time_evaluator():
     """Create mock TimeControlEvaluator"""
     return Mock(spec=TimeControlEvaluator)

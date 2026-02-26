@@ -3,7 +3,12 @@ from pydantic import ValidationError
 
 from core.model.enum.alert_enum import AlertSeverity
 from core.model.enum.condition_enum import ConditionOperator, ConditionType
-from core.schema.alert_schema import AggregateAlertConfig, ScheduleExpectedStateAlertConfig, ThresholdAlertConfig
+from core.schema.alert_schema import (
+    AggregateAlertConfig,
+    ScheduleExpectedStateAlertConfig,
+    ScheduleThresholdAlertConfig,
+    ThresholdAlertConfig,
+)
 
 # ============================================================
 # Threshold Alert Schema Tests
@@ -16,13 +21,13 @@ def test_when_valid_threshold_alert_then_validation_succeeds():
         {
             "code": "TEST_ALERT",
             "name": "Test Alert",
-            "device_name": "Test Device",  # 新增
+            "device_name": "Test Device",
             "sources": ["O2_PCT"],
             "type": "threshold",
             "condition": "lt",
             "threshold": 1.5,
             "severity": "CRITICAL",
-            "message": "Oxygen level is too low",  # 新增
+            "message": "Oxygen level is too low",
         }
     )
 
@@ -35,40 +40,36 @@ def test_when_valid_threshold_alert_then_validation_succeeds():
     assert alert.message == "Oxygen level is too low"
 
 
-def test_when_threshold_alert_missing_device_name_then_validation_error():
-    """Test validation error when threshold alert missing device_name"""
-    with pytest.raises(ValidationError) as exc_info:
-        ThresholdAlertConfig.model_validate(
-            {
-                "code": "TEST",
-                "name": "Test",
-                "sources": ["O2_PCT"],
-                "type": "threshold",
-                "condition": "lt",
-                "threshold": 1.5,
-                "message": "Test message",
-                # Missing device_name
-            }
-        )
-    assert "device_name" in str(exc_info.value)
+def test_when_threshold_alert_missing_device_name_then_defaults_to_empty_string():
+    """device_name is optional, defaults to empty string"""
+    alert = ThresholdAlertConfig.model_validate(
+        {
+            "code": "TEST",
+            "name": "Test",
+            "sources": ["AIn01"],
+            "type": "threshold",
+            "condition": "gt",
+            "threshold": 50.0,
+            # No device_name
+        }
+    )
+    assert alert.device_name == ""
 
 
-def test_when_threshold_alert_missing_message_then_validation_error():
-    """Test validation error when threshold alert missing message"""
-    with pytest.raises(ValidationError) as exc_info:
-        ThresholdAlertConfig.model_validate(
-            {
-                "code": "TEST",
-                "name": "Test",
-                "device_name": "Test Device",
-                "sources": ["O2_PCT"],
-                "type": "threshold",
-                "condition": "lt",
-                "threshold": 1.5,
-                # Missing message
-            }
-        )
-    assert "message" in str(exc_info.value)
+def test_when_threshold_alert_missing_message_then_defaults_to_none():
+    """message is optional, defaults to None"""
+    alert = ThresholdAlertConfig.model_validate(
+        {
+            "code": "TEST",
+            "name": "Test",
+            "sources": ["AIn01"],
+            "type": "threshold",
+            "condition": "gt",
+            "threshold": 50.0,
+            # No message
+        }
+    )
+    assert alert.message is None
 
 
 def test_when_threshold_alert_missing_condition_then_validation_error():
@@ -136,13 +137,13 @@ def test_when_valid_average_alert_then_validation_succeeds():
         {
             "code": "AVG_TEMP",
             "name": "Average Temperature",
-            "device_name": "Multi-Point Sensor",  # 新增
+            "device_name": "Multi-Point Sensor",
             "sources": ["AIn02", "AIn03"],
             "type": "average",
             "condition": "gt",
             "threshold": 40.0,
             "severity": "WARNING",
-            "message": "Average temperature exceeds threshold",  # 新增
+            "message": "Average temperature exceeds threshold",
         }
     )
 
@@ -234,12 +235,12 @@ def test_when_all_aggregate_types_with_multiple_sources_then_validation_succeeds
             {
                 "code": f"{agg_type.upper()}_ALERT",
                 "name": f"{agg_type.title()} Alert",
-                "device_name": "Test Device",  # 新增
+                "device_name": "Test Device",
                 "sources": ["AIn01", "AIn02", "AIn03"],
                 "condition": "gt",
                 "threshold": 50.0,
                 "type": agg_type,
-                "message": f"{agg_type.title()} value exceeds threshold",  # 新增
+                "message": f"{agg_type.title()} value exceeds threshold",
             }
         )
 
@@ -258,12 +259,12 @@ def test_when_valid_schedule_alert_with_int_state_then_validation_succeeds():
         {
             "code": "BLOWER_AFTER_HOURS",
             "name": "Blower Running After Hours",
-            "device_name": "Main Blower",  # 新增
+            "device_name": "Main Blower",
             "sources": ["RW_ON_OFF"],
             "type": "schedule_expected_state",
             "expected_state": 0,
             "severity": "WARNING",
-            "message": "Blower is running outside scheduled hours",  # 新增
+            "message": "Blower is running outside scheduled hours",
         }
     )
 
@@ -554,3 +555,127 @@ def test_when_all_required_fields_present_then_schedule_alert_valid():
     assert alert.name == "Complete Schedule"
     assert alert.device_name == "Schedule Device"
     assert alert.message == "Complete schedule message"
+
+
+# ============================================================
+# Schedule Threshold Alert Schema Tests
+# ============================================================
+
+
+def test_when_valid_schedule_threshold_alert_then_validation_succeeds():
+    """Test schedule_threshold alert with valid configuration"""
+
+    alert = ScheduleThresholdAlertConfig.model_validate(
+        {
+            "code": "NIGHT_KW_HIGH",
+            "name": "用電異常（夜間）",
+            "device_name": "Power Meter",
+            "sources": ["Kw"],
+            "type": "schedule_threshold",
+            "condition": "gt",
+            "threshold": 10.0,
+            "active_hours": {"start": "20:00", "end": "07:00"},
+            "severity": "WARNING",
+        }
+    )
+
+    assert alert.code == "NIGHT_KW_HIGH"
+    assert alert.threshold == 10.0
+    assert alert.active_hours.start.hour == 20
+    assert alert.active_hours.end.hour == 7
+
+
+def test_when_schedule_threshold_with_multiple_sources_then_validation_error():
+    """Test validation error when schedule_threshold has multiple sources"""
+
+    with pytest.raises(ValidationError) as exc_info:
+        ScheduleThresholdAlertConfig.model_validate(
+            {
+                "code": "TEST",
+                "name": "Test",
+                "device_name": "Test Device",
+                "sources": ["Kw", "Kvar"],  # 2 sources
+                "type": "schedule_threshold",
+                "condition": "gt",
+                "threshold": 10.0,
+                "active_hours": {"start": "20:00", "end": "07:00"},
+            }
+        )
+    assert "exactly 1 source" in str(exc_info.value)
+
+
+def test_when_schedule_threshold_missing_active_hours_then_validation_error():
+    """Test validation error when active_hours is missing"""
+
+    with pytest.raises(ValidationError) as exc_info:
+        ScheduleThresholdAlertConfig.model_validate(
+            {
+                "code": "TEST",
+                "name": "Test",
+                "device_name": "Test Device",
+                "sources": ["Kw"],
+                "type": "schedule_threshold",
+                "condition": "gt",
+                "threshold": 10.0,
+                # Missing active_hours
+            }
+        )
+    assert "active_hours" in str(exc_info.value)
+
+
+def test_when_schedule_threshold_start_equals_end_then_validation_error():
+    """Test validation error when active_hours start == end"""
+
+    with pytest.raises(ValidationError):
+        ScheduleThresholdAlertConfig.model_validate(
+            {
+                "code": "TEST",
+                "name": "Test",
+                "device_name": "Test Device",
+                "sources": ["Kw"],
+                "type": "schedule_threshold",
+                "condition": "gt",
+                "threshold": 10.0,
+                "active_hours": {"start": "10:00", "end": "10:00"},  # start == end
+            }
+        )
+
+
+def test_when_schedule_threshold_overnight_interval_then_validation_succeeds():
+    """Test overnight interval (start > end) is valid"""
+
+    alert = ScheduleThresholdAlertConfig.model_validate(
+        {
+            "code": "TEST",
+            "name": "Test",
+            "device_name": "Test Device",
+            "sources": ["Kw"],
+            "type": "schedule_threshold",
+            "condition": "gt",
+            "threshold": 10.0,
+            "active_hours": {"start": "20:00", "end": "07:00"},  # Overnight
+        }
+    )
+
+    assert alert.active_hours.start.hour == 20
+    assert alert.active_hours.end.hour == 7
+
+
+def test_when_schedule_threshold_message_is_optional_then_validation_succeeds():
+    """Test message field is optional for schedule_threshold"""
+
+    alert = ScheduleThresholdAlertConfig.model_validate(
+        {
+            "code": "TEST",
+            "name": "Test",
+            "device_name": "Test Device",
+            "sources": ["Kw"],
+            "type": "schedule_threshold",
+            "condition": "gt",
+            "threshold": 10.0,
+            "active_hours": {"start": "20:00", "end": "07:00"},
+            # No message field
+        }
+    )
+
+    assert alert.message is None
