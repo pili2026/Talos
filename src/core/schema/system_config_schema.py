@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.schema.config_metadata import ConfigMetadata
 
@@ -10,6 +10,7 @@ class PathsConfig(BaseModel):
 
     STATE_DIR: str = Field(default="logs/state", description="State data directory")
     LOG_DIR: str = Field(default="logs", description="Log directory")
+    OUTLIER_LOG_PATH: str = Field(default="logs/outlier.log", description="Outlier log file path")
 
 
 class DeviceIdPolicyConfig(BaseModel):
@@ -74,6 +75,12 @@ class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     MONITOR_INTERVAL_SECONDS: float = Field(default=1.0, gt=0, description="Monitoring interval (seconds)")
+    CONTROL_INTERVAL_SECONDS: float | None = Field(
+        default=None, gt=0, description="Control evaluation interval (seconds). Inherits monitor_interval if null."
+    )
+    ALERT_INTERVAL_SECONDS: float | None = Field(
+        default=None, gt=0, description="Alert evaluation interval (seconds). Inherits monitor_interval if null."
+    )
     MONITOR_READ_CONCURRENCY: int = Field(
         default=50, ge=1, le=500, description="Max concurrent device read tasks in monitor loop."
     )
@@ -84,6 +91,19 @@ class SystemConfig(BaseModel):
     SUBSCRIBERS: SubscribersConfig = Field(default_factory=SubscribersConfig)
 
     REMOTE_ACCESS: RemoteAccessConfig = Field(default_factory=RemoteAccessConfig)
+
+    @model_validator(mode="after")
+    def validate_intervals(self) -> "SystemConfig":
+        monitor = self.MONITOR_INTERVAL_SECONDS
+        if self.CONTROL_INTERVAL_SECONDS is not None and self.CONTROL_INTERVAL_SECONDS < monitor:
+            raise ValueError(
+                f"control_interval ({self.CONTROL_INTERVAL_SECONDS}) must be >= monitor_interval ({monitor})"
+            )
+        if self.ALERT_INTERVAL_SECONDS is not None and self.ALERT_INTERVAL_SECONDS < monitor:
+            raise ValueError(
+                f"alert_interval ({self.ALERT_INTERVAL_SECONDS}) must be >= monitor_interval ({monitor})"
+            )
+        return self
 
 
 class SystemConfigFileSchema(BaseModel):
@@ -99,6 +119,8 @@ class SystemConfigFileSchema(BaseModel):
     metadata: ConfigMetadata = Field(default_factory=ConfigMetadata, alias="_metadata")
 
     MONITOR_INTERVAL_SECONDS: float = Field(default=10.0, gt=0)
+    CONTROL_INTERVAL_SECONDS: float | None = Field(default=None, gt=0)
+    ALERT_INTERVAL_SECONDS: float | None = Field(default=None, gt=0)
     MONITOR_READ_CONCURRENCY: int = Field(default=50, ge=1, le=500)
     MONITOR_DEVICE_TIMEOUT_SEC: float = Field(default=3.0, gt=0, le=60)
     MONITOR_LOG_EACH_DEVICE: bool = Field(default=False)
@@ -106,3 +128,16 @@ class SystemConfigFileSchema(BaseModel):
     DEVICE_ID_POLICY: DeviceIdPolicyConfig = Field(default_factory=DeviceIdPolicyConfig)
     SUBSCRIBERS: SubscribersConfig = Field(default_factory=SubscribersConfig)
     REMOTE_ACCESS: RemoteAccessConfig = Field(default_factory=RemoteAccessConfig)
+
+    @model_validator(mode="after")
+    def validate_intervals(self) -> "SystemConfigFileSchema":
+        monitor = self.MONITOR_INTERVAL_SECONDS
+        if self.CONTROL_INTERVAL_SECONDS is not None and self.CONTROL_INTERVAL_SECONDS < monitor:
+            raise ValueError(
+                f"control_interval ({self.CONTROL_INTERVAL_SECONDS}) must be >= monitor_interval ({monitor})"
+            )
+        if self.ALERT_INTERVAL_SECONDS is not None and self.ALERT_INTERVAL_SECONDS < monitor:
+            raise ValueError(
+                f"alert_interval ({self.ALERT_INTERVAL_SECONDS}) must be >= monitor_interval ({monitor})"
+            )
+        return self
