@@ -1,312 +1,437 @@
-version: "0.1.5.0"
-
-
-SD400:
-  default_controls: []
-  instances:
-    "8":
-      use_default_controls: false
-      controls:
-        # ========================================
-        # Priority 0: Emergency - Below 24°C shutdown both fans
-        # ========================================
-        - name: "Emergency Low Temperature Fan Shutdown"
-          code: "FAN_EMERGENCY_OFF"
-          priority: 0
-          blocking: true
-          composite:
-            any:
-              - type: threshold
-                sources: [AIn04]
-                operator: lt
-                threshold: 24.0
-                hysteresis: 1.0
-                debounce_sec: 10.0
-          policy:
-            type: discrete_setpoint
-          actions:
-            - model: TECO_VFD
-              slave_id: "5"
-              type: turn_off
-              target: RW_ON_OFF
-            - model: TECO_VFD
-              slave_id: "6"
-              type: turn_off
-              target: RW_ON_OFF
-
-        # ========================================
-        # Priority 1: Chilled Water Pump Temperature Difference Control (4°C)
-        # ========================================
-        - name: "Chilled Water Pump Increase Frequency"
-          code: "CHWP_TEMP_DIFF_INC"
-          priority: 10
-          composite:
-            any:
-              - type: difference
-                sources: [AIn03, AIn02]
-                operator: gt
-                threshold: 4.0
-                abs: false
-                hysteresis: 0.3
-                debounce_sec: 5.0
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources: [AIn03, AIn02]
-            gain_hz_per_unit: 2.0
-          actions:
-            - model: TECO_VFD
-              slave_id: "4"
-              type: adjust_frequency
-              target: RW_HZ
-
-        - name: "Chilled Water Pump Decrease Frequency"
-          code: "CHWP_TEMP_DIFF_DEC"
-          priority: 10
-          composite:
-            any:
-              - type: difference
-                sources: [AIn03, AIn02]
-                operator: lt
-                threshold: 4.0
-                abs: false
-                hysteresis: 0.3
-                debounce_sec: 5.0
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources: [AIn03, AIn02]
-            gain_hz_per_unit: -2.0
-          actions:
-            - model: TECO_VFD
-              slave_id: "4"
-              type: adjust_frequency
-              target: RW_HZ
-
-        # ========================================
-        # Priority 1: Cooling Water Pump Temperature Difference Control (2°C)
-        # ========================================
-        - name: "Cooling Water Pump Increase Frequency"
-          code: "CWP_TEMP_DIFF_INC"
-          priority: 10
-          composite:
-            any:
-              - type: difference
-                sources: [AIn05, AIn04]
-                operator: gt
-                threshold: 2.0
-                abs: false
-                hysteresis: 0.3
-                debounce_sec: 5.0
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources: [AIn05, AIn04]
-            gain_hz_per_unit: 2.0
-          actions:
-            - model: TECO_VFD
-              slave_id: "3"
-              type: adjust_frequency
-              target: RW_HZ
-
-        - name: "Cooling Water Pump Decrease Frequency"
-          code: "CWP_TEMP_DIFF_DEC"
-          priority: 10
-          composite:
-            any:
-              - type: difference
-                sources: [AIn05, AIn04]
-                operator: lt
-                threshold: 2.0
-                abs: false
-                hysteresis: 0.3
-                debounce_sec: 5.0
-          policy:
-            type: incremental_linear
-            condition_type: difference
-            sources: [AIn05, AIn04]
-            gain_hz_per_unit: -2.0
-          actions:
-            - model: TECO_VFD
-              slave_id: "3"
-              type: adjust_frequency
-              target: RW_HZ
-
-        # ========================================
-        # Priority 1: Fan 1 - Turn on at 27°C (只開啟，不設頻率)
-        # ========================================
-        - name: "Fan 1 Turn On at 27C"
-          code: "FAN1_ON_27C"
-          priority: 10
-          composite:
-            any:
-              - type: threshold
-                sources: [AIn04]
-                operator: gte
-                threshold: 27.0
-                hysteresis: 0.5
-                debounce_sec: 5.0
-          policy:
-            type: discrete_setpoint
-          actions:
-            - model: TECO_VFD
-              slave_id: "5"
-              type: turn_on
-              target: RW_ON_OFF
-
-        # ========================================
-        # Priority 2: Fan 2 - Turn on at 28°C (只開啟，不設頻率)
-        # ========================================
-        - name: "Fan 2 Turn On at 28C"
-          code: "FAN2_ON_28C"
-          priority: 20
-          composite:
-            any:
-              - type: threshold
-                sources: [AIn04]
-                operator: gte
-                threshold: 28.0
-                hysteresis: 0.5
-                debounce_sec: 5.0
-          policy:
-            type: discrete_setpoint
-          actions:
-            - model: TECO_VFD
-              slave_id: "6"
-              type: turn_on
-              target: RW_ON_OFF
-
-        # ========================================
-        # Priority 2: Fan 2 - Turn off between 27-28°C
-        # ========================================
-        - name: "Fan 2 Turn Off Between 27-28C"
-          code: "FAN2_OFF_27_28C"
-          priority: 20
-          composite:
-            any:
-              - type: threshold
-                sources: [AIn04]
-                operator: between
-                min: 27.0
-                max: 28.0
-                hysteresis: 0.5
-                debounce_sec: 3.0
-          policy:
-            type: discrete_setpoint
-          actions:
-            - model: TECO_VFD
-              slave_id: "6"
-              type: turn_off
-              target: RW_ON_OFF
-
-        # ========================================
-        # Priority 3: Both fans set to 35Hz when temp < 30°C
-        # ========================================
-        - name: "Fans Set 35Hz Below 30C"
-          code: "FANS_35HZ_BELOW_30C"
-          priority: 30
-          composite:
-            any:
-              - type: threshold
-                sources: [AIn04]
-                operator: lt
-                threshold: 30.0
-                hysteresis: 0.5
-                debounce_sec: 5.0
-          policy:
-            type: discrete_setpoint
-          actions:
-            - model: TECO_VFD
-              slave_id: "5"
-              type: set_frequency
-              target: RW_HZ
-              value: 35
-            - model: TECO_VFD
-              slave_id: "6"
-              type: set_frequency
-              target: RW_HZ
-              value: 35
-
-        # ========================================
-        # Priority 3: Both fans adjust frequency when temp >= 30°C AND approach >= 3°C
-        # ========================================
-        - name: "Fans Adjust Frequency Above 30C with Approach Check"
-          code: "FANS_ADJUST_FREQUENCY_ABOVE_30C"
-          priority: 30
-          composite:
-            all:
-              - type: threshold
-                sources: [AIn04]
-                operator: gte
-                threshold: 30.0
-                hysteresis: 0.5
-                debounce_sec: 5.0
-              - type: difference
-                sources: [AIn04, AIn07]
-                operator: gte
-                threshold: 3.0
-                abs: false
-                hysteresis: 0.3
-                debounce_sec: 5.0
-          policy:
-            type: incremental_linear
-            condition_type: threshold
-            sources: [AIn04]
-            gain_hz_per_unit: 2.0
-          actions:
-            - model: TECO_VFD
-              slave_id: "5"
-              type: adjust_frequency
-              target: RW_HZ
-            - model: TECO_VFD
-              slave_id: "6"
-              type: adjust_frequency
-              target: RW_HZ
+version: "2.0.0"
 
 TECO_VFD:
+  default_controls: []
+
   instances:
-    "7":
+    "1":
       use_default_controls: false
       controls:
-        - name: "VFD Low Frequency Auto Start"
-          code: "VFD_LOW_FREQ_START"
-          priority: 80
+        # ========================================
+        # Test 1: THRESHOLD - 單設備單 Pin
+        # ========================================
+        - name: "Test 1: Threshold Single Pin"
+          code: TEST_THRESHOLD_SINGLE_PIN
+          priority: 100
+          blocking: false
+          active_time_ranges: []
           composite:
             any:
-              - type: threshold
-                sources: [HZ]      
-                operator: lt
-                threshold: 29.0
-                hysteresis: 1.0
-                debounce_sec: 5.0
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                sources_id: test1_temp
+                type: threshold
+                operator: gt
+                threshold: 2.0
+                hysteresis: 0.1
+                debounce_sec: 0
           policy:
             type: discrete_setpoint
           actions:
             - model: TECO_VFD
-              slave_id: "7"
-              type: turn_on
-              target: RW_ON_OFF
-            - model: TECO_VFD
-              slave_id: "7"
+              slave_id: "1"
               type: set_frequency
               target: RW_HZ
-              value: 60.0
-    "3":
-      use_default_controls: false
-      controls:
-        - name: "Auxiliary Pump Fast Stepdown"
-          code: "AUX_PUMP_FREQ_STEPDOWN_1H"
-          priority: 60
+              value: 45.0
+
+        # ========================================
+        # Test 2: THRESHOLD - 單設備多 Pin 聚合
+        # ========================================
+        - name: "Test 2: Threshold Multi-Pin Average"
+          code: TEST_THRESHOLD_MULTI_PIN
+          priority: 101
+          blocking: false
+          active_time_ranges: []
           composite:
             any:
-              - type: time_elapsed
-                interval_hours: 1.0  # Every hour
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01, AIn02]
+                    aggregation: average
+                sources_id: test2_temp_avg
+                type: threshold
+                operator: gte
+                threshold: 2.5
+                hysteresis: 0.1
+                debounce_sec: 3
           policy:
             type: discrete_setpoint
           actions:
-            - model: LITEON_EVO6800
-              slave_id: "3"
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 46.0
+
+        # ========================================
+        # Test 3: DIFFERENCE - 跨設備差值
+        # ========================================
+        - name: "Test 3: Difference Between Devices"
+          code: TEST_DIFFERENCE_CROSS_DEVICE
+          priority: 102
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01]
+                sources_id: test3_temp_diff
+                type: difference
+                operator: gt
+                threshold: 1.0
+                abs: false # 有方向性：12 - 14
+                hysteresis: 0.2
+                debounce_sec: 0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 47.0
+
+        # ========================================
+        # Test 4: DIFFERENCE - 同設備內 Pin 差值
+        # ========================================
+        - name: "Test 4: Difference Within Device"
+          code: TEST_DIFFERENCE_WITHIN_DEVICE
+          priority: 103
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01] # ← Source 1
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn02] # ← Source 2
+                sources_id: test4_pin_diff
+                type: difference
+                operator: gt
+                threshold: 0.5
+                abs: true
+                hysteresis: 0.1
+                debounce_sec: 0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 48.0
+
+        # ========================================
+        # Test 5: AVERAGE - 跨設備平均
+        # ========================================
+        - name: "Test 5: Average Across Devices"
+          code: TEST_AVERAGE_CROSS_DEVICE
+          priority: 104
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01, AIn02]
+                    aggregation: average
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01, AIn02]
+                    aggregation: average
+                sources_id: test5_dual_avg
+                type: average
+                operator: gte
+                threshold: 2.0
+                hysteresis: 0.1
+                debounce_sec: 3
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 49.0
+
+        # ========================================
+        # Test 6: SUM - 跨設備總和
+        # ========================================
+        - name: "Test 6: Sum Across Devices"
+          code: TEST_SUM_CROSS_DEVICE
+          priority: 105
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01]
+                sources_id: test6_sum
+                type: sum
+                operator: gt
+                threshold: 4.0
+                hysteresis: 0.2
+                debounce_sec: 0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 50.0
+
+        # ========================================
+        # Test 7: MIN - 跨設備最小值
+        # ========================================
+        - name: "Test 7: Min Across Devices"
+          code: TEST_MIN_CROSS_DEVICE
+          priority: 106
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01]
+                sources_id: test7_min
+                type: min
+                operator: lt
+                threshold: 1.5
+                hysteresis: 0.1
+                debounce_sec: 0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 51.0
+
+        # ========================================
+        # Test 8: MAX - 跨設備最大值
+        # ========================================
+        - name: "Test 8: Max Across Devices"
+          code: TEST_MAX_CROSS_DEVICE
+          priority: 107
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01]
+                sources_id: test8_max
+                type: max
+                operator: gt
+                threshold: 3.0
+                hysteresis: 0.1
+                debounce_sec: 0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 52.0
+
+        # ========================================
+        # Test 9: ABSOLUTE_LINEAR - 絕對線性控制
+        # ========================================
+        - name: "Test 9: Absolute Linear Policy"
+          code: TEST_ABSOLUTE_LINEAR
+          priority: 108
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01, AIn02]
+                    aggregation: average
+                sources_id: test9_linear_input
+                type: threshold
+                operator: gte
+                threshold: 0.0 # 總是啟用
+          policy:
+            type: absolute_linear
+            input_source: test9_linear_input
+            base_freq: 40.0
+            base_value: 2.0
+            gain_hz_per_unit: 5.0 # 每升高 1°C，頻率增加 5 Hz
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+
+        # ========================================
+        # Test 10: INCREMENTAL_LINEAR - 增量控制
+        # ========================================
+        - name: "Test 10: Incremental Linear Policy"
+          code: TEST_INCREMENTAL_LINEAR
+          priority: 109
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                sources_id: test10_incr_input
+                type: threshold
+                operator: gt
+                threshold: 2.5
+          policy:
+            type: incremental_linear
+            input_source: test10_incr_input
+            gain_hz_per_unit: 2.0 # 每次調整 +2 Hz
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
               type: adjust_frequency
               target: RW_HZ
-              value: -2.0  # Smaller adjustment, more frequent
-          
+
+        # ========================================
+        # Test 11: 組合條件 - ALL
+        # ========================================
+        - name: "Test 11: Composite ALL Condition"
+          code: TEST_COMPOSITE_ALL
+          priority: 110
+          blocking: false
+          active_time_ranges: []
+          composite:
+            all:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                type: threshold
+                operator: gt
+                threshold: 1.5
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01]
+                type: threshold
+                operator: gt
+                threshold: 1.5
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 53.0
+
+        # ========================================
+        # Test 12: BETWEEN 運算符
+        # ========================================
+        - name: "Test 12: Between Operator"
+          code: TEST_BETWEEN_OPERATOR
+          priority: 111
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01, AIn02]
+                    aggregation: average
+                sources_id: test12_between
+                type: threshold
+                operator: between
+                min: 1.5
+                max: 2.5
+                hysteresis: 0.1
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 54.0
+
+        # ========================================
+        # Test 13: Priority 保護機制
+        # ========================================
+        - name: "Test 13: High Priority Override"
+          code: TEST_HIGH_PRIORITY
+          priority: 5 # 高優先級
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                type: threshold
+                operator: gt
+                threshold: 3.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 60.0 # 高頻
+
+        # ========================================
+        # Test 14: Blocking 規則
+        # ========================================
+        - name: "Test 14: Blocking Rule"
+          code: TEST_BLOCKING_RULE
+          priority: 1 # 最高優先級
+          blocking: true # 阻止後續規則
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                type: threshold
+                operator: gt
+                threshold: 4.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: TECO_VFD
+              slave_id: "1"
+              type: set_frequency
+              target: RW_HZ
+              value: 35.0 # 緊急降速
