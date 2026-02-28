@@ -59,7 +59,12 @@ async def main(
     system_config = SystemConfig(**system_config_raw)
 
     poll_interval: float = system_config.MONITOR_INTERVAL_SECONDS
+    control_interval: float | None = system_config.CONTROL_INTERVAL_SECONDS
+    alert_interval: float | None = system_config.ALERT_INTERVAL_SECONDS
+    outlier_log_path: str = system_config.PATHS.OUTLIER_LOG_PATH
     logger.info(f"Monitor interval: {poll_interval}s")
+    logger.info(f"Control interval: {control_interval or poll_interval}s")
+    logger.info(f"Alert interval: {alert_interval or poll_interval}s")
 
     load_device_id_policy(system_config)
     device_id_policy = get_policy()
@@ -146,6 +151,9 @@ async def main(
         notifier_list=notifier_list,
         notifier_config_schema=notifier_config,
         time_control_evaluator=time_control_evaluator,
+        monitor_interval=poll_interval,
+        alert_interval=alert_interval,
+        outlier_log_path=outlier_log_path,
     )
 
     control_subscriber: ControlSubscriber = build_control_subscriber(
@@ -153,6 +161,9 @@ async def main(
         pubsub=pubsub,
         async_device_manager=async_device_manager,
         health_manager=health_manager,
+        monitor_interval=poll_interval,
+        control_interval=control_interval,
+        outlier_log_path=outlier_log_path,
     )
 
     # ----------------------------------------------------------------------

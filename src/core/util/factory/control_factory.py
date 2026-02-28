@@ -41,6 +41,9 @@ def build_control_subscriber(
     async_device_manager: AsyncDeviceManager,
     health_manager: DeviceHealthManager | None = None,
     execution_store: ControlExecutionStore = None,
+    monitor_interval: float = 1.0,
+    control_interval: float | None = None,
+    outlier_log_path: str = "logs/outlier.log",
 ) -> ControlSubscriber:
     """
     Build complete control system with evaluator, executor, and subscriber.
@@ -51,6 +54,9 @@ def build_control_subscriber(
         async_device_manager: Device manager for executing actions
         health_manager: Device health manager for offline device handling
         execution_store: ControlExecutionStore for time_elapsed conditions
+        monitor_interval: Monitor polling interval in seconds
+        control_interval: Control evaluation interval in seconds (None = same as monitor_interval)
+        outlier_log_path: Path to the outlier log file
 
     Returns:
         ControlSubscriber instance ready to run
@@ -64,6 +70,13 @@ def build_control_subscriber(
 
     control_executor = ControlExecutor(async_device_manager, health_manager)
 
-    control_subscriber = ControlSubscriber(pubsub=pubsub, evaluator=control_evaluator, executor=control_executor)
+    control_subscriber = ControlSubscriber(
+        pubsub=pubsub,
+        evaluator=control_evaluator,
+        executor=control_executor,
+        monitor_interval=monitor_interval,
+        eval_interval=control_interval,
+        outlier_log_path=outlier_log_path,
+    )
 
     return control_subscriber
