@@ -21,6 +21,9 @@ def build_alert_subscriber(
     notifier_list: list[BaseNotifier],
     notifier_config_schema: NotificationConfigSchema,
     time_control_evaluator: TimeControlEvaluator | None = None,
+    monitor_interval: float = 1.0,
+    alert_interval: float | None = None,
+    outlier_log_path: str = "logs/outlier.log",
 ) -> tuple[AlertEvaluatorSubscriber, AlertNotifierSubscriber]:
     """
     Build alert evaluator and notifier subscribers.
@@ -31,6 +34,9 @@ def build_alert_subscriber(
         valid_device_ids: Set of valid device IDs (model_slaveid format)
         notifier_list: List of notifier instances
         notifier_config_schema: Notification configuration schema
+        monitor_interval: Monitor polling interval in seconds
+        alert_interval: Alert evaluation interval in seconds (None = same as monitor_interval)
+        outlier_log_path: Path to the outlier log file
 
     Returns:
         Tuple of (alert_evaluator_subscriber, alert_notifier_subscriber)
@@ -38,7 +44,13 @@ def build_alert_subscriber(
     alert_evaluator: AlertEvaluator = build_alert_evaluator(
         path=alert_path, valid_device_ids=valid_device_ids, time_control_evaluator=time_control_evaluator
     )
-    alert_eval_subscriber = AlertEvaluatorSubscriber(pubsub, alert_evaluator)
+    alert_eval_subscriber = AlertEvaluatorSubscriber(
+        pubsub,
+        alert_evaluator,
+        monitor_interval=monitor_interval,
+        eval_interval=alert_interval,
+        outlier_log_path=outlier_log_path,
+    )
 
     routing_rule_dict: dict[AlertSeverity, RoutingRule] = notifier_config_schema.strategy.routing
     alert_notifier_subscriber = AlertNotifierSubscriber(
