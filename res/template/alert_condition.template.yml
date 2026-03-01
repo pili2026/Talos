@@ -1,43 +1,110 @@
 # ============================================================
-# Talos Alert Condition Configuration Template
-# Version: 1.1.0 (with schedule_expected_state support)
-# ============================================================
-# This template demonstrates all available alert types and configurations.
-# Copy and modify sections as needed for your deployment.
+# Talos Alert Condition Configuration Template (Merged Version)
+# Version: 1.1.0
 # ============================================================
 
 version: "1.1.0"
 
 # ============================================================
-# EXAMPLE 1: Threshold Alerts (Single Source)
+# ADAM-4117: Analog Input Module
 # ============================================================
-# Use case: Monitor single parameter against fixed threshold
-# Supported devices: Any device with readable parameters
-# ============================================================
-
-# Example: Temperature monitoring
 ADAM-4117:
   instances:
     "10":
       use_default_alerts: false
       alerts:
-        # Single threshold alert
+        # 單一閥值警報 (Temperature High)
         - code: "TEMP_HIGH"
           name: "Temperature High Warning"
-          sources: ["AIn01"]  # Single source (must be list)
+          sources: ["AIn01"]
           type: "threshold"
-          condition: "gt"  # gt, lt, eq, gte, lte, neq
+          condition: "gt"
           threshold: 35.0
-          severity: "WARNING"  # CRITICAL, ERROR, WARNING, INFO
-          message: "Temperature exceeds 35°C"  # Optional custom message
+          severity: "WARNING"
+          message: "Temperature exceeds 35°C"
 
-# Example: Dissolved oxygen monitoring
+    "12":
+      use_default_alerts: false
+      alerts:
+        # 平均值警報 (Average Temperature)
+        - code: "AVG_TEMP_HIGH"
+          name: "Average Temperature High"
+          sources: ["AIn02", "AIn03"]
+          type: "average"
+          condition: "gt"
+          threshold: 40.0
+          severity: "CRITICAL"
+          message: "Average temperature exceeds 40°C"
+
+        # 總和警報 (Sum of Currents)
+        - code: "TOTAL_CURRENT_HIGH"
+          name: "Total Current High"
+          sources: ["AIn04", "AIn05", "AIn06"]
+          type: "sum"
+          condition: "gt"
+          threshold: 100.0
+          severity: "WARNING"
+          message: "Total current exceeds 100A"
+
+        # 最小值警報 (Min Temperature)
+        - code: "MIN_TEMP_LOW"
+          name: "Minimum Temperature Low"
+          sources: ["AIn02", "AIn03"]
+          type: "min"
+          condition: "lt"
+          threshold: 20.0
+          severity: "WARNING"
+          message: "Minimum temperature below 20°C"
+
+        # 最大值警報 (Max Temperature)
+        - code: "MAX_TEMP_HIGH"
+          name: "Maximum Temperature High"
+          sources: ["AIn02", "AIn03", "AIn04"]
+          type: "max"
+          condition: "gt"
+          threshold: 45.0
+          severity: "CRITICAL"
+          message: "Maximum temperature exceeds 45°C"
+
+    "14":
+      use_default_alerts: false
+      alerts:
+        # 混合策略：平均值趨勢 + 個別感測器冗餘
+        - code: "FERMENTER_AVG_OVERHEAT"
+          name: "Fermenter Average Temperature High"
+          sources: ["AIn05", "AIn06"]
+          type: "average"
+          condition: "gt"
+          threshold: 40.0
+          severity: "CRITICAL"
+          message: "Fermenter average temperature exceeds 40°C"
+
+        - code: "FERMENTER_SENSOR1_OVERHEAT"
+          name: "Fermenter Temperature Sensor 1 High"
+          sources: ["AIn05"]
+          type: "threshold"
+          condition: "gt"
+          threshold: 42.0
+          severity: "WARNING"
+          message: "Fermenter sensor 1 exceeds 42°C"
+
+        - code: "FERMENTER_SENSOR2_OVERHEAT"
+          name: "Fermenter Temperature Sensor 2 High"
+          sources: ["AIn06"]
+          type: "threshold"
+          condition: "gt"
+          threshold: 42.0
+          severity: "WARNING"
+          message: "Fermenter sensor 2 exceeds 42°C"
+
+# ============================================================
+# DO750: Dissolved Oxygen Sensor
+# ============================================================
 DO750:
   instances:
     "5":
       use_default_alerts: false
       alerts:
-        # Critical low threshold
         - code: "DO_CRITICAL_LOW"
           name: "Dissolved Oxygen Critical Low"
           sources: ["O2_PCT"]
@@ -46,8 +113,7 @@ DO750:
           threshold: 1.5
           severity: "CRITICAL"
           message: "DO critically low (< 1.5 mg/l). Emergency action required."
-        
-        # Warning high threshold
+
         - code: "DO_WARNING_HIGH"
           name: "Dissolved Oxygen High"
           sources: ["O2_PCT"]
@@ -58,149 +124,36 @@ DO750:
           message: "DO level high (> 3.0 mg/l). Check aeration system."
 
 # ============================================================
-# EXAMPLE 2: Aggregate Alerts (Multiple Sources)
+# TECO_VFD: Variable Frequency Drive
 # ============================================================
-# Use case: Monitor combined/averaged values from multiple sensors
-# Types: average, sum, min, max
-# Requires: At least 2 sources
-# ============================================================
-
-ADAM-4117:
-  instances:
-    "12":
-      use_default_alerts: false
-      alerts:
-        # Average temperature alert
-        - code: "AVG_TEMP_HIGH"
-          name: "Average Temperature High"
-          sources: ["AIn02", "AIn03"]  # Multiple sources required
-          type: "average"
-          condition: "gt"
-          threshold: 40.0
-          severity: "CRITICAL"
-          message: "Average temperature exceeds 40°C"
-        
-        # Sum of currents alert
-        - code: "TOTAL_CURRENT_HIGH"
-          name: "Total Current High"
-          sources: ["AIn04", "AIn05", "AIn06"]
-          type: "sum"
-          condition: "gt"
-          threshold: 100.0
-          severity: "WARNING"
-          message: "Total current exceeds 100A"
-        
-        # Minimum temperature alert
-        - code: "MIN_TEMP_LOW"
-          name: "Minimum Temperature Low"
-          sources: ["AIn02", "AIn03"]
-          type: "min"
-          condition: "lt"
-          threshold: 20.0
-          severity: "WARNING"
-          message: "Minimum temperature below 20°C"
-        
-        # Maximum temperature alert
-        - code: "MAX_TEMP_HIGH"
-          name: "Maximum Temperature High"
-          sources: ["AIn02", "AIn03", "AIn04"]
-          type: "max"
-          condition: "gt"
-          threshold: 45.0
-          severity: "CRITICAL"
-          message: "Maximum temperature exceeds 45°C"
-
-# ============================================================
-# EXAMPLE 3: Schedule Expected State Alerts (Time-Based)
-# ============================================================
-# Use case: Detect devices running outside scheduled work hours
-# Requirements:
-#   - TimeControl must be enabled with work_hours configured
-#   - Device must have readable state parameter (e.g., RW_ON_OFF)
-#   - Only applicable to controllable devices (VFD, pumps, etc.)
-# Behavior:
-#   - No alert during work_hours (device allowed to run)
-#   - Alert triggered outside work_hours if state != expected_state
-# ============================================================
-
-# Example: Blower/pump shutdown monitoring
 TECO_VFD:
   instances:
     "1":
       use_default_alerts: false
       alerts:
-        # Alert if running after hours
+        # 排程狀態監控：非工作時間不應運行
         - code: "BLOWER_AFTER_HOURS"
           name: "Blower Running After Hours"
-          sources: ["RW_ON_OFF"]  # Must be exactly 1 source (state parameter)
+          sources: ["RW_ON_OFF"]
           type: "schedule_expected_state"
-          expected_state: 0  # 0/"off" = device should be OFF, 1/"on" = device should be ON
-          use_work_hours: true  # Use time_condition work_hours (default: true)
+          expected_state: 0 # 0 = 預期關閉
+          use_work_hours: true
           severity: "WARNING"
           message: "Blower is running outside scheduled work hours"
 
-# Example: Critical equipment must run 24/7
-COOLING_SYSTEM:
-  instances:
-    "1":
-      use_default_alerts: false
-      alerts:
-        # Alert if stopped during any period
+          # 24/7 System: 預期始終開啟
         - code: "COOLING_STOPPED"
           name: "Cooling System Stopped"
           sources: ["RW_ON_OFF"]
           type: "schedule_expected_state"
-          expected_state: 1  # Expect ON (device must always run)
+          expected_state: 1 # 預期始終開啟
           severity: "CRITICAL"
           message: "Critical: Cooling system has stopped"
 
-# ============================================================
-# EXAMPLE 4: Mixed Alert Strategies
-# ============================================================
-# Use case: Combine different alert types for comprehensive monitoring
-# Strategy: Average for trends + individual for redundancy + schedule for compliance
-# ============================================================
-
-ADAM-4117:
-  instances:
-    "14":
-      use_default_alerts: false
-      alerts:
-        # Primary: Average temperature trend
-        - code: "FERMENTER_AVG_OVERHEAT"
-          name: "Fermenter Average Temperature High"
-          sources: ["AIn05", "AIn06"]
-          type: "average"
-          condition: "gt"
-          threshold: 40.0
-          severity: "CRITICAL"
-          message: "Fermenter average temperature exceeds 40°C"
-        
-        # Redundancy: Individual sensor failures
-        - code: "FERMENTER_SENSOR1_OVERHEAT"
-          name: "Fermenter Temperature Sensor 1 High"
-          sources: ["AIn05"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
-          severity: "WARNING"
-          message: "Fermenter sensor 1 exceeds 42°C"
-        
-        - code: "FERMENTER_SENSOR2_OVERHEAT"
-          name: "Fermenter Temperature Sensor 2 High"
-          sources: ["AIn06"]
-          type: "threshold"
-          condition: "gt"
-          threshold: 42.0
-          severity: "WARNING"
-          message: "Fermenter sensor 2 exceeds 42°C"
-
-TECO_VFD:
-  instances:
     "2":
       use_default_alerts: false
       alerts:
-        # Operational: Current overload
+        # 過電流監控
         - code: "VFD_OVERCURRENT"
           name: "VFD Current High"
           sources: ["RW_CURRENT"]
@@ -209,8 +162,8 @@ TECO_VFD:
           threshold: 10.0
           severity: "WARNING"
           message: "VFD current exceeds 10A"
-        
-        # Compliance: Schedule monitoring
+
+        # 排程合規監控
         - code: "VFD_AFTER_HOURS"
           name: "VFD Running After Hours"
           sources: ["RW_ON_OFF"]
@@ -220,13 +173,9 @@ TECO_VFD:
           message: "VFD is running outside work hours"
 
 # ============================================================
-# EXAMPLE 5: Using Default Alerts
+# SD400: Smart Sensor with Default Alerts
 # ============================================================
-# Use case: Apply same alerts to multiple device instances
-# ============================================================
-
 SD400:
-  # Define alerts once at model level
   default_alerts:
     - code: "TEMP_HIGH_DEFAULT"
       name: "Temperature High (Default)"
@@ -235,14 +184,10 @@ SD400:
       condition: "gt"
       threshold: 50.0
       severity: "WARNING"
-
   instances:
-    # Instance 3: Use default alerts
     "3":
       use_default_alerts: true
       display_name: "Temperature Sensor A"
-    
-    # Instance 5: Override with custom alerts
     "5":
       use_default_alerts: false
       display_name: "Temperature Sensor B"
@@ -252,32 +197,21 @@ SD400:
           sources: ["AIn01"]
           type: "threshold"
           condition: "gt"
-          threshold: 45.0  # Different threshold
+          threshold: 45.0
           severity: "CRITICAL"
-    
-    # Instance 7: No alerts
     "7":
       use_default_alerts: false
       display_name: "Temperature Sensor C (No Alerts)"
 
 # ============================================================
-# EXAMPLE 4: Schedule Threshold Alerts (Time-gated Threshold)
+# ADTEK_CPM10: Power Meter
 # ============================================================
-# Use case: Monitor numeric parameters only during specific time intervals
-# Requirements:
-#   - Device snapshot must reach AlertEvaluator (not blocked by TimeControl)
-#   - Recommended for power meters, sensors (not VFDs/IO modules)
-# Behavior:
-#   - Inside active_hours: evaluate threshold condition normally
-#   - Outside active_hours: alert suppressed regardless of value
-# Overnight intervals (start > end) are supported.
-# ============================================================
-
 ADTEK_CPM10:
   instances:
     "1":
       use_default_alerts: false
       alerts:
+        # 時間區段閥值監控 (僅在夜間評估)
         - code: "NIGHT_KW_HIGH"
           name: "用電異常（夜間）"
           sources: ["Kw"]
@@ -286,6 +220,6 @@ ADTEK_CPM10:
           threshold: 10.0
           active_hours:
             start: "20:00"
-            end: "07:00"   # Overnight: covers 20:00~23:59 and 00:00~07:00
+            end: "07:00"
           severity: "WARNING"
           message: "Power meter KW exceeds 10 during off-hours. Check for unauthorized usage."
