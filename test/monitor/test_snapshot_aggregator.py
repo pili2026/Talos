@@ -21,7 +21,6 @@ from pydantic import ValidationError
 from core.schema.system_config_schema import SystemConfig
 from core.util.snapshot_aggregator import SnapshotAggregator
 
-
 # ---------------------------------------------------------------------------
 # 1. Schema validation tests
 # ---------------------------------------------------------------------------
@@ -85,13 +84,13 @@ def test_when_control_interval_greater_than_monitor_interval_valid():
 def test_when_buffer_size_is_auto_calculated_from_interval_ratio():
     """maxlen = ceil(eval_interval / monitor_interval)."""
     agg = SnapshotAggregator(monitor_interval=10, eval_interval=3600)
-    assert agg.maxlen == math.ceil(3600 / 10)  # 360
+    assert agg.max_capacity == math.ceil(3600 / 10)  # 360
 
 
 def test_when_buffer_size_calculated_for_non_divisible_intervals():
     """Non-divisible ratio is rounded up with ceil."""
     agg = SnapshotAggregator(monitor_interval=10, eval_interval=35)
-    assert agg.maxlen == math.ceil(35 / 10)  # 4
+    assert agg.max_capacity == math.ceil(35 / 10)  # 4
 
 
 def test_when_buffer_is_full_oldest_entry_is_dropped():
@@ -99,7 +98,7 @@ def test_when_buffer_is_full_oldest_entry_is_dropped():
     agg = SnapshotAggregator(monitor_interval=10, eval_interval=30)  # maxlen=3
     for i in range(5):
         agg.push("dev1", {"temp": float(i)})
-    assert agg.buffer_size("dev1") == agg.maxlen  # capped at 3
+    assert agg.buffer_size("dev1") == agg.max_capacity  # capped at 3
 
 
 # ---------------------------------------------------------------------------
@@ -288,9 +287,10 @@ def test_when_control_interval_equals_monitor_interval_then_no_aggregation_logic
     When eval_interval == monitor_interval, ControlSubscriber / AlertEvaluatorSubscriber
     must NOT create a SnapshotAggregator (fast-path, no buffering).
     """
+    from unittest.mock import MagicMock
+
     from core.util.pubsub.subscriber.alert_evaluator_subscriber import AlertEvaluatorSubscriber
     from core.util.pubsub.subscriber.control_subscriber import ControlSubscriber
-    from unittest.mock import MagicMock
 
     pubsub = MagicMock()
     evaluator = MagicMock()
@@ -320,8 +320,9 @@ def test_when_control_interval_equals_monitor_interval_then_no_aggregation_logic
 
 def test_when_eval_interval_is_none_then_no_aggregation_logic():
     """eval_interval=None (inherits monitor_interval) → no aggregation."""
-    from core.util.pubsub.subscriber.alert_evaluator_subscriber import AlertEvaluatorSubscriber
     from unittest.mock import MagicMock
+
+    from core.util.pubsub.subscriber.alert_evaluator_subscriber import AlertEvaluatorSubscriber
 
     pubsub = MagicMock()
     evaluator = MagicMock()

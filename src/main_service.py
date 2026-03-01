@@ -282,6 +282,8 @@ async def main():
             notifier_list=notifier_list,
             notifier_config_schema=notifier_config,
             time_control_evaluator=time_control_evaluator,
+            monitor_interval=system_config.MONITOR_INTERVAL_SECONDS,
+            outlier_log_path=system_config.PATHS.OUTLIER_LOG_PATH,
         )
         logger.info("Alert subscribers built")
 
@@ -297,6 +299,9 @@ async def main():
             async_device_manager=async_device_manager,
             health_manager=health_manager,
             execution_store=execution_store,
+            monitor_interval=system_config.MONITOR_INTERVAL_SECONDS,
+            control_interval=system_config.CONTROL_INTERVAL_SECONDS,
+            outlier_log_path=system_config.PATHS.OUTLIER_LOG_PATH,
         )
         logger.info("Control subscriber built")
 

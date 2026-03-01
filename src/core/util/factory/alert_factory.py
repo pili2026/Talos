@@ -21,7 +21,7 @@ def build_alert_subscriber(
     notifier_list: list[BaseNotifier],
     notifier_config_schema: NotificationConfigSchema,
     time_control_evaluator: TimeControlEvaluator | None = None,
-    monitor_interval: float = 1.0,
+    monitor_interval: float = 10.0,
     alert_interval: float | None = None,
     outlier_log_path: str = "logs/outlier.log",
 ) -> tuple[AlertEvaluatorSubscriber, AlertNotifierSubscriber]:

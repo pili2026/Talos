@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time as time_module
 
 from pydantic import ValidationError
 
@@ -18,7 +17,7 @@ class ControlSubscriber:
         pubsub: PubSub,
         evaluator: ControlEvaluator,
         executor: ControlExecutor,
-        monitor_interval: float = 1.0,
+        monitor_interval: float = 10.0,
         eval_interval: float | None = None,
         outlier_log_path: str = "logs/outlier.log",
     ):
@@ -29,9 +28,9 @@ class ControlSubscriber:
 
         self._global_snapshot: dict[str, dict[str, float]] = {}
 
+        # Determine effective evaluation interval and whether aggregation is needed
         effective_eval = eval_interval if eval_interval is not None else monitor_interval
         self._use_aggregation = effective_eval != monitor_interval
-        self._eval_interval = effective_eval
 
         if self._use_aggregation:
             self._aggregator = SnapshotAggregator(
@@ -39,12 +38,13 @@ class ControlSubscriber:
                 eval_interval=effective_eval,
                 outlier_log_path=outlier_log_path,
             )
-            self._last_evaluated_at: float = 0.0
 
     async def run(self):
+        """Start both snapshot listener and control action listener concurrently."""
         await asyncio.gather(self.run_snapshot_listener(), self.run_control_listener())
 
     async def run_snapshot_listener(self):
+        """Listen for incoming device snapshots and evaluate control conditions."""
         async for message in self.pubsub.subscribe(PubSubTopic.SNAPSHOT_ALLOWED):
             try:
                 model: str = message["model"]
@@ -70,26 +70,30 @@ class ControlSubscriber:
     async def _handle_with_aggregation(
         self, model: str, slave_id: str, device_id: str, snapshot: dict[str, float]
     ) -> None:
-        now = time_module.monotonic()
+        """Handle incoming snapshots by buffering them and evaluating only when the buffer is full."""
+        # 1. Push the new snapshot into the aggregator buffer
         self._aggregator.push(device_id, snapshot)
 
-        if now - self._last_evaluated_at >= self._eval_interval:
+        # 2. Trigger evaluation only when the buffer has collected enough snapshots
+        if self._aggregator.buffer_size(device_id) >= self._aggregator.max_capacity:
             aggregated = self._aggregator.aggregate(device_id)
             self._aggregator.clear(device_id)
-            self._last_evaluated_at = now
 
             if aggregated is None:
-                return  # All outliers for some parameter – skip evaluation
+                return  # All values for some parameter were outliers – skip evaluation
 
+            # 3. Update global snapshot with the clean, aggregated data and evaluate
             self._global_snapshot[device_id] = aggregated
             control_actions: list[ControlActionSchema] = self.evaluator.evaluate(
                 model=model, slave_id=slave_id, snapshot=self._global_snapshot
             )
+
             if control_actions:
                 self.logger.info(f"[{model}] Control actions: {control_actions}")
                 await self.executor.execute(control_actions)
 
     async def run_control_listener(self):
+        """Listen for direct control commands from the pubsub broker and execute them."""
         async for control_action in self.pubsub.subscribe(PubSubTopic.CONTROL):
             try:
                 self.logger.info(

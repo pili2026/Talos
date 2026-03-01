@@ -41,7 +41,7 @@ def build_control_subscriber(
     async_device_manager: AsyncDeviceManager,
     health_manager: DeviceHealthManager | None = None,
     execution_store: ControlExecutionStore = None,
-    monitor_interval: float = 1.0,
+    monitor_interval: float = 10.0,
     control_interval: float | None = None,
     outlier_log_path: str = "logs/outlier.log",
 ) -> ControlSubscriber:

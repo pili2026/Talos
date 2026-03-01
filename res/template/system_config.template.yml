@@ -1,15 +1,18 @@
 MONITOR_INTERVAL_SECONDS: 10.0
-MONITOR_READ_CONCURRENCY: 50
-MONITOR_DEVICE_TIMEOUT_SEC: 3.0
-MONITOR_LOG_EACH_DEVICE: false
 # NEW: Evaluation intervals for control and alert (inherits MONITOR_INTERVAL_SECONDS if set to null)
 # NOTE: Values must be >= MONITOR_INTERVAL_SECONDS
 CONTROL_INTERVAL_SECONDS: null
 ALERT_INTERVAL_SECONDS: null
 
+MONITOR_READ_CONCURRENCY: 50
+MONITOR_DEVICE_TIMEOUT_SEC: 3.0
+MONITOR_LOG_EACH_DEVICE: false
+
 PATHS:
   STATE_DIR: ./logs/state
   LOG_DIR: ./logs
+  # Add: Path for outlier logs filtered by the aggregator
+  OUTLIER_LOG_PATH: ./logs/outlier.log
 
 REMOTE_ACCESS:
   REVERSE_SSH:
@@ -22,6 +25,7 @@ DEVICE_ID_POLICY:
   RADIX: device36
   UPPERCASE: true
   PREFIX: ""
+
 SUBSCRIBERS:
   MONITOR: true
   TIME_CONTROL: true

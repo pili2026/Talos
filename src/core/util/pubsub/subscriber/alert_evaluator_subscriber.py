@@ -1,5 +1,4 @@
 import logging
-import time as time_module
 from datetime import datetime
 
 from core.evaluator.alert_evaluator import AlertEvaluationResult, AlertEvaluator
@@ -18,7 +17,7 @@ class AlertEvaluatorSubscriber:
         self,
         pubsub: PubSub,
         alert_evaluator: AlertEvaluator,
-        monitor_interval: float = 1.0,
+        monitor_interval: float = 10.0,
         eval_interval: float | None = None,
         outlier_log_path: str = "logs/outlier.log",
     ):
@@ -29,7 +28,6 @@ class AlertEvaluatorSubscriber:
 
         effective_eval = eval_interval if eval_interval is not None else monitor_interval
         self._use_aggregation = effective_eval != monitor_interval
-        self._eval_interval = effective_eval
 
         if self._use_aggregation:
             self._aggregator = SnapshotAggregator(
@@ -37,7 +35,6 @@ class AlertEvaluatorSubscriber:
                 eval_interval=effective_eval,
                 outlier_log_path=outlier_log_path,
             )
-            self._last_evaluated_at: float = 0.0
 
     async def run(self):
         async for message in self.pubsub.subscribe(PubSubTopic.SNAPSHOT_ALLOWED):
@@ -58,25 +55,20 @@ class AlertEvaluatorSubscriber:
     async def _handle_with_aggregation(
         self, model: str, slave_id: str, device_id: str, snapshot: dict[str, float]
     ) -> None:
-        now = time_module.monotonic()
+
         self._aggregator.push(device_id, snapshot)
 
-        if now - self._last_evaluated_at >= self._eval_interval:
+        if self._aggregator.buffer_size(device_id) >= self._aggregator.max_capacity:
             aggregated = self._aggregator.aggregate(device_id)
             self._aggregator.clear(device_id)
-            self._last_evaluated_at = now
 
             if aggregated is None:
                 return  # All outliers for some parameter – skip evaluation
 
             await self._handle_direct(model, slave_id, device_id, aggregated)
 
-    async def _handle_direct(
-        self, model: str, slave_id: str, device_id: str, snapshot: dict[str, float]
-    ) -> None:
-        alert_results: list[AlertEvaluationResult] = self.evaluator.evaluate(
-            device_id=device_id, snapshot=snapshot
-        )
+    async def _handle_direct(self, model: str, slave_id: str, device_id: str, snapshot: dict[str, float]) -> None:
+        alert_results: list[AlertEvaluationResult] = self.evaluator.evaluate(device_id=device_id, snapshot=snapshot)
 
         for result in alert_results:
             if result.notification_type == AlertState.RESOLVED.name:
