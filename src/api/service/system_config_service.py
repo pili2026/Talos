@@ -53,6 +53,8 @@ class SystemConfigService:
             status=ResponseStatus.SUCCESS,
             config=SystemConfigInfo(
                 monitor_interval_seconds=self._system_config.MONITOR_INTERVAL_SECONDS,
+                control_interval_seconds=self._system_config.CONTROL_INTERVAL_SECONDS,
+                alert_interval_seconds=self._system_config.ALERT_INTERVAL_SECONDS,
                 device_id_series=self._system_config.DEVICE_ID_POLICY.SERIES,
                 reverse_ssh_port=self._system_config.REMOTE_ACCESS.REVERSE_SSH.PORT or 8600,
                 reverse_ssh_port_source="config",
@@ -66,6 +68,9 @@ class SystemConfigService:
             schema.MONITOR_INTERVAL_SECONDS = req.monitor_interval_seconds
             schema.DEVICE_ID_POLICY.SERIES = req.device_id_series
 
+            schema.CONTROL_INTERVAL_SECONDS = req.control_interval_seconds
+            schema.ALERT_INTERVAL_SECONDS = req.alert_interval_seconds
+
             self._write_schema(schema)
 
             # Synchronous update in-memory
@@ -74,7 +79,8 @@ class SystemConfigService:
 
             logger.info(
                 f"[SystemConfigService] Updated: "
-                f"interval={req.monitor_interval_seconds}, series={req.device_id_series}"
+                f"interval={req.monitor_interval_seconds}, control_interval={req.control_interval_seconds}, "
+                f"alert_interval={req.alert_interval_seconds}, series={req.device_id_series}"
             )
 
             return SystemConfigUpdateResponse(
