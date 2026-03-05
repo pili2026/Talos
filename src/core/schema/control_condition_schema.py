@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -10,6 +11,38 @@ from core.model.enum.condition_enum import ControlActionType, ControlPolicyType
 from core.schema.policy_schema import PolicyConfig
 
 logger = logging.getLogger(__name__)
+
+
+class PulseConfig(BaseModel):
+    """Configuration for pulse-mode digital output."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    start_value: int  # First write value — must be 0 or 1
+    end_value: int  # Second write value — must be 0 or 1, must differ from start_value
+    duration_ms: int  # Pulse width in milliseconds (50–5000)
+
+    @field_validator("start_value", "end_value")
+    @classmethod
+    def validate_binary_value(cls, v: int, info) -> int:
+        if v not in (0, 1):
+            raise ValueError(f"{info.field_name} must be 0 or 1, got {v}")
+        return v
+
+    @field_validator("duration_ms")
+    @classmethod
+    def validate_duration(cls, v: int) -> int:
+        if not (50 <= v <= 5000):
+            raise ValueError(f"duration_ms must be between 50 and 5000, got {v}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_values_differ(self) -> PulseConfig:
+        if self.start_value == self.end_value:
+            raise ValueError(
+                f"start_value and end_value must differ, both are {self.start_value}"
+            )
+        return self
 
 
 class TimeRange(BaseModel):
@@ -104,6 +137,8 @@ class ControlActionSchema(BaseModel):
     reason: str | None = None
     emergency_override: bool = Field(default=False)
     priority: int | None = None  # Populated by Evaluator at runtime
+    switch_mode: Literal["normal", "pulse"] = "normal"
+    pulse: PulseConfig | None = None
 
     # ---- Normalization (strings & types) ----
     @field_validator("model", "slave_id", "target", mode="before")

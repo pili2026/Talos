@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
@@ -58,6 +60,7 @@ class ControlExecutor:
         self.logger = logging.getLogger(__class__.__name__)
 
         self._execution_stats = ExecutionStats()
+        self._pulse_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def execute(self, action_list: list[ControlActionSchema]):
         """
@@ -125,7 +128,10 @@ class ControlExecutor:
                 await self._execute_set_value(action, device, written_targets)
 
             case ControlActionType.WRITE_DO:
-                await self._execute_set_value(action, device, written_targets)
+                if getattr(action, "switch_mode", "normal") == "pulse":
+                    await self._execute_pulse_do(action, device, written_targets)
+                else:
+                    await self._execute_set_value(action, device, written_targets)
 
             case ControlActionType.RESET:
                 await self._execute_set_value(action, device, written_targets)
@@ -265,6 +271,56 @@ class ControlExecutor:
 
         # Record written target
         self._record_write(target_key, action.value, action, written_targets)
+
+    async def _execute_pulse_do(
+        self, action: ControlActionSchema, device: AsyncGenericModbusDevice, written_targets: dict[str, WrittenTarget]
+    ):
+        """Handle pulse-mode WRITE_DO actions (write → sleep → write)"""
+        if action.pulse is None:
+            self.logger.warning(
+                f"[EXEC] [PULSE] {device.model} switch_mode=pulse but pulse config is None; "
+                f"falling back to normal write"
+            )
+            await self._execute_set_value(action, device, written_targets)
+            return
+
+        # Determine target register
+        target: str | None = action.target or DEFAULT_TARGET_BY_ACTION.get(action.type)
+        if not target:
+            self.logger.warning(f"[EXEC] [SKIP] {device.model} missing target for pulse WRITE_DO")
+            return
+
+        target_key = self._make_target_key(device, target)
+
+        # Validate register
+        if not self._validate_register(device, target):
+            return
+
+        pulse = action.pulse
+        start_value = pulse.start_value
+        end_value = pulse.end_value
+        duration_ms = pulse.duration_ms
+
+        # Priority protection — check start_value (the first write)
+        if self._is_protected(target_key, start_value, action, written_targets):
+            return
+
+        async with self._pulse_locks[target_key]:
+            self.logger.info(
+                f"[EXEC] [PULSE] Pulse start → device={device.model} target={target} value={start_value}"
+            )
+            await device.write_value(target, start_value)
+
+            self.logger.info(f"[EXEC] [PULSE] Pulse sleep → {duration_ms} ms")
+            await asyncio.sleep(duration_ms / 1000)
+
+            self.logger.info(
+                f"[EXEC] [PULSE] Pulse end → device={device.model} target={target} value={end_value}"
+            )
+            await device.write_value(target, end_value)
+
+        self._execution_stats.successful_writes += 1
+        self._record_write(target_key, end_value, action, written_targets)
 
     # ============================================================================
     # Helper Methods - Device Operations
