@@ -8,6 +8,7 @@ from typing import Literal
 from core.device.generic.generic_device import AsyncGenericModbusDevice
 from core.model.control_execution import WrittenTarget
 from core.model.device_constant import DEFAULT_TARGET_BY_ACTION, REG_RW_ON_OFF, VALUE_TOLERANCE
+from core.model.enum.condition_enum import SwitchMode
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 from core.util.device_health_manager import DeviceHealthManager
 from device_manager import AsyncDeviceManager
@@ -128,7 +129,7 @@ class ControlExecutor:
                 await self._execute_set_value(action, device, written_targets)
 
             case ControlActionType.WRITE_DO:
-                if getattr(action, "switch_mode", "normal") == "pulse":
+                if action.switch_mode == SwitchMode.PULSE:
                     await self._execute_pulse_do(action, device, written_targets)
                 else:
                     await self._execute_set_value(action, device, written_targets)
@@ -306,17 +307,13 @@ class ControlExecutor:
             return
 
         async with self._pulse_locks[target_key]:
-            self.logger.info(
-                f"[EXEC] [PULSE] Pulse start → device={device.model} target={target} value={start_value}"
-            )
+            self.logger.info(f"[EXEC] [PULSE] Pulse start → device={device.model} target={target} value={start_value}")
             await device.write_value(target, start_value)
 
             self.logger.info(f"[EXEC] [PULSE] Pulse sleep → {duration_ms} ms")
             await asyncio.sleep(duration_ms / 1000)
 
-            self.logger.info(
-                f"[EXEC] [PULSE] Pulse end → device={device.model} target={target} value={end_value}"
-            )
+            self.logger.info(f"[EXEC] [PULSE] Pulse end → device={device.model} target={target} value={end_value}")
             await device.write_value(target, end_value)
 
         self._execution_stats.successful_writes += 1

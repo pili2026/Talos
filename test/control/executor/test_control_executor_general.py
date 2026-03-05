@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from core.model.enum.condition_enum import SwitchMode
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 
 
@@ -143,6 +144,7 @@ class TestControlExecutorGeneral:
         action.priority = 50
         action.reason = "[UNIT] non-numeric"
         action.emergency_override = False
+        action.switch_mode = SwitchMode.NORMAL
 
         mock_device_manager.get_device_by_model_and_slave_id.return_value = mock_device
         mock_device.read_value = AsyncMock(return_value="OFF")  # Different string value

@@ -70,3 +70,8 @@ class ControlPolicyType(StrEnum):
     DISCRETE_SETPOINT = "discrete_setpoint"
     ABSOLUTE_LINEAR = "absolute_linear"
     INCREMENTAL_LINEAR = "incremental_linear"
+
+
+class SwitchMode(StrEnum):
+    NORMAL = "normal"
+    PULSE = "pulse"

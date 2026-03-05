@@ -435,3 +435,69 @@ TECO_VFD:
               type: set_frequency
               target: RW_HZ
               value: 35.0 # 緊急降速
+
+        # ========================================
+        # Test 15: PULSE MODE - Pulse Type A (1→0)
+        # 情境：溫度過高時觸發 purge valve
+        # 行為：寫入 1 → 等待 500ms → 寫入 0
+        # 對應硬體：A Contact (NO) 閥門，通電開閥，脈衝後自動關閉
+        # ========================================
+        - name: "Test 15: Pulse Mode Type A (NO)"
+          code: TEST_PULSE_TYPE_A
+          priority: 120
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "12"
+                    pins: [AIn01]
+                type: threshold
+                operator: gt
+                threshold: 3.5
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: IMA_C
+              slave_id: "5"
+              type: write_do
+              target: DOut01
+              switch_mode: pulse # ← 啟用脈衝模式
+              pulse:
+                start_value: 1 # 第一次寫入：開啟
+                end_value: 0 # 第二次寫入：關閉
+                duration_ms: 500 # 中間等待 500ms
+
+        # ========================================
+        # Test 16: PULSE MODE - Pulse Type B (0→1)
+        # 情境：壓力過低時觸發 reset 信號
+        # 行為：寫入 0 → 等待 800ms → 寫入 1
+        # 對應硬體：B Contact (NC) 設備，斷電觸發，脈衝後恢復常閉狀態
+        # ========================================
+        - name: "Test 16: Pulse Mode Type B (NC)"
+          code: TEST_PULSE_TYPE_B
+          priority: 121
+          blocking: false
+          active_time_ranges: []
+          composite:
+            any:
+              - sources:
+                  - device: ADAM-4117
+                    slave_id: "14"
+                    pins: [AIn01]
+                type: threshold
+                operator: lt
+                threshold: 1.0
+          policy:
+            type: discrete_setpoint
+          actions:
+            - model: IMA_C
+              slave_id: "5"
+              type: write_do
+              target: DOut02
+              switch_mode: pulse # ← 啟用脈衝模式
+              pulse:
+                start_value: 0 # 第一次寫入：斷電
+                end_value: 1 # 第二次寫入：恢復
+                duration_ms: 800 # 中間等待 800ms

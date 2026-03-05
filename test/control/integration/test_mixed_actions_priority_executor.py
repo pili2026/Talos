@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from core.executor.control_executor import ControlExecutor
-from core.model.enum.condition_enum import ControlActionType
+from core.model.enum.condition_enum import ControlActionType, SwitchMode
 from core.schema.control_condition_schema import ControlActionSchema
 
 
@@ -89,6 +89,7 @@ async def test_when_targets_differ_then_both_actions_are_written(executor: Contr
     mock_action_do.value = 1
     mock_action_do.priority = 20
     mock_action_do.reason = "[do]"
+    mock_action_do.switch_mode = SwitchMode.NORMAL
 
     # Act
     await executor.execute([mock_action_freq, mock_action_do])

@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.model.control_composite import CompositeNode
-from core.model.enum.condition_enum import ControlActionType, ControlPolicyType
+from core.model.enum.condition_enum import ControlActionType, ControlPolicyType, SwitchMode
 from core.schema.policy_schema import PolicyConfig
 
 logger = logging.getLogger(__name__)
@@ -39,9 +39,7 @@ class PulseConfig(BaseModel):
     @model_validator(mode="after")
     def validate_values_differ(self) -> PulseConfig:
         if self.start_value == self.end_value:
-            raise ValueError(
-                f"start_value and end_value must differ, both are {self.start_value}"
-            )
+            raise ValueError(f"start_value and end_value must differ, both are {self.start_value}")
         return self
 
 
@@ -137,7 +135,7 @@ class ControlActionSchema(BaseModel):
     reason: str | None = None
     emergency_override: bool = Field(default=False)
     priority: int | None = None  # Populated by Evaluator at runtime
-    switch_mode: Literal["normal", "pulse"] = "normal"
+    switch_mode: SwitchMode = SwitchMode.NORMAL
     pulse: PulseConfig | None = None
 
     # ---- Normalization (strings & types) ----
