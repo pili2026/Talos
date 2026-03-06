@@ -2,6 +2,8 @@ from datetime import time
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from core.schema.control_condition_schema import ControlActionSchema
+
 
 # Single time interval
 class TimeInterval(BaseModel):
@@ -23,6 +25,10 @@ class DeviceSchedule(BaseModel):
     weekdays: set[int] = Field(default_factory=set)  # 1..7 (ISO: Mon..Sun)
     intervals: list[TimeInterval] = Field(default_factory=list)
     timezone: str | None = None  # Override global timezone (optional)
+
+    # --- Custom actions (optional) ---
+    on_action: list[ControlActionSchema] | None = None
+    off_action: list[ControlActionSchema] | None = None
 
     # --- Legacy support ---
     start: time | None = None

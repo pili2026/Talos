@@ -67,25 +67,41 @@ class TimeControlHandler:
             self._try_log_startup_summary()
 
         if action_type in (ControlActionType.TURN_OFF, ControlActionType.TURN_ON):
-            if not self._supports_switch(device_id, snapshot):
-                # Device doesn't support switching, skip control but allow snapshot
-                await self.pubsub.publish(PubSubTopic.SNAPSHOT_ALLOWED, snapshot)
-                return
-
-        # Process action based on evaluation
-        if action_type == ControlActionType.TURN_OFF and self.send_turn_off_on_change:
-            logger.info(f"[{__class__.__name__}] {device_id} off_timezone → skip alerts & controls.")
-            if is_online:
-                await self.executor.send_control(device_id, model, slave_id, action_type, "Off timezone auto shutdown")
+            custom_actions = self.evaluator.get_custom_actions(device_id, action_type)
+            if custom_actions is not None:
+                # Custom actions bypass the _supports_switch check entirely
+                reason = (
+                    "Off timezone auto shutdown"
+                    if action_type == ControlActionType.TURN_OFF
+                    else "On timezone auto startup"
+                )
+                if is_online:
+                    await self.executor.send_custom_actions(device_id, custom_actions, reason)
+                else:
+                    await self.executor.defer_custom_actions(device_id, custom_actions, reason)
+                if action_type == ControlActionType.TURN_OFF:
+                    return
+                # TURN_ON: fall through to allow snapshot publish below
             else:
-                await self.executor.defer_control(device_id, model, slave_id, action_type, "Off timezone auto shutdown")
-            return
+                if not self._supports_switch(device_id, snapshot):
+                    # Device doesn't support switching, skip control but allow snapshot
+                    await self.pubsub.publish(PubSubTopic.SNAPSHOT_ALLOWED, snapshot)
+                    return
 
-        if action_type == ControlActionType.TURN_ON and self.send_turn_on_on_change:
-            if is_online:
-                await self.executor.send_control(device_id, model, slave_id, action_type, "On timezone auto startup")
-            else:
-                await self.executor.defer_control(device_id, model, slave_id, action_type, "On timezone auto startup")
+                # Process action based on evaluation
+                if action_type == ControlActionType.TURN_OFF and self.send_turn_off_on_change:
+                    logger.info(f"[{__class__.__name__}] {device_id} off_timezone → skip alerts & controls.")
+                    if is_online:
+                        await self.executor.send_control(device_id, model, slave_id, action_type, "Off timezone auto shutdown")
+                    else:
+                        await self.executor.defer_control(device_id, model, slave_id, action_type, "Off timezone auto shutdown")
+                    return
+
+                if action_type == ControlActionType.TURN_ON and self.send_turn_on_on_change:
+                    if is_online:
+                        await self.executor.send_control(device_id, model, slave_id, action_type, "On timezone auto startup")
+                    else:
+                        await self.executor.defer_control(device_id, model, slave_id, action_type, "On timezone auto startup")
 
         # Transmit the snapshot if the device is allowed
         if self.evaluator.allow(device_id):
