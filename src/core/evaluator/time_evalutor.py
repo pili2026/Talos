@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from core.schema.control_condition_schema import ControlActionType
+from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 from core.schema.time_control_schema import DeviceSchedule, TimeControlConfig
 from core.util.time_util import TIMEZONE_INFO
 
@@ -66,6 +66,23 @@ class TimeControlEvaluator:
 
         self._last_allowed_by_device[device_id] = allowed_now
         return action
+
+    def get_custom_actions(self, device_id: str, action_type: ControlActionType) -> list[ControlActionSchema] | None:
+        """
+        Return the configured custom actions for this device and action type, or None if not set.
+
+        - Returns schedule.on_action  when action_type == TURN_ON
+        - Returns schedule.off_action when action_type == TURN_OFF
+        - Returns None if the schedule is not found or the field is not set
+        """
+        schedule, _ = self._resolve_schedule_and_tz(device_id)
+        if schedule is None:
+            return None
+        if action_type == ControlActionType.TURN_ON:
+            return schedule.on_action
+        if action_type == ControlActionType.TURN_OFF:
+            return schedule.off_action
+        return None
 
     # ---------- Private helpers ----------
 
