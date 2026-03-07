@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from core.device.generic.capability import CapabilityResolver, OnOffBinding
+from core.model.enum.time_action_enum import PendingActionKind
 from core.schema.control_condition_schema import ControlActionSchema, ControlActionType
 from core.util.pubsub.base import PubSub
 from core.util.pubsub.pubsub_topic import PubSubTopic
@@ -10,15 +11,12 @@ from core.util.pubsub.pubsub_topic import PubSubTopic
 logger = logging.getLogger("TimeControlExecutor")
 
 
-ActionKind = Literal["turn_on", "turn_off", "custom"]
-
-
 @dataclass
-class _PendingControl:
+class PendingDeviceControl:
     device_id: str
     model: str
     slave_id: int
-    action_type: ControlActionType
+    action_type: ControlActionType | None
     reason: str
     custom_actions: list[ControlActionSchema] | None = None
 
@@ -40,25 +38,7 @@ class TimeControlExecutor:
         self.cap = capability_resolver
 
         # pending actions: device_id -> {"turn_on": pending, "turn_off": pending}
-        self._pending: dict[str, dict[ActionKind, _PendingControl]] = {}
-
-    async def _publish(self, action: ControlActionSchema) -> None:
-        await self.pubsub.publish(PubSubTopic.CONTROL, action)
-
-    def _pending_key(self, action_type: ControlActionType) -> ActionKind | None:
-        """
-        Map ControlActionType to internal ActionKind literal.
-
-        Returns:
-            "turn_on" for TURN_ON
-            "turn_off" for TURN_OFF
-            None for other types
-        """
-        if action_type == ControlActionType.TURN_ON:
-            return "turn_on"
-        if action_type == ControlActionType.TURN_OFF:
-            return "turn_off"
-        return None
+        self._pending: dict[str, dict[PendingActionKind, PendingDeviceControl]] = {}
 
     async def defer_control(
         self,
@@ -72,13 +52,13 @@ class TimeControlExecutor:
         Record a control request to be sent later when device recovers.
         Only TURN_ON / TURN_OFF are supported for defer (others are unexpected in time control path).
         """
-        k = self._pending_key(action_type)
-        if k is None:
+        kind = self._resolve_pending_kind(action_type)
+        if kind is None:
             logger.warning(f"[TimeControl] {device_id} defer ignored: unsupported action {action_type}")
             return
 
-        per_dev = self._pending.setdefault(device_id, {})
-        per_dev[k] = _PendingControl(
+        device_pending = self._pending.setdefault(device_id, {})
+        device_pending[kind] = PendingDeviceControl(
             device_id=device_id,
             model=model,
             slave_id=int(slave_id),
@@ -110,12 +90,12 @@ class TimeControlExecutor:
         reason: str,
     ) -> None:
         """Queue custom actions to be sent when the device recovers."""
-        per_dev = self._pending.setdefault(device_id, {})
-        per_dev["custom"] = _PendingControl(
+        device_pending = self._pending.setdefault(device_id, {})
+        device_pending[PendingActionKind.CUSTOM] = PendingDeviceControl(
             device_id=device_id,
             model="",
             slave_id=0,
-            action_type=ControlActionType.TURN_ON,  # placeholder; custom_actions takes precedence
+            action_type=None,  # placeholder; custom_actions takes precedence
             reason=reason,
             custom_actions=actions,
         )
@@ -123,43 +103,38 @@ class TimeControlExecutor:
             logger.info(f"[TimeControl] {device_id} offline → defer {len(actions)} custom action(s) ({reason})")
 
     async def on_device_recovered(self, device_id: str) -> None:
-        """
-        Flush deferred controls for this device (if any).
-        Called by TimeControlHandler when offline -> online transition is detected.
-        """
-        per_dev = self._pending.get(device_id)
-        if not per_dev:
+        device_pending = self._pending.get(device_id)
+        if not device_pending:
             return
 
-        # Flush TURN_ON first, then TURN_OFF, then custom
-        flush_order: list[ActionKind] = ["turn_on", "turn_off", "custom"]
-        to_send: list[_PendingControl] = []
-        for k in flush_order:
-            p = per_dev.get(k)
-            if p:
-                to_send.append(p)
+        flush_order: list[PendingActionKind] = [
+            PendingActionKind.TURN_ON,
+            PendingActionKind.TURN_OFF,
+            PendingActionKind.CUSTOM,
+        ]
 
-        # Remove pending before sending to avoid re-entrancy / duplicate flush
+        controls_to_flush = [device_pending[kind] for kind in flush_order if kind in device_pending]
+
         self._pending.pop(device_id, None)
 
-        for p in to_send:
-            if p.custom_actions is not None:
+        for pending in controls_to_flush:
+            if pending.custom_actions is not None:
                 await self.send_custom_actions(
-                    device_id=p.device_id,
-                    actions=p.custom_actions,
-                    reason=f"{p.reason} (flush_on_recovered)",
+                    device_id=pending.device_id,
+                    actions=pending.custom_actions,
+                    reason=f"{pending.reason} (flush_on_recovered)",
                 )
             else:
                 await self.send_control(
-                    device_id=p.device_id,
-                    model=p.model,
-                    slave_id=p.slave_id,
-                    action_type=p.action_type,
-                    reason=f"{p.reason} (flush_on_recovered)",
+                    device_id=pending.device_id,
+                    model=pending.model,
+                    slave_id=pending.slave_id,
+                    action_type=pending.action_type,
+                    reason=f"{pending.reason} (flush_on_recovered)",
                 )
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"[TimeControl] {device_id} recovered → flushed {len(to_send)} action(s)")
+            logger.info(f"[TimeControl] {device_id} recovered → flushed {len(controls_to_flush)} action(s)")
 
     async def send_control(
         self,
@@ -221,3 +196,21 @@ class TimeControlExecutor:
         logger.warning(
             f"[TimeControl] {device_id}({model}) can't handle {action_type.name}: no on/off support or binding."
         )
+
+    async def _publish(self, action: ControlActionSchema) -> None:
+        await self.pubsub.publish(PubSubTopic.CONTROL, action)
+
+    def _resolve_pending_kind(self, action_type: ControlActionType) -> PendingActionKind | None:
+        """
+        Map ControlActionType to internal ActionKind literal.
+
+        Returns:
+            "turn_on" for TURN_ON
+            "turn_off" for TURN_OFF
+            None for other types
+        """
+        if action_type == ControlActionType.TURN_ON:
+            return PendingActionKind.TURN_ON
+        if action_type == ControlActionType.TURN_OFF:
+            return PendingActionKind.TURN_OFF
+        return None

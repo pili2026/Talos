@@ -1,5 +1,82 @@
+# work_hours: {} # 24/7 by default
+
 work_hours:
+  # ── 預設排程（沒有個別設定的設備會套用此排程）──────────────────
   default:
-    weekdays: [1, 2, 3, 4, 5]  # Monday to Friday
+    weekdays: [1, 2, 3, 4, 5, 6, 7]
     intervals:
-      - { start: "09:00", end: "19:00" }
+      - { start: "06:30", end: "21:34" }
+
+  # ── 情境 1：有 custom action 的設備（VFD 指定頻率）─────────────
+  # 冷卻水泵浦 (TECO_VFD Slave ID 3)
+  TECO_VFD_3:
+    weekdays: [1, 2, 3, 4, 5, 6, 7]
+    intervals:
+      - { start: "06:30", end: "21:34" }
+    on_action:
+      - model: TECO_VFD
+        slave_id: "3"
+        type: set_frequency
+        target: RW_HZ
+        value: 45.0
+    off_action:
+      - model: TECO_VFD
+        slave_id: "3"
+        type: set_frequency
+        target: RW_HZ
+        value: 0.0
+
+  # 冰水泵浦 (TECO_VFD Slave ID 4)
+  TECO_VFD_4:
+    weekdays: [1, 2, 3, 4, 5, 6, 7]
+    intervals:
+      - { start: "06:30", end: "21:34" }
+    on_action:
+      - model: TECO_VFD
+        slave_id: "4"
+        type: set_frequency
+        target: RW_HZ
+        value: 40.0
+    off_action:
+      - model: TECO_VFD
+        slave_id: "4"
+        type: set_frequency
+        target: RW_HZ
+        value: 0.0
+
+  # ── 情境 2：無 custom action，走原本 TURN_ON/TURN_OFF（backward compatible）──
+  # 風扇 1 (TECO_VFD Slave ID 5)
+  TECO_VFD_5:
+    weekdays: [1, 2, 3, 4, 5, 6, 7]
+    intervals:
+      - { start: "08:00", end: "18:00" }
+    # on_action / off_action 不填 → 原本行為不變
+
+  # ── 情境 3：多個 action（同時控制多個目標）──────────────────────
+  # IO Module (Slave ID 1)
+  IO_MODULE_1:
+    weekdays: [1, 2, 3, 4, 5] # 週一到週五
+    intervals:
+      - { start: "08:00", end: "17:00" }
+    on_action:
+      - model: IO_MODULE
+        slave_id: "1"
+        type: write_do
+        target: DOut01
+        value: 1
+      - model: IO_MODULE
+        slave_id: "1"
+        type: write_do
+        target: DOut02
+        value: 1
+    off_action:
+      - model: IO_MODULE
+        slave_id: "1"
+        type: write_do
+        target: DOut01
+        value: 0
+      - model: IO_MODULE
+        slave_id: "1"
+        type: write_do
+        target: DOut02
+        value: 0
