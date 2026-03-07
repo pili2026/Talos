@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Callbacks
 # ---------------------------------------------------------------------------
 
+
 async def adr_callback(now: datetime) -> None:
     logger.info(f"[ADR] Triggered at {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     # Place ADR demand-response logic here
@@ -40,11 +41,12 @@ async def water_pump_callback(now: datetime) -> None:
 # Build evaluator
 # ---------------------------------------------------------------------------
 
+
 def build_evaluator() -> TimeControlEvaluator:
     config = TimeControlConfig(
         timezone="Asia/Taipei",
         work_hours={
-            "ADR": DeviceSchedule(
+            "ADTEK_CPM10_1": DeviceSchedule(
                 weekdays={1, 2, 3, 4, 5},
                 intervals=[TimeInterval(start=dt_time(8, 0), end=dt_time(22, 0))],
             ),
@@ -61,20 +63,21 @@ def build_evaluator() -> TimeControlEvaluator:
 # Build rules
 # ---------------------------------------------------------------------------
 
+
 def build_rules() -> list[ScheduleRule]:
     adr_rule = ScheduleRule(
         name="ADR",
         callback=adr_callback,
-        trigger_minutes=[7, 37],         # fire at :07 and :37 every hour
+        trigger_minutes=[7, 37],  # fire at :07 and :37 every hour
         intervals=[("08:00", "22:00")],  # only during operating hours
-        weekdays=[1, 2, 3, 4, 5],        # weekdays only
-        device_id="ADR",                 # checked against evaluator.allow()
+        weekdays=[1, 2, 3, 4, 5],  # weekdays only
+        device_id="ADTEK_CPM10_1",  # checked against evaluator.allow()
     )
 
     water_pump_rule = ScheduleRule(
         name="WaterPump",
         callback=water_pump_callback,
-        time="02:00",                    # once per day at 02:00
+        time="02:00",  # once per day at 02:00
         # No device_id → evaluator.allow() is not called; always passes
     )
 
@@ -85,10 +88,11 @@ def build_rules() -> list[ScheduleRule]:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 async def main() -> None:
     evaluator = build_evaluator()
     rules = build_rules()
-    scheduler = MinuteOffsetScheduler(rules=rules, evaluator=evaluator, tz=TIMEZONE_INFO)
+    scheduler = MinuteOffsetScheduler(rules=rules, evaluator=evaluator, timezone=TIMEZONE_INFO)
     logger.info("Scheduler started. Press Ctrl+C to stop.")
     await scheduler.run()
 

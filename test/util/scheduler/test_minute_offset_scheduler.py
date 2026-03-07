@@ -2,17 +2,15 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
 
 from core.evaluator.time_evalutor import TimeControlEvaluator
-from core.schema.time_control_schema import TimeControlConfig
 from core.util.scheduler.minute_offset_scheduler import MinuteOffsetScheduler, ScheduleRule
 from core.util.time_util import TIMEZONE_INFO
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_dt(hour: int, minute: int, iso_weekday: int, second: int = 0) -> datetime:
     """Build a tz-aware datetime; 2025-09-15 is Monday (weekday=1)."""
@@ -29,12 +27,13 @@ def _make_evaluator(allow_result: bool = True) -> TimeControlEvaluator:
 
 def _make_scheduler(rules: list[ScheduleRule], allow_result: bool = True) -> MinuteOffsetScheduler:
     evaluator = _make_evaluator(allow_result)
-    return MinuteOffsetScheduler(rules=rules, evaluator=evaluator, tz=TIMEZONE_INFO)
+    return MinuteOffsetScheduler(rules=rules, evaluator=evaluator, timezone=TIMEZONE_INFO)
 
 
 # ---------------------------------------------------------------------------
 # trigger_minutes mode
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_trigger_minutes_fires_on_matching_minute():
@@ -63,6 +62,7 @@ async def test_trigger_minutes_does_not_fire_on_wrong_minute():
 # ---------------------------------------------------------------------------
 # time mode
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_time_mode_fires_at_exact_time():
@@ -95,10 +95,10 @@ async def test_time_mode_does_not_repeat_in_same_minute():
     scheduler = _make_scheduler([rule])
 
     now = _make_dt(2, 0, 1)
-    current_minute = now.hour * 60 + now.minute
+    minutes_since_midnight = now.hour * 60 + now.minute
 
-    await scheduler._process_rule(rule, now, current_minute)
-    await scheduler._process_rule(rule, now, current_minute)
+    await scheduler._process_rule(rule, now, minutes_since_midnight)
+    await scheduler._process_rule(rule, now, minutes_since_midnight)
 
     callback.assert_awaited_once()
 
@@ -106,6 +106,7 @@ async def test_time_mode_does_not_repeat_in_same_minute():
 # ---------------------------------------------------------------------------
 # intervals
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_intervals_fires_when_inside_range():
@@ -135,6 +136,7 @@ async def test_intervals_does_not_fire_when_outside_range():
 # weekdays
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_weekdays_fires_on_matching_day():
     callback = AsyncMock()
@@ -162,6 +164,7 @@ async def test_weekdays_does_not_fire_on_non_matching_day():
 # ---------------------------------------------------------------------------
 # evaluator.allow()
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_allow_false_skips_callback():
@@ -192,12 +195,13 @@ async def test_allow_true_fires_callback():
 # device_id not set → default allow
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_no_device_id_fires_without_calling_allow():
     callback = AsyncMock()
     rule = ScheduleRule(name="r6", callback=callback, trigger_minutes=[0])
     evaluator = _make_evaluator(allow_result=False)  # would block if called
-    scheduler = MinuteOffsetScheduler(rules=[rule], evaluator=evaluator, tz=TIMEZONE_INFO)
+    scheduler = MinuteOffsetScheduler(rules=[rule], evaluator=evaluator, timezone=TIMEZONE_INFO)
 
     now = _make_dt(10, 0, 1)
     await scheduler._process_rule(rule, now, now.hour * 60 + now.minute)
@@ -210,6 +214,7 @@ async def test_no_device_id_fires_without_calling_allow():
 # Exception handling
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_callback_exception_does_not_stop_other_rules():
     failing_callback = AsyncMock(side_effect=RuntimeError("boom"))
@@ -219,13 +224,13 @@ async def test_callback_exception_does_not_stop_other_rules():
     rule_ok = ScheduleRule(name="ok", callback=ok_callback, trigger_minutes=[0])
 
     evaluator = _make_evaluator()
-    scheduler = MinuteOffsetScheduler(rules=[rule_fail, rule_ok], evaluator=evaluator, tz=TIMEZONE_INFO)
+    scheduler = MinuteOffsetScheduler(rules=[rule_fail, rule_ok], evaluator=evaluator, timezone=TIMEZONE_INFO)
 
     now = _make_dt(10, 0, 1)
-    current_minute = now.hour * 60 + now.minute
+    minutes_since_midnight = now.hour * 60 + now.minute
 
-    await scheduler._process_rule(rule_fail, now, current_minute)
-    await scheduler._process_rule(rule_ok, now, current_minute)
+    await scheduler._process_rule(rule_fail, now, minutes_since_midnight)
+    await scheduler._process_rule(rule_ok, now, minutes_since_midnight)
 
     failing_callback.assert_awaited_once()
     ok_callback.assert_awaited_once_with(now)
@@ -235,6 +240,7 @@ async def test_callback_exception_does_not_stop_other_rules():
 # Deduplication: same rule same minute
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_same_rule_same_minute_does_not_fire_twice():
     callback = AsyncMock()
@@ -242,10 +248,10 @@ async def test_same_rule_same_minute_does_not_fire_twice():
     scheduler = _make_scheduler([rule])
 
     now = _make_dt(10, 5, 1)
-    current_minute = now.hour * 60 + now.minute
+    minutes_since_midnight = now.hour * 60 + now.minute
 
-    await scheduler._process_rule(rule, now, current_minute)
-    await scheduler._process_rule(rule, now, current_minute)
+    await scheduler._process_rule(rule, now, minutes_since_midnight)
+    await scheduler._process_rule(rule, now, minutes_since_midnight)
 
     callback.assert_awaited_once()
 
